@@ -21,8 +21,6 @@ func branchCmd() *cobra.Command {
 	return cmd
 }
 
-// ─── branch create ───────────────────────────────────────────────────────────
-
 func branchCreateCmd() *cobra.Command {
 	var (
 		selectAll  bool
@@ -117,8 +115,6 @@ unless --from is specified. All operations run in parallel.`,
 
 	return cmd
 }
-
-// ─── branch rename ───────────────────────────────────────────────────────────
 
 func branchRenameCmd() *cobra.Command {
 	var (

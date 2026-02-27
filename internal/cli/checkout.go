@@ -38,8 +38,8 @@ func runCheckout(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
 	runner.Run(repos, func(repo *db.Repository) (string, string, error) {
-		// Check for uncommitted changes first.
-		dirty, err := git.IsDirty(repo.Path)
+		// Check for uncommitted tracked changes (untracked files are safe to ignore).
+		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status failed: %w", err)
 		}

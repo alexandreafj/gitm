@@ -37,8 +37,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Pulling current branch for %d repositories…\n\n", len(repos))
 
 	runner.Run(repos, func(repo *db.Repository) (string, string, error) {
-		// Skip dirty repos.
-		dirty, err := git.IsDirty(repo.Path)
+		// Skip repos with tracked modifications (untracked files are safe to ignore).
+		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status: %w", err)
 		}

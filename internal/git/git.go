@@ -76,9 +76,21 @@ func CurrentBranch(path string) (string, error) {
 	return run(path, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
-// IsDirty reports whether the working tree has uncommitted changes.
+// IsDirty reports whether the working tree has uncommitted changes,
+// including untracked files.
 func IsDirty(path string) (bool, error) {
 	out, err := run(path, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// IsDirtyTrackedOnly reports whether tracked files have modifications or
+// staged changes. Untracked files are ignored (-uno flag).
+// Use this for pull/checkout where untracked files pose no risk of conflict.
+func IsDirtyTrackedOnly(path string) (bool, error) {
+	out, err := run(path, "status", "--porcelain", "-uno")
 	if err != nil {
 		return false, err
 	}
