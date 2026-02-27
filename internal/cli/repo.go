@@ -16,26 +16,34 @@ func repoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repo",
 		Short: "Manage registered repositories",
-		Long:  "Add, list, and remove repositories tracked by gitm.",
+		Long:  "Add, list, remove, and rename repositories tracked by gitm.",
 	}
 
 	cmd.AddCommand(repoAddCmd())
 	cmd.AddCommand(repoListCmd())
 	cmd.AddCommand(repoRemoveCmd())
+	cmd.AddCommand(repoRenameCmd())
 
 	return cmd
 }
 
 // repoAddCmd adds one or more repositories.
 func repoAddCmd() *cobra.Command {
-	return &cobra.Command{
+	var alias string
+
+	cmd := &cobra.Command{
 		Use:   "add <path> [path...]",
 		Short: "Register one or more git repositories",
 		Example: `  gitm repo add .
   gitm repo add /home/user/work/api-gateway
-  gitm repo add /home/user/work/api-gateway /home/user/work/auth-service`,
+  gitm repo add /home/user/work/api-gateway /home/user/work/auth-service
+  gitm repo add /home/user/work/www-api/v1 --alias www-v1`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if alias != "" && len(args) > 1 {
+				return fmt.Errorf("--alias can only be used when adding a single repository")
+			}
+
 			var added, failed int
 			for _, arg := range args {
 				abs, err := filepath.Abs(arg)
@@ -52,23 +60,39 @@ func repoAddCmd() *cobra.Command {
 				}
 
 				name := git.RepoName(abs)
+				displayAlias := alias
+				if displayAlias == "" {
+					displayAlias = name
+				}
+
 				defaultBranch, err := git.DefaultBranch(abs)
 				if err != nil {
 					defaultBranch = "main"
 				}
 
-				_, err = database.AddRepository(name, abs, defaultBranch)
+				_, err = database.AddRepository(name, displayAlias, abs, defaultBranch)
 				if err != nil {
 					if strings.Contains(err.Error(), "UNIQUE constraint") {
-						color.Yellow("  ⚠ %s: already registered", name)
+						// Check alias collision first.
+						aliasOwner, aliasErr := database.GetRepository(displayAlias)
+						if aliasErr == nil && aliasOwner.Path != abs {
+							color.Red("  ✗ alias %q is already used by %s", displayAlias, aliasOwner.Path)
+							fmt.Printf("     Use --alias to give this repo a unique name, e.g.:\n")
+							fmt.Printf("       gitm repo add %s --alias <your-alias>\n", abs)
+						} else if existing, pathErr := database.GetRepositoryByPath(abs); pathErr == nil {
+							// Path already registered under a (possibly different) alias.
+							color.Yellow("  ⚠ %s: already registered as %q", abs, existing.Alias)
+						} else {
+							color.Yellow("  ⚠ %s: already registered", displayAlias)
+						}
 					} else {
-						color.Red("  ✗ %s: %v", name, err)
+						color.Red("  ✗ %s: %v", displayAlias, err)
 						failed++
 					}
 					continue
 				}
 
-				color.Green("  ✓ added %s (default branch: %s)", name, defaultBranch)
+				color.Green("  ✓ added %s (default branch: %s)", displayAlias, defaultBranch)
 				added++
 			}
 
@@ -81,6 +105,9 @@ func repoAddCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&alias, "alias", "", "Custom display name for the repository (must be unique)")
+	return cmd
 }
 
 // repoListCmd lists all registered repositories.
@@ -105,24 +132,49 @@ func repoListCmd() *cobra.Command {
 	}
 }
 
-// repoRemoveCmd removes a repository by name.
+// repoRemoveCmd removes a repository by alias.
 func repoRemoveCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "remove <name>",
+		Use:     "remove <alias>",
 		Aliases: []string{"rm"},
-		Short:   "Unregister a repository by name",
+		Short:   "Unregister a repository by alias",
 		Example: `  gitm repo remove api-gateway
-  gitm repo rm auth-service`,
+  gitm repo rm www-v1`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-			if err := database.RemoveRepository(name); err != nil {
+			alias := args[0]
+			if err := database.RemoveRepository(alias); err != nil {
 				if err == db.ErrNotFound {
-					return fmt.Errorf("repository %q not found — run `gitm repo list` to see registered repos", name)
+					return fmt.Errorf("repository %q not found — run `gitm repo list` to see registered repos", alias)
 				}
 				return err
 			}
-			color.Green("  ✓ removed %s", name)
+			color.Green("  ✓ removed %s", alias)
+			return nil
+		},
+	}
+}
+
+// repoRenameCmd renames an existing repository alias.
+func repoRenameCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <old-alias> <new-alias>",
+		Short: "Rename a registered repository's alias",
+		Example: `  gitm repo rename v1 www-v1
+  gitm repo rename v2 www-v2`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			oldAlias, newAlias := args[0], args[1]
+			if err := database.RenameRepository(oldAlias, newAlias); err != nil {
+				if err == db.ErrNotFound {
+					return fmt.Errorf("repository %q not found — run `gitm repo list` to see registered repos", oldAlias)
+				}
+				if strings.Contains(err.Error(), "UNIQUE constraint") {
+					return fmt.Errorf("alias %q is already in use — choose a different name", newAlias)
+				}
+				return err
+			}
+			color.Green("  ✓ renamed %s → %s", oldAlias, newAlias)
 			return nil
 		},
 	}
@@ -134,17 +186,17 @@ func printRepoTable(repos []*db.Repository) {
 	cyan := color.New(color.FgCyan)
 	dim := color.New(color.FgWhite)
 
-	fmt.Printf("%-4s  %-22s  %-14s  %s\n",
+	fmt.Printf("%-4s  %-24s  %-14s  %s\n",
 		header.Sprint("#"),
-		header.Sprint("NAME"),
+		header.Sprint("ALIAS"),
 		header.Sprint("DEFAULT BRANCH"),
 		header.Sprint("PATH"),
 	)
 
 	for i, r := range repos {
-		fmt.Printf("%-4d  %-22s  %-14s  %s\n",
+		fmt.Printf("%-4d  %-24s  %-14s  %s\n",
 			i+1,
-			cyan.Sprint(r.Name),
+			cyan.Sprint(r.Alias),
 			dim.Sprint(r.DefaultBranch),
 			dim.Sprint(r.Path),
 		)

@@ -47,7 +47,7 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 	for _, repo := range allRepos {
 		dirty, err := git.IsDirty(repo.Path)
 		if err != nil {
-			color.Yellow("  ⚠ %s: could not check status: %v", repo.Name, err)
+			color.Yellow("  ⚠ %s: could not check status: %v", repo.Alias, err)
 			continue
 		}
 		if dirty {
@@ -65,7 +65,7 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 	for _, repo := range dirtyRepos {
 		files, _ := git.DirtyFiles(repo.Path)
 		fmt.Printf("  %s  %s\n",
-			color.CyanString("%-22s", repo.Name),
+			color.CyanString("%-22s", repo.Alias),
 			color.New(color.FgWhite).Sprintf("%d file(s) modified", len(files)),
 		)
 	}

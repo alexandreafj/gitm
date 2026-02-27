@@ -13,6 +13,7 @@
   - [repo add](#gitm-repo-add)
   - [repo list](#gitm-repo-list)
   - [repo remove](#gitm-repo-remove)
+  - [repo rename](#gitm-repo-rename)
   - [checkout master](#gitm-checkout-master)
   - [branch create](#gitm-branch-create)
   - [branch rename](#gitm-branch-rename)
@@ -84,6 +85,10 @@ export PATH="$PATH:/path/to/gitm/bin"
 gitm repo add /path/to/api-gateway
 gitm repo add /path/to/auth-service /path/to/frontend /path/to/payment-svc
 
+# Add with a custom alias (useful when two repos share the same directory name)
+gitm repo add /path/to/www-api/v1 --alias www-api-v1
+gitm repo add /path/to/docs-api/v1 --alias docs-api-v1
+
 # Or register the current directory
 cd /path/to/my-repo && gitm repo add .
 
@@ -121,6 +126,12 @@ gitm repo add <path> [path...]
 |---|---|
 | `<path>` | Absolute or relative path to a git repository. Use `.` for the current directory. |
 
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--alias` | _(directory name)_ | Custom display name for the repository. Must be unique across all registered repos. Useful when two repos share the same directory name (e.g. two repos both named `v1`). |
+
 **Examples:**
 
 ```bash
@@ -132,14 +143,19 @@ gitm repo add /home/user/work/api-gateway /home/user/work/auth-service /home/use
 
 # Add the current directory
 gitm repo add .
+
+# Add two repos that share the same directory name using aliases
+gitm repo add /home/user/work/www-api/v1 --alias www-api-v1
+gitm repo add /home/user/work/docs-api/v1 --alias docs-api-v1
 ```
 
 **Behaviour:**
 
 - Validates that the path exists and is a git repository (`git rev-parse` check).
 - Auto-detects the default branch (`main` or `master`) by inspecting `origin/HEAD`.
-- Stores the repository name (derived from directory name), path, and default branch in `~/.gitm/gitm.db`.
-- If a repository is already registered, it prints a warning and continues without error.
+- The alias (display name) defaults to the directory base name. Use `--alias` to override — this is required when two repos share the same directory name.
+- If the alias is already taken by another path, prints a clear error with a suggested `--alias` command.
+- Stores the alias, path, and default branch in `~/.gitm/gitm.db`.
 
 ---
 
@@ -154,37 +170,63 @@ gitm repo list
 **Example output:**
 
 ```
-#     NAME                    DEFAULT BRANCH  PATH
-1     api-gateway             main            /home/user/work/api-gateway
-2     auth-service            master          /home/user/work/auth-service
-3     frontend                main            /home/user/work/frontend
-4     payment-svc             main            /home/user/work/payment-svc
+#     ALIAS                     DEFAULT BRANCH  PATH
+1     api-gateway               main            /home/user/work/api-gateway
+2     auth-service              master          /home/user/work/auth-service
+3     docs-api-v1               master          /home/user/work/docs-api/v1
+4     frontend                  main            /home/user/work/frontend
+5     www-api-v1                main            /home/user/work/www-api/v1
 
-4 repository(ies) registered.
+5 repository(ies) registered.
 ```
 
 ---
 
 ### `gitm repo remove`
 
-Unregister a repository by name. This only removes it from gitm's database — it does **not** delete the repository from disk.
+Unregister a repository by alias. This only removes it from gitm's database — it does **not** delete the repository from disk.
 
 ```
-gitm repo remove <name>
-gitm repo rm <name>       # alias
+gitm repo remove <alias>
+gitm repo rm <alias>       # alias
 ```
 
 **Arguments:**
 
 | Argument | Description |
 |---|---|
-| `<name>` | The repository name as shown in `gitm repo list` (typically the directory name). |
+| `<alias>` | The repository alias as shown in `gitm repo list`. |
 
 **Examples:**
 
 ```bash
 gitm repo remove api-gateway
-gitm repo rm old-service
+gitm repo rm www-api-v1
+```
+
+---
+
+### `gitm repo rename`
+
+Rename a registered repository's alias without removing and re-adding it. Useful for fixing ambiguous names on already-registered repos.
+
+```
+gitm repo rename <old-alias> <new-alias>
+```
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `<old-alias>` | The current alias as shown in `gitm repo list`. |
+| `<new-alias>` | The new alias to use. Must not already be in use. |
+
+**Examples:**
+
+```bash
+# Fix an ambiguous name after registration
+gitm repo rename v1 www-api-v1
+gitm repo rename v2 www-api-v2
 ```
 
 ---
@@ -546,9 +588,10 @@ The database is created automatically on first run. It contains a single table:
 ```sql
 CREATE TABLE repositories (
     id             INTEGER  PRIMARY KEY AUTOINCREMENT,
-    name           TEXT     NOT NULL UNIQUE,    -- directory name
-    path           TEXT     NOT NULL UNIQUE,    -- absolute path
-    default_branch TEXT     NOT NULL,           -- auto-detected: main or master
+    name           TEXT     NOT NULL,               -- auto-detected directory name
+    alias          TEXT     NOT NULL UNIQUE,        -- display name (user-controlled)
+    path           TEXT     NOT NULL UNIQUE,        -- absolute path
+    default_branch TEXT     NOT NULL,               -- auto-detected: main or master
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -577,11 +620,12 @@ cli-git-commands/
 ├── internal/
 │   ├── cli/
 │   │   ├── root.go              # Root cobra command
-│   │   ├── repo.go              # repo add/list/remove
+│   │   ├── repo.go              # repo add/list/remove/rename
 │   │   ├── checkout.go          # checkout master
 │   │   ├── branch.go            # branch create/rename
 │   │   ├── status.go            # status
-│   │   └── update.go            # update
+│   │   ├── update.go            # update
+│   │   └── discard.go           # discard
 │   ├── config/
 │   │   └── config.go            # App config & data dir
 │   ├── db/

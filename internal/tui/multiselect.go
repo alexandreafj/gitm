@@ -129,10 +129,10 @@ func (m multiSelectModel) View() string {
 		}
 
 		checkbox := "[ ]"
-		name := normalStyle.Render(repo.Name)
+		name := normalStyle.Render(repo.Alias)
 		if m.selected[i] {
 			checkbox = selectedStyle.Render("[✓]")
-			name = selectedStyle.Render(repo.Name)
+			name = selectedStyle.Render(repo.Alias)
 		}
 
 		s += fmt.Sprintf("%s%s %s  %s\n",

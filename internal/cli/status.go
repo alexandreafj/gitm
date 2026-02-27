@@ -76,7 +76,7 @@ func runStatus(cmd *cobra.Command, args []string, fetchRemote bool) error {
 				done <- struct{}{}
 			}()
 
-			s := repoStatus{name: repo.Name}
+			s := repoStatus{name: repo.Alias}
 
 			branch, err := git.CurrentBranch(repo.Path)
 			if err != nil {

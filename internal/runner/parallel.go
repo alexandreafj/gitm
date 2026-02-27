@@ -93,7 +93,7 @@ func printResult(r Result) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	label := fmt.Sprintf("[%-20s]", r.Repo.Name)
+	label := fmt.Sprintf("[%-20s]", r.Repo.Alias)
 
 	var icon string
 	switch r.Status {

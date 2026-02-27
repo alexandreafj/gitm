@@ -88,7 +88,7 @@ unless --from is specified. All operations run in parallel.`,
 				}
 				if _, err := git.Pull(repo.Path); err != nil {
 					// Non-fatal: pull failure doesn't prevent branch creation.
-					fmt.Printf("  warning: pull failed on %s: %v\n", repo.Name, err)
+					fmt.Printf("  warning: pull failed on %s: %v\n", repo.Alias, err)
 				}
 
 				// Check if the branch already exists.
