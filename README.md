@@ -14,7 +14,7 @@
   - [repo list](#gitm-repo-list)
   - [repo remove](#gitm-repo-remove)
   - [repo rename](#gitm-repo-rename)
-  - [checkout master](#gitm-checkout-master)
+  - [checkout](#gitm-checkout)
   - [branch create](#gitm-branch-create)
   - [branch rename](#gitm-branch-rename)
   - [status](#gitm-status)
@@ -34,6 +34,8 @@ When working across many repositories, daily git operations become repetitive:
 | Without gitm | With gitm |
 |---|---|
 | `cd repo1 && git checkout main && git pull` × 23 repos | `gitm checkout master` |
+| Checkout a feature branch in specific repos interactively | `gitm checkout` |
+| Checkout a branch across all repos at once | `gitm checkout feature/JIRA-12345` |
 | Manually `cd` into 6 repos to create a feature branch | `gitm branch create feature/JIRA-123` |
 | Manually rename a branch in each repo + update remote | `gitm branch rename old-name new-name` |
 | Forget which repos are dirty or behind origin | `gitm status` |
@@ -232,25 +234,34 @@ gitm repo rename v2 www-api-v2
 
 ---
 
-### `gitm checkout master`
+### `gitm checkout`
 
-Switch all registered repositories to their default branch and pull the latest changes. Runs in **parallel**.
-
-```
-gitm checkout master
-```
-
-**Behaviour:**
-
-1. Checks each repository for uncommitted changes (`git status --porcelain`).
-2. If a repository is **dirty** (has unstaged or staged changes), it is **skipped** with a warning. Nothing is ever force-reset.
-3. For clean repositories: runs `git checkout <default-branch>` then `git pull --ff-only`.
-4. Streams results live as each repo completes.
-5. Shows a summary at the end (`N succeeded, N skipped, N failed`).
-
-**Example output:**
+Switch repositories to a branch and pull. Three modes of operation. Runs in **parallel**.
 
 ```
+gitm checkout [branch]
+```
+
+**Modes:**
+
+| Invocation | Behaviour |
+|---|---|
+| `gitm checkout` _(no args)_ | Interactive: multi-select repos, then type a branch name |
+| `gitm checkout master` or `gitm checkout main` | Switch **all** repos to their configured default branch + pull |
+| `gitm checkout <branch-name>` | Check out `<branch-name>` in **all** repos; skip with warning where it doesn't exist |
+
+**Behaviour (all modes):**
+
+- Repositories with uncommitted **tracked** changes are skipped (untracked files like `AGENTS.md` are safely ignored).
+- Branch existence is checked locally first, then on the remote — skipped with a warning if neither has it.
+- After checkout, runs `git pull --ff-only`.
+- Streams results live with a final summary.
+
+**Example — default branch:**
+
+```
+$ gitm checkout master
+
 Checking out default branch and pulling for 4 repositories…
 
 [api-gateway        ] ✓ on main — already up to date
@@ -259,6 +270,43 @@ Checking out default branch and pulling for 4 repositories…
 [payment-svc        ] ✓ on main — already up to date
 
 Done: 3 succeeded, 1 skipped
+```
+
+**Example — specific branch:**
+
+```
+$ gitm checkout feature/JIRA-12345
+
+Checking out branch "feature/JIRA-12345" in 4 repositories…
+
+[api-gateway        ] ✓ on feature/JIRA-12345 — already up to date
+[auth-service       ] ✓ on feature/JIRA-12345 — pulled
+[frontend           ] ⚠ SKIPPED: branch "feature/JIRA-12345" not found (local or remote)
+[payment-svc        ] ⚠ SKIPPED: uncommitted changes (1 file(s))
+
+Done: 2 succeeded, 2 skipped
+```
+
+**Example — interactive:**
+
+```
+$ gitm checkout
+
+Select repositories to checkout
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+▶ [✓] api-gateway   /home/user/work/api-gateway
+  [✓] auth-service   /home/user/work/auth-service
+  [ ] frontend       /home/user/work/frontend
+
+2/3 selected
+
+Branch to checkout
+Type the branch name  •  enter to confirm  •  esc to cancel
+
+feature/JIRA-12345
+
+Checking out branch "feature/JIRA-12345" in 2 repositories…
 ```
 
 ---
