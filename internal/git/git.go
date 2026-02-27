@@ -152,9 +152,12 @@ func PushBranch(path, branch string) error {
 }
 
 // AheadBehind returns how many commits the current branch is ahead/behind origin.
-func AheadBehind(path string) (ahead, behind int, err error) {
-	// Fetch remote refs silently so numbers are accurate.
-	_, _ = run(path, "fetch", "--quiet")
+// AheadBehind returns how many commits the current branch is ahead/behind origin.
+// Pass fetch=true to run git fetch first for accurate up-to-date numbers (slower).
+func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
+	if fetch {
+		_, _ = run(path, "fetch", "--quiet")
+	}
 
 	out, err := run(path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
 	if err != nil {

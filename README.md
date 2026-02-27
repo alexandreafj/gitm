@@ -350,23 +350,36 @@ Done: 2 succeeded
 
 ### `gitm status`
 
-Show a summary of all registered repositories: current branch, dirty state, and commits ahead/behind origin. Runs in **parallel** (fetches remote info concurrently).
+Show a summary of all registered repositories: current branch, dirty state, and commits ahead/behind origin. Runs in **parallel** with no network calls by default.
 
 ```
-gitm status
+gitm status [flags]
 ```
 
-**Example output:**
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--fetch` | false | Run `git fetch` on all repos first for up-to-date remote numbers (slower, requires network). |
+
+**Example output (fast mode, no network):**
 
 ```
-Fetching status for 4 repositories…
+Collecting status for 11 repositories…
 
 REPO                    BRANCH                    DIRTY         REMOTE
 ────────────────────────────────────────────────────────────────────────────────
-api-gateway             main                      clean         up to date
-auth-service            feature/JIRA-456          2 modified    3 behind
-frontend                feature/JIRA-456          clean         up to date
-payment-svc             main                      clean         5 ahead
+api-gateway             feature/PROJ-101          2 modified    up to date
+auth-service            feature/PROJ-202          1 modified    up to date
+billing                 master                    clean         14 behind
+data-pipeline           feature/PROJ-101          1 modified    up to date
+frontend                master                    1 modified    up to date
+notifications           feature/PROJ-303          clean         up to date
+payments                feature/PROJ-101          2 modified    up to date
+reporting               master                    2 modified    up to date
+search                  master                    12 modified   4 behind
+user-service            feature/PROJ-303          1 modified    up to date
+worker                  master                    1 modified    up to date
 ```
 
 **Column descriptions:**
@@ -376,9 +389,19 @@ payment-svc             main                      clean         5 ahead
 | `REPO` | Repository name |
 | `BRANCH` | Currently checked-out branch |
 | `DIRTY` | `clean` if no uncommitted changes; otherwise shows the number of modified files |
-| `REMOTE` | Commits ahead/behind `origin`. `up to date` if in sync. |
+| `REMOTE` | Commits ahead/behind `origin`. Based on the last known remote state (no network call). Use `--fetch` for current numbers. |
 
-> **Note:** This command runs `git fetch --quiet` on each repository to get accurate ahead/behind counts. It may take a few seconds depending on your network.
+**Examples:**
+
+```bash
+# Fast: instant, uses cached remote tracking info
+gitm status
+
+# Accurate: fetch from origin first, then show status (takes a few seconds)
+gitm status --fetch
+```
+
+> **Performance note:** By default, `gitm status` is near-instant because it doesn't fetch from origin. The ahead/behind numbers reflect the last known state of remote branches. Use `--fetch` if you need up-to-the-second accuracy from the remote.
 
 ---
 
@@ -419,6 +442,14 @@ Done: 3 succeeded, 1 skipped
 ### Parallel Execution
 
 Every multi-repo operation uses a concurrent worker pool (`golang.org/x/sync/errgroup`) with a default concurrency limit of **10 parallel git operations**. Results are streamed to the terminal as each operation completes, so you don't wait for a slow repository to see the others' results.
+
+### Performance Optimizations
+
+**`gitm status` is optimized for speed:**
+- By default, it **does not fetch from origin**, making it nearly instant (~2 seconds for 11 repos) because it only reads local git state and uses cached remote tracking info.
+- Use the `--fetch` flag if you need accurate up-to-the-second ahead/behind numbers from the remote (requires network calls).
+
+**Why this matters:** When you're checking the status of 20+ repos multiple times a day, you want it to be fast. The cached remote state is accurate enough for most daily workflows — you only need `--fetch` when preparing to merge or push.
 
 ### Default Branch Detection
 

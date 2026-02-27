@@ -11,19 +11,28 @@ import (
 )
 
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	var fetchRemote bool
+
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show the git status of all registered repositories",
 		Long: `Display a summary table of all repositories showing:
   - Current branch
   - Whether the working tree is dirty (has uncommitted changes)
-  - How many commits ahead/behind origin
+  - How many commits ahead/behind origin (based on last known remote state)
 
-Note: this command fetches remote info for each repo, so it may take
-a moment depending on your network.`,
+Use --fetch to run git fetch on all repos first for up-to-date remote numbers.
+Without --fetch the command is near-instant (no network calls).`,
+		Example: `  gitm status
+  gitm status --fetch`,
 		Args: cobra.NoArgs,
-		RunE: runStatus,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStatus(cmd, args, fetchRemote)
+		},
 	}
+
+	cmd.Flags().BoolVar(&fetchRemote, "fetch", false, "Fetch from origin before checking ahead/behind (slower but accurate)")
+	return cmd
 }
 
 type repoStatus struct {
@@ -35,7 +44,7 @@ type repoStatus struct {
 	err    string
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
+func runStatus(cmd *cobra.Command, args []string, fetchRemote bool) error {
 	repos, err := database.ListRepositories()
 	if err != nil {
 		return err
@@ -45,7 +54,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Fetching status for %d repositories…\n\n", len(repos))
+	if fetchRemote {
+		fmt.Printf("Fetching from origin and collecting status for %d repositories…\n\n", len(repos))
+	} else {
+		fmt.Printf("Collecting status for %d repositories…\n\n", len(repos))
+	}
 
 	// Collect status in parallel.
 	statuses := make([]repoStatus, len(repos))
@@ -86,7 +99,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 				s.dirty = "clean"
 			}
 
-			s.ahead, s.behind, _ = git.AheadBehind(repo.Path)
+			s.ahead, s.behind, _ = git.AheadBehind(repo.Path, fetchRemote)
 			statuses[i] = s
 		}()
 	}
