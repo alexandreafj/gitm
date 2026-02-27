@@ -20,6 +20,7 @@
   - [status](#gitm-status)
   - [update](#gitm-update)
   - [discard](#gitm-discard)
+- [commit](#gitm-commit)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
 - [Development](#development)
@@ -36,7 +37,7 @@ When working across many repositories, daily git operations become repetitive:
 | Manually `cd` into 6 repos to create a feature branch | `gitm branch create feature/JIRA-123` |
 | Manually rename a branch in each repo + update remote | `gitm branch rename old-name new-name` |
 | Forget which repos are dirty or behind origin | `gitm status` |
-| Discard changes in specific repos, one by one | `gitm discard` |
+| Manually `cd` into each repo to stage + commit + push | `gitm commit` |
 
 ---
 
@@ -544,6 +545,99 @@ Done: 3 succeeded, 1 skipped
 
 ---
 
+### `gitm commit`
+
+Interactively stage files and commit across dirty repositories. Walks you through each selected repository **sequentially** — pick files, write a message, and push.
+
+```
+gitm commit [flags]
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-push` | false | Commit but skip `git push` after each commit. |
+
+**What it does:**
+
+1. **Scans** all registered repositories for uncommitted changes.
+2. **Filters** to dirty repos only — repos on their default branch are shown but marked `⛔ protected branch` and cannot be selected.
+3. **Multi-select UI** — pick which repos you want to commit.
+4. For each selected repo, **sequentially**:
+   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, dim `??`). Nothing is pre-selected.
+   - **Commit message input** — single-line text input; rejects empty messages.
+   - `git add -- <selected files>`
+   - `git commit -m "<message>"`
+   - `git push --set-upstream origin <branch>` (skipped with `--no-push`)
+   - Live result printed per repo.
+5. **Final summary** — `N committed, N skipped, N failed`.
+
+**Example flow:**
+
+```
+Scanning repositories for uncommitted changes…
+
+Select repositories to commit
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+  [ ] api-gateway       /home/user/work/api-gateway
+▶ [ ] auth-service      /home/user/work/auth-service
+  [ ] main-repo         /home/user/work/main-repo   ⛔ protected branch
+
+0/2 selected
+```
+
+After selecting repos, for each one:
+
+```
+━━━ auth-service ━━━
+
+Select files to stage for auth-service
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+  [✓] M  src/auth/login.go
+  [ ] ?? scratch.txt
+
+1/2 selected
+
+Commit message for auth-service
+Type your commit message  •  enter to confirm  •  esc to cancel
+
+fix: correct token expiry check
+
+  ✓ Staged 1 file(s)
+  ✓ Committed: [feature/JIRA-456 3a4b5c6] fix: correct token expiry check
+  ✓ Pushed
+```
+
+Final summary:
+
+```
+Summary
+───────────────────────
+  ✓  auth-service (committed + pushed)
+  ~  api-gateway
+
+1 committed  0 skipped  0 failed
+```
+
+**Protected branch behaviour:**
+
+Repos that are currently on their configured default branch (e.g. `main` or `master`) are shown greyed out in the selection list with an `⛔ protected branch` label and **cannot be toggled**. This prevents accidental direct commits to the default branch.
+
+**Examples:**
+
+```bash
+# Interactive commit + push
+gitm commit
+
+# Interactive commit, skip push
+gitm commit --no-push
+```
+
+---
+
 ## How It Works
 
 ### Parallel Execution
@@ -625,7 +719,8 @@ cli-git-commands/
 │   │   ├── branch.go            # branch create/rename
 │   │   ├── status.go            # status
 │   │   ├── update.go            # update
-│   │   └── discard.go           # discard
+│   │   ├── discard.go           # discard
+│   │   └── commit.go            # commit
 │   ├── config/
 │   │   └── config.go            # App config & data dir
 │   ├── db/
@@ -636,7 +731,9 @@ cli-git-commands/
 │   ├── runner/
 │   │   └── parallel.go          # Parallel execution engine
 │   └── tui/
-│       └── multiselect.go       # Bubbletea multi-select UI
+│       ├── multiselect.go       # Bubbletea multi-select UI (with disabled-item support)
+│       ├── fileselect.go        # File picker UI (porcelain status, colour-coded)
+│       └── textinput.go         # Single-line commit message input
 ├── Makefile
 ├── go.mod
 ├── go.sum

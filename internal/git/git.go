@@ -192,6 +192,67 @@ func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 	return ahead, behind, nil
 }
 
+// StageFiles stages specific files (by their path relative to the repo root).
+func StageFiles(path string, files []string) error {
+	// Strip the porcelain status prefix (e.g. " M ", "?? ") to get the raw path.
+	cleaned := make([]string, 0, len(files))
+	for _, f := range files {
+		// porcelain format: "XY filename" where XY is two chars + space.
+		if len(f) > 3 {
+			cleaned = append(cleaned, strings.TrimSpace(f[3:]))
+		} else {
+			cleaned = append(cleaned, strings.TrimSpace(f))
+		}
+	}
+	args := append([]string{"add", "--"}, cleaned...)
+	_, err := run(path, args...)
+	return err
+}
+
+// Commit creates a commit with the given message.
+func Commit(path, message string) (string, error) {
+	return run(path, "commit", "-m", message)
+}
+
+// Push pushes the current branch to origin.
+// If no upstream is set yet, it sets one automatically.
+func Push(path string) error {
+	branch, err := CurrentBranch(path)
+	if err != nil {
+		return fmt.Errorf("get branch: %w", err)
+	}
+	_, err = run(path, "push", "--set-upstream", "origin", branch)
+	return err
+}
+
+// IsDefaultBranch reports whether the current branch equals the repo's default branch.
+func IsDefaultBranch(path, defaultBranch string) (bool, error) {
+	current, err := CurrentBranch(path)
+	if err != nil {
+		return false, err
+	}
+	return current == defaultBranch, nil
+}
+
+// DirtyFilesWithStatus returns modified/untracked files keeping the full
+// porcelain line (e.g. " M src/foo.php", "?? scratch.txt").
+func DirtyFilesWithStatus(path string) ([]string, error) {
+	out, err := run(path, "status", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var files []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) != "" {
+			files = append(files, l)
+		}
+	}
+	return files, nil
+}
+
 // RepoName returns the base directory name of a repository path.
 func RepoName(path string) string {
 	abs, err := filepath.Abs(path)

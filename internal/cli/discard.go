@@ -76,6 +76,7 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 		dirtyRepos,
 		"WARNING: Select repositories to discard changes in (irreversible)",
 		false,
+		nil,
 	)
 	if err != nil {
 		return err

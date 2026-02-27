@@ -59,6 +59,7 @@ unless --from is specified. All operations run in parallel.`,
 					allRepos,
 					fmt.Sprintf("Select repositories for new branch: %s", branchName),
 					false,
+					nil,
 				)
 				if err != nil {
 					return err
@@ -172,6 +173,7 @@ Use --no-remote to skip the remote steps.`,
 					reposWithBranch,
 					fmt.Sprintf("Select repositories to rename: %s → %s", oldName, newName),
 					false,
+					nil,
 				)
 				if err != nil {
 					return err
