@@ -110,6 +110,25 @@ func Checkout(path, branch string) error {
 	return err
 }
 
+// DiscardChanges discards all uncommitted changes in the working tree and
+// removes untracked files. This is equivalent to:
+//
+//	git checkout -- .
+//	git clean -fd
+//
+// This is irreversible — call IsDirty first to confirm there are changes.
+func DiscardChanges(path string) error {
+	// Discard modifications to tracked files.
+	if _, err := run(path, "checkout", "--", "."); err != nil {
+		return fmt.Errorf("discard tracked changes: %w", err)
+	}
+	// Remove untracked files and directories.
+	if _, err := run(path, "clean", "-fd"); err != nil {
+		return fmt.Errorf("clean untracked files: %w", err)
+	}
+	return nil
+}
+
 // Pull runs git pull on the current branch.
 func Pull(path string) (string, error) {
 	return run(path, "pull", "--ff-only")

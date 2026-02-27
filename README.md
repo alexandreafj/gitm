@@ -18,6 +18,7 @@
   - [branch rename](#gitm-branch-rename)
   - [status](#gitm-status)
   - [update](#gitm-update)
+  - [discard](#gitm-discard)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
 - [Development](#development)
@@ -34,6 +35,7 @@ When working across many repositories, daily git operations become repetitive:
 | Manually `cd` into 6 repos to create a feature branch | `gitm branch create feature/JIRA-123` |
 | Manually rename a branch in each repo + update remote | `gitm branch rename old-name new-name` |
 | Forget which repos are dirty or behind origin | `gitm status` |
+| Discard changes in specific repos, one by one | `gitm discard` |
 
 ---
 
@@ -402,6 +404,69 @@ gitm status --fetch
 ```
 
 > **Performance note:** By default, `gitm status` is near-instant because it doesn't fetch from origin. The ahead/behind numbers reflect the last known state of remote branches. Use `--fetch` if you need up-to-the-second accuracy from the remote.
+
+---
+
+### `gitm discard`
+
+Interactively select which repositories to discard uncommitted changes in. Only repositories that actually have changes are shown in the selection list — if none of your repos have uncommitted changes, the command exits immediately with a message.
+
+```
+gitm discard
+```
+
+> **WARNING:** This operation is irreversible. Discarded changes cannot be recovered.
+
+**What it does per selected repository:**
+
+```
+git checkout -- .   → discard modifications to tracked files
+git clean -fd       → remove untracked files and directories
+```
+
+**Behaviour:**
+
+1. Scans all registered repositories for uncommitted changes.
+2. If **none** are dirty, prints `Nothing to discard — all repositories are clean.` and exits.
+3. If some are dirty, shows a summary of how many files each has modified, then opens the interactive multi-select showing **only the dirty repos**.
+4. Executes discard in parallel on all selected repositories.
+5. Streams results live.
+
+**Example flow:**
+
+```
+3 repositories with uncommitted changes:
+
+  repo             2 file(s) modified
+  repo             2 file(s) modified
+  repo             12 file(s) modified
+
+WARNING: Select repositories to discard changes in (irreversible)
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+  [ ] repo          /home/user/work/repo
+▶ [✓] repo  /home/user/work/repo
+  [ ] repo  /home/user/work/repo
+
+1/3 selected
+```
+
+After confirming:
+
+```
+Discarding changes in 1 repository(ies)…
+
+[repo         ] ✓ discarded 2 file(s)
+
+Done: 1 succeeded
+```
+
+**Example when nothing to discard:**
+
+```
+$ gitm discard
+Nothing to discard — all repositories are clean.
+```
 
 ---
 

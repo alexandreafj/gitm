@@ -86,20 +86,36 @@ func Run(repos []*db.Repository, op OpFunc) []Result {
 	return results
 }
 
-// printResult prints a single result line in a thread-safe way.
+// printResult prints a result in a thread-safe way.
+// If the message contains newlines, the first line is printed with the status
+// icon and the remaining lines are indented below it.
 func printResult(r Result) {
 	mu.Lock()
 	defer mu.Unlock()
 
 	label := fmt.Sprintf("[%-20s]", r.Repo.Name)
 
+	var icon string
 	switch r.Status {
 	case StatusSuccess:
-		fmt.Printf("%s %s %s\n", cyan.Sprint(label), green.Sprint("✓"), r.Message)
+		icon = green.Sprint("✓")
 	case StatusSkipped:
-		fmt.Printf("%s %s %s\n", cyan.Sprint(label), yellow.Sprint("⚠ SKIPPED:"), r.Message)
+		icon = yellow.Sprint("⚠ SKIPPED:")
 	case StatusError:
-		fmt.Printf("%s %s %s\n", cyan.Sprint(label), red.Sprint("✗ ERROR:"), r.Message)
+		icon = red.Sprint("✗ ERROR:")
+	}
+
+	lines := strings.SplitN(r.Message, "\n", 2)
+	firstLine := lines[0]
+	fmt.Printf("%s %s %s\n", cyan.Sprint(label), icon, firstLine)
+
+	// Print any additional lines (e.g. file list) indented under the first.
+	if len(lines) == 2 {
+		for _, extra := range strings.Split(lines[1], "\n") {
+			if extra != "" {
+				fmt.Printf("  %s\n", extra)
+			}
+		}
 	}
 }
 
