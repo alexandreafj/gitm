@@ -20,7 +20,8 @@
   - [status](#gitm-status)
   - [update](#gitm-update)
   - [discard](#gitm-discard)
-- [commit](#gitm-commit)
+  - [commit](#gitm-commit)
+  - [stash](#gitm-stash)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
 - [Development](#development)
@@ -40,6 +41,8 @@ When working across many repositories, daily git operations become repetitive:
 | Manually rename a branch in each repo + update remote | `gitm branch rename old-name new-name` |
 | Forget which repos are dirty or behind origin | `gitm status` |
 | Manually `cd` into each repo to stage + commit + push | `gitm commit` |
+| Stash changes in specific repos before switching branches | `gitm stash` |
+| Re-apply stashed work after switching back | `gitm stash pop` |
 
 ---
 
@@ -686,6 +689,66 @@ gitm commit --no-push
 
 ---
 
+### `gitm stash`
+
+Manage git stashes across selected repositories. All subcommands require you to select repos via the interactive multi-select TUI before anything happens.
+
+```
+gitm stash
+gitm stash apply
+gitm stash pop
+gitm stash list
+```
+
+#### `gitm stash` _(push)_
+
+Scans all repos for uncommitted changes (including untracked files), shows only dirty repos in the multi-select, then runs `git stash push --include-untracked` with an auto-generated message on each selected repo in parallel.
+
+```
+$ gitm stash
+
+Scanning repositories for uncommitted changes…
+
+Select repositories to stash
+↑/↓ or j/k  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+▶ [✓] repo1          /home/user/work/repo1
+  [ ] repo2          /home/user/work/repo2
+
+1/2 selected
+
+Stashing changes in 1 repository(ies)…
+
+[repo1                 ] ✓ stashed (gitm stash on feature/JIRA-456)
+
+Done: 1 succeeded
+```
+
+#### `gitm stash apply`
+
+Scans all repos for stash entries, shows only repos with stashes in the multi-select, then runs `git stash apply` (keeps the stash) on each selected repo in parallel.
+
+#### `gitm stash pop`
+
+Same as `apply`, but runs `git stash pop` — applies and removes the stash entry.
+
+#### `gitm stash list`
+
+Prints a table of all repos that have stash entries, with the count and top stash message.
+
+```
+$ gitm stash list
+
+REPO          STASHES  TOP STASH
+────────────────────────────────────────────────────
+repo1          1        On feature/JIRA-456: gitm stash on feature/JIRA-456
+repo2          2        On master: gitm stash on master
+
+2 repository(ies) with stash entries.
+```
+
+---
+
 ## How It Works
 
 ### Parallel Execution
@@ -768,7 +831,8 @@ cli-git-commands/
 │   │   ├── status.go            # status
 │   │   ├── update.go            # update
 │   │   ├── discard.go           # discard
-│   │   └── commit.go            # commit
+│   │   ├── commit.go            # commit
+│   │   └── stash.go             # stash / stash apply / stash pop / stash list
 │   ├── config/
 │   │   └── config.go            # App config & data dir
 │   ├── db/

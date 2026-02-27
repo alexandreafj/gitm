@@ -265,6 +265,57 @@ func DirtyFilesWithStatus(path string) ([]string, error) {
 	return files, nil
 }
 
+// StashPush stashes all uncommitted changes (tracked and untracked) with an
+// auto-generated message. Pass an empty message to use git's default.
+func StashPush(path, message string) error {
+	args := []string{"stash", "push", "--include-untracked"}
+	if message != "" {
+		args = append(args, "-m", message)
+	}
+	_, err := run(path, args...)
+	return err
+}
+
+// StashApply applies the most recent stash without removing it.
+func StashApply(path string) error {
+	_, err := run(path, "stash", "apply")
+	return err
+}
+
+// StashPop applies the most recent stash and removes it from the stash list.
+func StashPop(path string) error {
+	_, err := run(path, "stash", "pop")
+	return err
+}
+
+// StashList returns the stash entries for the repository (one line per entry).
+// Returns nil if there are no stash entries.
+func StashList(path string) ([]string, error) {
+	out, err := run(path, "stash", "list")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var entries []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) != "" {
+			entries = append(entries, l)
+		}
+	}
+	return entries, nil
+}
+
+// HasStash reports whether the repository has any stash entries.
+func HasStash(path string) (bool, error) {
+	entries, err := StashList(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
+}
+
 // RepoName returns the base directory name of a repository path.
 func RepoName(path string) string {
 	abs, err := filepath.Abs(path)

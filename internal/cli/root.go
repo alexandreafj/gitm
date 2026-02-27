@@ -59,6 +59,7 @@ All multi-repo operations run concurrently for speed.`,
 	root.AddCommand(updateCmd())
 	root.AddCommand(discardCmd())
 	root.AddCommand(commitCmd())
+	root.AddCommand(stashCmd())
 
 	return root
 }
