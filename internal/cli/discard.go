@@ -10,7 +10,6 @@ import (
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
 	"github.com/alexandreferreira/gitm/internal/runner"
-	"github.com/alexandreferreira/gitm/internal/tui"
 )
 
 func discardCmd() *cobra.Command {
@@ -33,6 +32,10 @@ WARNING: This operation is irreversible. Discarded changes cannot be recovered.`
 }
 
 func runDiscard(cmd *cobra.Command, args []string) error {
+	return runDiscardWithUI(liveUI{})
+}
+
+func runDiscardWithUI(ui ui) error {
 	allRepos, err := database.ListRepositories()
 	if err != nil {
 		return err
@@ -76,7 +79,7 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Interactive multi-select — only dirty repos are shown.
-	chosen, err := tui.MultiSelect(
+	chosen, err := ui.MultiSelect(
 		dirtyRepos,
 		"WARNING: Select repositories to discard changes in (irreversible)",
 		false,

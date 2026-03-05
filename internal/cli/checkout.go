@@ -9,7 +9,6 @@ import (
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
 	"github.com/alexandreferreira/gitm/internal/runner"
-	"github.com/alexandreferreira/gitm/internal/tui"
 )
 
 // defaultBranchKeywords are the argument values that trigger "checkout default branch" mode.
@@ -48,6 +47,10 @@ Repositories with uncommitted tracked changes are always skipped.`,
 }
 
 func runCheckout(cmd *cobra.Command, args []string) error {
+	return runCheckoutWithUI(liveUI{}, args)
+}
+
+func runCheckoutWithUI(ui ui, args []string) error {
 	repos, err := database.ListRepositories()
 	if err != nil {
 		return err
@@ -66,7 +69,7 @@ func runCheckout(cmd *cobra.Command, args []string) error {
 	switch {
 	case arg == "":
 		// Interactive mode.
-		return runCheckoutInteractive(repos)
+		return runCheckoutInteractive(repos, ui)
 
 	case defaultBranchKeywords[strings.ToLower(arg)]:
 		// Default branch mode.
@@ -128,14 +131,14 @@ func runCheckoutBranch(repos []*db.Repository, branch string) error {
 
 // runCheckoutInteractive lets the user pick repos via TUI, type a branch name,
 // then checks out that branch in the selected repos.
-func runCheckoutInteractive(repos []*db.Repository) error {
-	chosen, err := tui.MultiSelect(repos, "Select repositories to checkout", false, nil)
+func runCheckoutInteractive(repos []*db.Repository, ui ui) error {
+	chosen, err := ui.MultiSelect(repos, "Select repositories to checkout", false, nil)
 	if err != nil {
 		fmt.Println(err)
 		return nil
 	}
 
-	branch, err := tui.BranchNameInput()
+	branch, err := ui.BranchNameInput()
 	if err != nil {
 		fmt.Println(err)
 		return nil

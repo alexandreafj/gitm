@@ -10,7 +10,6 @@ import (
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
 	"github.com/alexandreferreira/gitm/internal/runner"
-	"github.com/alexandreferreira/gitm/internal/tui"
 )
 
 func stashCmd() *cobra.Command {
@@ -38,6 +37,10 @@ Subcommands:
 // ── push ──────────────────────────────────────────────────────────────────────
 
 func runStashPush(cmd *cobra.Command, args []string) error {
+	return runStashPushWithUI(liveUI{})
+}
+
+func runStashPushWithUI(ui ui) error {
 	repos, err := database.ListRepositories()
 	if err != nil {
 		return fmt.Errorf("list repositories: %w", err)
@@ -62,7 +65,7 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	chosen, err := tui.MultiSelect(dirty, "Select repositories to stash", false, nil)
+	chosen, err := ui.MultiSelect(dirty, "Select repositories to stash", false, nil)
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -97,7 +100,7 @@ func stashApplyCmd() *cobra.Command {
 }
 
 func runStashApply(cmd *cobra.Command, args []string) error {
-	return runStashApplyOrPop(false)
+	return runStashApplyOrPopWithUI(liveUI{}, false)
 }
 
 // ── pop ───────────────────────────────────────────────────────────────────────
@@ -112,10 +115,14 @@ func stashPopCmd() *cobra.Command {
 }
 
 func runStashPop(cmd *cobra.Command, args []string) error {
-	return runStashApplyOrPop(true)
+	return runStashApplyOrPopWithUI(liveUI{}, true)
 }
 
 func runStashApplyOrPop(pop bool) error {
+	return runStashApplyOrPopWithUI(liveUI{}, pop)
+}
+
+func runStashApplyOrPopWithUI(ui ui, pop bool) error {
 	repos, err := database.ListRepositories()
 	if err != nil {
 		return fmt.Errorf("list repositories: %w", err)
@@ -146,7 +153,7 @@ func runStashApplyOrPop(pop bool) error {
 	}
 	title := fmt.Sprintf("Select repositories to stash %s", verb)
 
-	chosen, err := tui.MultiSelect(withStash, title, false, nil)
+	chosen, err := ui.MultiSelect(withStash, title, false, nil)
 	if err != nil {
 		fmt.Println(err)
 		return nil
