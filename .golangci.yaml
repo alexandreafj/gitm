@@ -1,0 +1,71 @@
+run:
+  timeout: 5m
+  tests: true
+  go: '1.24'
+
+linters:
+  enable:
+    - errcheck          # Unhandled errors
+    - gofmt             # Code formatting
+    - goimports         # Import organization
+    - govet             # go vet
+    - staticcheck       # Static analysis
+    - misspell          # Spell checking
+    - ineffassign       # Ineffective assignments
+    - gosimple          # Code simplifications
+    - unused            # Unused code/variables
+    - whitespace        # Whitespace issues
+    - bodyclose         # Response body not closed
+    - errorlint         # Error wrapping issues
+    - nolintlint        # Improper nolint directives
+    - stylecheck        # Style checks
+    - unconvert         # Unnecessary conversions
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    check-shadowing: true
+    check-composites: true
+    check-tests: true
+
+  staticcheck:
+    go: '1.24'
+
+  misspell:
+    locale: US
+
+  stylecheck:
+    go: '1.24'
+
+issues:
+  exclude-rules:
+    # Allow nolint directives with explanation
+    - linters:
+        - nolintlint
+      text: "directive `//nolint` is unused"
+    
+    # Allow underscore imports (used for side effects)
+    - linters:
+        - unused
+      text: "imported but not used"
+      source: "^import _"
+    
+    # Allow intentional error ignoring with blank identifier in tests
+    - linters:
+        - errcheck
+      source: "^\\s*_, _ :="
+      text: "Error return value is not checked"
+
+  # Don't exclude test files from linting
+  include-tests: true
+  
+  # Don't treat as strict - allow warnings
+  strict: false
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true

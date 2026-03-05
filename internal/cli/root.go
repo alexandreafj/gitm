@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -60,12 +59,7 @@ All multi-repo operations run concurrently for speed.`,
 	root.AddCommand(discardCmd())
 	root.AddCommand(commitCmd())
 	root.AddCommand(stashCmd())
+	root.AddCommand(resetCmd())
 
 	return root
-}
-
-// exitErr prints an error and exits with code 1.
-func exitErr(err error) {
-	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-	os.Exit(1)
 }

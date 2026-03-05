@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// File status colour styles (porcelain prefix).
+// File status color styles (porcelain prefix).
 var (
 	statusMStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // M  modified   → yellow
 	statusAStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // A  added      → green
@@ -91,7 +91,7 @@ func FileSelect(porcelainLines []string, title string) ([]string, error) {
 
 	result := final.(fileSelectModel)
 	if !result.done {
-		return nil, fmt.Errorf("cancelled")
+		return nil, fmt.Errorf("canceled")
 	}
 
 	var chosen []string

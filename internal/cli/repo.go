@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -144,7 +145,7 @@ func repoRemoveCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alias := args[0]
 			if err := database.RemoveRepository(alias); err != nil {
-				if err == db.ErrNotFound {
+				if errors.Is(err, db.ErrNotFound) {
 					return fmt.Errorf("repository %q not found — run `gitm repo list` to see registered repos", alias)
 				}
 				return err
@@ -166,7 +167,7 @@ func repoRenameCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			oldAlias, newAlias := args[0], args[1]
 			if err := database.RenameRepository(oldAlias, newAlias); err != nil {
-				if err == db.ErrNotFound {
+				if errors.Is(err, db.ErrNotFound) {
 					return fmt.Errorf("repository %q not found — run `gitm repo list` to see registered repos", oldAlias)
 				}
 				if strings.Contains(err.Error(), "UNIQUE constraint") {

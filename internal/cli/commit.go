@@ -62,18 +62,18 @@ func runCommit(noPush bool) error {
 	var candidates []candidate
 
 	for _, repo := range repos {
-		dirty, err := git.IsDirty(repo.Path)
-		if err != nil {
-			color.Yellow("  ⚠  %s: cannot check status (%v) — skipping", repo.Alias, err)
+		dirty, dirtyErr := git.IsDirty(repo.Path)
+		if dirtyErr != nil {
+			color.Yellow("  ⚠  %s: cannot check status (%v) — skipping", repo.Alias, dirtyErr)
 			continue
 		}
 		if !dirty {
 			continue
 		}
 
-		onDefault, err := git.IsDefaultBranch(repo.Path, repo.DefaultBranch)
-		if err != nil {
-			color.Yellow("  ⚠  %s: cannot detect branch (%v) — treating as unprotected", repo.Alias, err)
+		onDefault, branchErr := git.IsDefaultBranch(repo.Path, repo.DefaultBranch)
+		if branchErr != nil {
+			color.Yellow("  ⚠  %s: cannot detect branch (%v) — treating as unprotected", repo.Alias, branchErr)
 			onDefault = false
 		}
 
@@ -103,7 +103,7 @@ func runCommit(noPush bool) error {
 		disabledIdxs,
 	)
 	if err != nil {
-		// "no repositories selected" or "cancelled" — not a fatal error.
+		// "no repositories selected" or "canceled" — not a fatal error.
 		fmt.Println(err)
 		return nil
 	}
@@ -133,8 +133,8 @@ func runCommit(noPush bool) error {
 			fmt.Sprintf("Select files to stage for %s", repo.Alias),
 		)
 		if err != nil {
-			if err.Error() == "cancelled" {
-				color.Yellow("  ⚠  Skipped (cancelled file selection)")
+			if err.Error() == "canceled" {
+				color.Yellow("  ⚠  Skipped (canceled file selection)")
 				results = append(results, repoCommitResult{alias: repo.Alias, skipped: true})
 				continue
 			}
@@ -146,8 +146,8 @@ func runCommit(noPush bool) error {
 		// 3c. Commit message input.
 		message, err := tui.CommitMessageInput(repo.Alias)
 		if err != nil {
-			if err.Error() == "cancelled" {
-				color.Yellow("  ⚠  Skipped (cancelled commit message)")
+			if err.Error() == "canceled" {
+				color.Yellow("  ⚠  Skipped (canceled commit message)")
 				results = append(results, repoCommitResult{alias: repo.Alias, skipped: true})
 				continue
 			}
@@ -157,9 +157,9 @@ func runCommit(noPush bool) error {
 		}
 
 		// 3d. Stage files.
-		if err := git.StageFiles(repo.Path, selectedFiles); err != nil {
-			color.Red("  ✗ git add failed: %v", err)
-			results = append(results, repoCommitResult{alias: repo.Alias, err: err})
+		if stageErr := git.StageFiles(repo.Path, selectedFiles); stageErr != nil {
+			color.Red("  ✗ git add failed: %v", stageErr)
+			results = append(results, repoCommitResult{alias: repo.Alias, err: stageErr})
 			continue
 		}
 		color.Green("  ✓ Staged %d file(s)", len(selectedFiles))

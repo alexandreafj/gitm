@@ -57,8 +57,8 @@ func DefaultBranch(path string) (string, error) {
 
 	// Fall back: check which of main/master exists locally.
 	for _, candidate := range []string{"main", "master"} {
-		_, err := run(path, "rev-parse", "--verify", candidate)
-		if err == nil {
+		_, checkErr := run(path, "rev-parse", "--verify", candidate)
+		if checkErr == nil {
 			return candidate, nil
 		}
 	}
@@ -183,10 +183,10 @@ func PushBranch(path, branch string) error {
 }
 
 // AheadBehind returns how many commits the current branch is ahead/behind origin.
-// AheadBehind returns how many commits the current branch is ahead/behind origin.
 // Pass fetch=true to run git fetch first for accurate up-to-date numbers (slower).
 func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 	if fetch {
+		//nolint:errcheck // fetch failure should not block ahead/behind check
 		_, _ = run(path, "fetch", "--quiet")
 	}
 
@@ -199,8 +199,10 @@ func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 	if len(parts) != 2 {
 		return 0, 0, nil
 	}
-	fmt.Sscanf(parts[0], "%d", &ahead)
-	fmt.Sscanf(parts[1], "%d", &behind)
+	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
+	_, _ = fmt.Sscanf(parts[0], "%d", &ahead)
+	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
+	_, _ = fmt.Sscanf(parts[1], "%d", &behind)
 	return ahead, behind, nil
 }
 
@@ -323,4 +325,59 @@ func RepoName(path string) string {
 		return filepath.Base(path)
 	}
 	return filepath.Base(abs)
+}
+
+// ResetSoft moves HEAD back by <ref> (e.g. "HEAD~1") while keeping all
+// changes staged in the index. Equivalent to: git reset --soft <ref>
+func ResetSoft(path, ref string) error {
+	_, err := run(path, "reset", "--soft", ref)
+	return err
+}
+
+// ResetMixed moves HEAD back by <ref> and unstages all changes, leaving them
+// as working-tree modifications. Equivalent to: git reset <ref>
+func ResetMixed(path, ref string) error {
+	_, err := run(path, "reset", ref)
+	return err
+}
+
+// ResetHard moves HEAD back by <ref> and discards all staged and working-tree
+// changes. This is irreversible. Equivalent to: git reset --hard <ref>
+func ResetHard(path, ref string) error {
+	_, err := run(path, "reset", "--hard", ref)
+	return err
+}
+
+// CommitLog returns the last n commits as one-line entries (hash + subject).
+// Each entry has the format "<short-hash> <subject>".
+func CommitLog(path string, n int) ([]string, error) {
+	if n <= 0 {
+		n = 1
+	}
+	out, err := run(path, "log", fmt.Sprintf("-n%d", n), "--oneline", "--no-decorate")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var entries []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) != "" {
+			entries = append(entries, l)
+		}
+	}
+	return entries, nil
+}
+
+// ForcePush pushes the current branch to origin using --force-with-lease,
+// which refuses to overwrite if the remote has commits we haven't seen.
+// This is the safest form of force-push for history rewriting.
+func ForcePush(path string) error {
+	branch, err := CurrentBranch(path)
+	if err != nil {
+		return fmt.Errorf("get branch: %w", err)
+	}
+	_, err = run(path, "push", "--force-with-lease", "origin", branch)
+	return err
 }

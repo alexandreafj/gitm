@@ -51,7 +51,7 @@ func TextInput(title, hint, placeholder string) (string, error) {
 
 	result := final.(textInputModel)
 	if !result.done {
-		return "", fmt.Errorf("cancelled")
+		return "", fmt.Errorf("canceled")
 	}
 	return strings.TrimSpace(result.input.Value()), nil
 }

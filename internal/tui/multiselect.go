@@ -71,7 +71,7 @@ func MultiSelect(repos []*db.Repository, title string, preSelectAll bool, disabl
 	result := final.(multiSelectModel)
 	if !result.done {
 		// User quit without confirming.
-		return nil, fmt.Errorf("cancelled")
+		return nil, fmt.Errorf("canceled")
 	}
 
 	var chosen []*db.Repository

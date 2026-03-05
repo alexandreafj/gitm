@@ -33,6 +33,7 @@ func (db *DB) AddRepository(name, alias, path, defaultBranch string) (*Repositor
 	if err != nil {
 		return nil, fmt.Errorf("add repository: %w", err)
 	}
+	//nolint:errcheck // ID defaults to 0 on error, which is safe
 	id, _ := res.LastInsertId()
 	return &Repository{
 		ID:            id,
@@ -88,6 +89,7 @@ func (db *DB) RemoveRepository(alias string) error {
 	if err != nil {
 		return fmt.Errorf("remove repository: %w", err)
 	}
+	//nolint:errcheck // n defaults to 0 on error, which is safe
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return ErrNotFound
@@ -104,6 +106,7 @@ func (db *DB) RenameRepository(oldAlias, newAlias string) error {
 	if err != nil {
 		return fmt.Errorf("rename repository: %w", err)
 	}
+	//nolint:errcheck // n defaults to 0 on error, which is safe
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return ErrNotFound
@@ -135,6 +138,7 @@ func scanRepository(s scanner) (*Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan repository: %w", err)
 	}
+	//nolint:errcheck // time.Parse failure leaves CreatedAt as zero value, which is safe
 	r.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 	return &r, nil
 }

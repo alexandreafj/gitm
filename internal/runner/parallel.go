@@ -81,6 +81,7 @@ func Run(repos []*db.Repository, op OpFunc) []Result {
 		})
 	}
 
+	//nolint:errcheck // errgroup.Wait() can only error from child goroutines; we handle all errors there
 	_ = eg.Wait()
 	printSummary(results)
 	return results

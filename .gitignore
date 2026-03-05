@@ -33,3 +33,7 @@ go.work.sum
 
 # Build output
 bin/
+
+# Local development
+*.local
+.DS_Store

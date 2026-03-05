@@ -45,9 +45,9 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 	// Filter to only repos that actually have uncommitted changes.
 	var dirtyRepos []*db.Repository
 	for _, repo := range allRepos {
-		dirty, err := git.IsDirty(repo.Path)
-		if err != nil {
-			color.Yellow("  ⚠ %s: could not check status: %v", repo.Alias, err)
+		dirty, dirtyErr := git.IsDirty(repo.Path)
+		if dirtyErr != nil {
+			color.Yellow("  ⚠ %s: could not check status: %v", repo.Alias, dirtyErr)
 			continue
 		}
 		if dirty {

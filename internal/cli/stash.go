@@ -47,9 +47,9 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 	fmt.Println("Scanning repositories for uncommitted changes…")
 	var dirty []*db.Repository
 	for _, repo := range repos {
-		d, err := git.IsDirty(repo.Path)
-		if err != nil {
-			color.Yellow("  ⚠  %s: cannot check status (%v) — skipping", repo.Alias, err)
+		d, dirtyErr := git.IsDirty(repo.Path)
+		if dirtyErr != nil {
+			color.Yellow("  ⚠  %s: cannot check status (%v) — skipping", repo.Alias, dirtyErr)
 			continue
 		}
 		if d {
@@ -125,9 +125,9 @@ func runStashApplyOrPop(pop bool) error {
 	fmt.Println("Scanning repositories for stash entries…")
 	var withStash []*db.Repository
 	for _, repo := range repos {
-		has, err := git.HasStash(repo.Path)
-		if err != nil {
-			color.Yellow("  ⚠  %s: cannot check stash (%v) — skipping", repo.Alias, err)
+		has, stashErr := git.HasStash(repo.Path)
+		if stashErr != nil {
+			color.Yellow("  ⚠  %s: cannot check stash (%v) — skipping", repo.Alias, stashErr)
 			continue
 		}
 		if has {

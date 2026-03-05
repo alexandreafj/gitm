@@ -96,8 +96,8 @@ func runCheckoutDefault(repos []*db.Repository) error {
 			return "", reason, nil
 		}
 
-		if err := git.Checkout(repo.Path, repo.DefaultBranch); err != nil {
-			return "", "", fmt.Errorf("checkout %s: %w", repo.DefaultBranch, err)
+		if checkoutErr := git.Checkout(repo.Path, repo.DefaultBranch); checkoutErr != nil {
+			return "", "", fmt.Errorf("checkout %s: %w", repo.DefaultBranch, checkoutErr)
 		}
 
 		out, err := git.Pull(repo.Path)
@@ -175,8 +175,8 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 		return "", fmt.Sprintf("branch %q not found (local or remote)", branch), nil
 	}
 
-	if err := git.Checkout(repo.Path, branch); err != nil {
-		return "", "", fmt.Errorf("checkout: %w", err)
+	if checkoutErr := git.Checkout(repo.Path, branch); checkoutErr != nil {
+		return "", "", fmt.Errorf("checkout: %w", checkoutErr)
 	}
 
 	out, err := git.Pull(repo.Path)

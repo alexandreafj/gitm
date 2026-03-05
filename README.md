@@ -22,6 +22,7 @@
   - [discard](#gitm-discard)
   - [commit](#gitm-commit)
   - [stash](#gitm-stash)
+  - [reset](#gitm-reset)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
 - [Development](#development)
@@ -43,6 +44,8 @@ When working across many repositories, daily git operations become repetitive:
 | Manually `cd` into each repo to stage + commit + push | `gitm commit` |
 | Stash changes in specific repos before switching branches | `gitm stash` |
 | Re-apply stashed work after switching back | `gitm stash pop` |
+| Undo local commits and clean up history before pushing | `gitm reset` |
+| Rewrite pushed history safely across multiple repos | `gitm reset --hard --commits 2` then approve force-push |
 
 ---
 
@@ -749,6 +752,124 @@ repo2          2        On master: gitm stash on master
 
 ---
 
+### `gitm reset`
+
+Undo the last N commits across selected repositories in three safe modes: soft, mixed (default), or hard. Perfect for undoing local commits before pushing.
+
+```
+gitm reset [flags]
+```
+
+**Modes:**
+
+| Mode | Effect | Use case |
+|---|---|---|
+| `--soft` | Moves HEAD back; **keeps changes staged** and ready to re-commit | Squash, amend, or reorganize commits before pushing |
+| _(default, mixed)_ | Moves HEAD back; **unstages changes but keeps them in working tree** | Undo commits and re-stage selectively |
+| `--hard` | Moves HEAD back AND **discards all changes** irreversibly | Completely discard unwanted commits and changes |
+
+**Flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--commits` | 1 | Number of commits to undo (reset back N commits) |
+| `--soft` | false | Keep changes staged after reset |
+| `--hard` | false | Discard all changes (irreversible) |
+
+> **⚠️ WARNING:** `--hard` is irreversible. Discarded changes cannot be recovered. Only use this when you're certain.
+
+**Pre-flight Check:**
+
+Before applying the reset:
+1. Shows a summary table of:
+   - Each repository and the commits that will be undone (by hash + message)
+   - Which commits are already pushed to origin (⚠️ red flag)
+2. Opens the interactive multi-select UI to choose which repos to reset
+3. If any commits are already pushed, you'll be prompted once: **"Force-push to clean remote history? [y/N]"**
+   - `--force-with-lease` is used (the safest form) to rewrite history safely
+   - Only offered if you own those branches (careful: shared branches will break teammates' clones!)
+
+**Behaviour:**
+
+1. For each selected repo (in parallel):
+   - Moves HEAD back N commits
+   - Applies the chosen reset mode (soft/mixed/hard)
+   - Reports which commits were undone
+
+2. If any undone commits were already pushed:
+   - You're warned with a red caution box
+   - Prompted once for all repos: approve or skip the force-push
+   - If approved: `git push --force-with-lease` is used to rewrite remote history
+
+**Examples:**
+
+```bash
+# Undo last commit, keep changes staged (safest)
+gitm reset --soft
+
+# Undo last commit, unstage changes, keep in working tree (default)
+gitm reset
+
+# Undo last 3 commits, unstage changes
+gitm reset --commits 3
+
+# Undo last 2 commits, discard all changes (IRREVERSIBLE)
+gitm reset --hard --commits 2
+```
+
+**Example flow:**
+
+```
+$ gitm reset --commits 2
+
+Mode:  mixed  —  HEAD moves back; changes are unstaged but kept in working tree
+Scope:  last 2 commit(s) per repository
+
+  api-gateway          [2 commit(s) already pushed — remote will need force-push]
+    ↩ a1b2c3d feat: add authentication
+    ↩ e4f5g6h fix: correct token validation
+
+Select repositories to reset
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+  [✓] api-gateway        /home/user/work/api-gateway
+
+1/1 selected
+
+Applying mixed reset (HEAD~2) to 1 repository(ies)…
+
+[api-gateway        ] ✓ mixed reset — undid 2 commit(s):
+       ↩ a1b2c3d feat: add authentication
+       ↩ e4f5g6h fix: correct token validation
+       changes are unstaged but present in the working tree
+
+Done: 1 succeeded
+
+┌──────────────────────────────────────────────────────┐
+│  CAUTION: Remote history rewrite                     │
+│                                                      │
+│  1 of the reset repo(s) had already-pushed commits  │
+│  undone. Force-pushing will rewrite the remote      │
+│  branch history. Anyone who has already pulled      │
+│  those commits will need to hard-reset their local  │
+│  branch. Only do this on branches that you own and  │
+│  no one else is using.                              │
+└──────────────────────────────────────────────────────┘
+
+The following 1 repo(s) will be force-pushed:
+  api-gateway        /home/user/work/api-gateway
+
+Force-push to clean remote history? [y/N] y
+
+Force-pushing 1 repository(ies)…
+
+[api-gateway        ] ✓ force-pushed branch master to origin
+
+Done: 1 succeeded
+```
+
+---
+
 ## How It Works
 
 ### Parallel Execution
@@ -832,7 +953,8 @@ cli-git-commands/
 │   │   ├── update.go            # update
 │   │   ├── discard.go           # discard
 │   │   ├── commit.go            # commit
-│   │   └── stash.go             # stash / stash apply / stash pop / stash list
+│   │   ├── stash.go             # stash / stash apply / stash pop / stash list
+│   │   └── reset.go             # reset --soft / --hard with force-push support
 │   ├── config/
 │   │   └── config.go            # App config & data dir
 │   ├── db/
