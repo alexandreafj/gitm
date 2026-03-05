@@ -48,3 +48,11 @@ func TestPrintRepoTableHandlesMultipleRepos(t *testing.T) {
 	}
 	printRepoTable(repos)
 }
+
+func TestRepoAddCmdAliasValidation(t *testing.T) {
+	cmd := repoAddCmd()
+	cmd.Flags().Set("alias", "alias")
+	if err := cmd.RunE(cmd, []string{"/tmp/a", "/tmp/b"}); err == nil {
+		t.Fatal("expected error when alias used with multiple paths")
+	}
+}

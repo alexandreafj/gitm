@@ -8,7 +8,6 @@ import (
 
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
-	"github.com/alexandreferreira/gitm/internal/tui"
 )
 
 func commitCmd() *cobra.Command {
@@ -43,6 +42,10 @@ type repoCommitResult struct {
 }
 
 func runCommit(noPush bool) error {
+	return runCommitWithUI(liveUI{}, noPush)
+}
+
+func runCommitWithUI(ui ui, noPush bool) error {
 	repos, err := database.ListRepositories()
 	if err != nil {
 		return fmt.Errorf("list repositories: %w", err)
@@ -96,7 +99,7 @@ func runCommit(noPush bool) error {
 	}
 
 	// Step 2: Multi-select repos.
-	chosen, err := tui.MultiSelect(
+	chosen, err := ui.MultiSelect(
 		displayRepos,
 		"Select repositories to commit",
 		false,
@@ -128,7 +131,7 @@ func runCommit(noPush bool) error {
 		}
 
 		// 3b. File picker.
-		selectedFiles, err := tui.FileSelect(
+		selectedFiles, err := ui.FileSelect(
 			porcelainLines,
 			fmt.Sprintf("Select files to stage for %s", repo.Alias),
 		)
@@ -144,7 +147,7 @@ func runCommit(noPush bool) error {
 		}
 
 		// 3c. Commit message input.
-		message, err := tui.CommitMessageInput(repo.Alias)
+		message, err := ui.CommitMessageInput(repo.Alias)
 		if err != nil {
 			if err.Error() == "canceled" {
 				color.Yellow("  ⚠  Skipped (canceled commit message)")

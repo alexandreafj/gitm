@@ -12,7 +12,6 @@ import (
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
 	"github.com/alexandreferreira/gitm/internal/runner"
-	"github.com/alexandreferreira/gitm/internal/tui"
 )
 
 // resetMode represents which variant of git reset to perform.
@@ -127,6 +126,10 @@ func resetModeDescription(m resetMode) string {
 
 // runReset is the main entry-point for the reset command.
 func runReset(mode resetMode, numCommits int) error {
+	return runResetWithUI(liveUI{}, mode, numCommits)
+}
+
+func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
 	if numCommits < 1 {
 		return fmt.Errorf("--commits must be at least 1")
 	}
@@ -161,7 +164,7 @@ func runReset(mode resetMode, numCommits int) error {
 		repos[i] = info.repo
 	}
 
-	chosen, err := tui.MultiSelect(repos, "Select repositories to reset", false, nil)
+	chosen, err := ui.MultiSelect(repos, "Select repositories to reset", false, nil)
 	if err != nil {
 		return err
 	}
