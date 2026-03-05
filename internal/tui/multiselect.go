@@ -68,7 +68,10 @@ func MultiSelect(repos []*db.Repository, title string, preSelectAll bool, disabl
 		return nil, fmt.Errorf("tui error: %w", err)
 	}
 
-	result := final.(multiSelectModel)
+	result, ok := final.(multiSelectModel)
+	if !ok {
+		return nil, fmt.Errorf("tui error: unexpected model type")
+	}
 	if !result.done {
 		// User quit without confirming.
 		return nil, fmt.Errorf("canceled")

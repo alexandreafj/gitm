@@ -88,7 +88,10 @@ func runCheckoutDefault(repos []*db.Repository) error {
 			return "", "", fmt.Errorf("git status failed: %w", err)
 		}
 		if dirty {
-			files, _ := git.DirtyFiles(repo.Path)
+			files, filesErr := git.DirtyFiles(repo.Path)
+			if filesErr != nil {
+				return "", "", fmt.Errorf("list dirty files: %w", filesErr)
+			}
 			reason := fmt.Sprintf("uncommitted changes (%d file(s))", len(files))
 			if len(files) > 0 && len(files) <= 3 {
 				reason += ": " + strings.Join(files, ", ")
@@ -156,7 +159,10 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 		return "", "", fmt.Errorf("git status failed: %w", err)
 	}
 	if dirty {
-		files, _ := git.DirtyFiles(repo.Path)
+		files, filesErr := git.DirtyFiles(repo.Path)
+		if filesErr != nil {
+			return "", "", fmt.Errorf("list dirty files: %w", filesErr)
+		}
 		reason := fmt.Sprintf("uncommitted changes (%d file(s))", len(files))
 		if len(files) > 0 && len(files) <= 3 {
 			reason += ": " + strings.Join(files, ", ")

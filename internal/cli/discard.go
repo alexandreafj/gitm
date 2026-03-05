@@ -63,7 +63,11 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 	// Show a summary of what's dirty before prompting.
 	fmt.Printf("%s repositories with uncommitted changes:\n\n", color.YellowString("%d", len(dirtyRepos)))
 	for _, repo := range dirtyRepos {
-		files, _ := git.DirtyFiles(repo.Path)
+		files, filesErr := git.DirtyFiles(repo.Path)
+		if filesErr != nil {
+			color.Yellow("  ⚠ %s: could not list dirty files: %v", repo.Alias, filesErr)
+			continue
+		}
 		fmt.Printf("  %s  %s\n",
 			color.CyanString("%-22s", repo.Alias),
 			color.New(color.FgWhite).Sprintf("%d file(s) modified", len(files)),
@@ -86,7 +90,10 @@ func runDiscard(cmd *cobra.Command, args []string) error {
 
 	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		// Capture file list BEFORE discarding so we can report what was removed.
-		files, _ := git.DirtyFiles(repo.Path)
+		files, filesErr := git.DirtyFiles(repo.Path)
+		if filesErr != nil {
+			return "", "", fmt.Errorf("list dirty files: %w", filesErr)
+		}
 
 		if err := git.DiscardChanges(repo.Path); err != nil {
 			return "", "", err

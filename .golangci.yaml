@@ -27,18 +27,11 @@ linters-settings:
     check-blank: true
 
   govet:
-    check-shadowing: true
     check-composites: true
     check-tests: true
 
-  staticcheck:
-    go: '1.24'
-
   misspell:
     locale: US
-
-  stylecheck:
-    go: '1.24'
 
 issues:
   exclude-rules:
@@ -66,6 +59,7 @@ issues:
   strict: false
 
 output:
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
   print-issued-lines: true
   print-linter-name: true

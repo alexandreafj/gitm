@@ -89,7 +89,10 @@ func FileSelect(porcelainLines []string, title string) ([]string, error) {
 		return nil, fmt.Errorf("tui error: %w", err)
 	}
 
-	result := final.(fileSelectModel)
+	result, ok := final.(fileSelectModel)
+	if !ok {
+		return nil, fmt.Errorf("tui error: unexpected model type")
+	}
 	if !result.done {
 		return nil, fmt.Errorf("canceled")
 	}

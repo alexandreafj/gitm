@@ -49,7 +49,10 @@ func TextInput(title, hint, placeholder string) (string, error) {
 		return "", fmt.Errorf("tui error: %w", err)
 	}
 
-	result := final.(textInputModel)
+	result, ok := final.(textInputModel)
+	if !ok {
+		return "", fmt.Errorf("tui error: unexpected model type")
+	}
 	if !result.done {
 		return "", fmt.Errorf("canceled")
 	}

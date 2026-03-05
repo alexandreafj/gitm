@@ -125,7 +125,9 @@ func TestAddRepositoryWithEmptyAlias(t *testing.T) {
 func TestAddRepositoryDuplicateAlias(t *testing.T) {
 	d, _ := initDB(t)
 
-	d.AddRepository("repo1", "my-repo", "/path1", "main")
+	if _, err := d.AddRepository("repo1", "my-repo", "/path1", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	// Adding another repo with the same alias should fail
 	_, err := d.AddRepository("repo2", "my-repo", "/path2", "main")
@@ -137,7 +139,9 @@ func TestAddRepositoryDuplicateAlias(t *testing.T) {
 func TestAddRepositoryDuplicatePath(t *testing.T) {
 	d, _ := initDB(t)
 
-	d.AddRepository("repo1", "alias1", "/same/path", "main")
+	if _, err := d.AddRepository("repo1", "alias1", "/same/path", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	// Adding another repo with the same path should fail
 	_, err := d.AddRepository("repo2", "alias2", "/same/path", "main")
@@ -151,7 +155,10 @@ func TestAddRepositoryDuplicatePath(t *testing.T) {
 func TestGetRepository(t *testing.T) {
 	d, _ := initDB(t)
 
-	added, _ := d.AddRepository("myrepo", "my-repo", "/path/to/repo", "main")
+	added, err := d.AddRepository("myrepo", "my-repo", "/path/to/repo", "main")
+	if err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	retrieved, err := d.GetRepository("my-repo")
 	if err != nil {
@@ -183,7 +190,10 @@ func TestGetRepositoryNotFound(t *testing.T) {
 func TestGetRepositoryByPath(t *testing.T) {
 	d, _ := initDB(t)
 
-	added, _ := d.AddRepository("myrepo", "my-repo", "/path/to/repo", "main")
+	added, err := d.AddRepository("myrepo", "my-repo", "/path/to/repo", "main")
+	if err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	retrieved, err := d.GetRepositoryByPath("/path/to/repo")
 	if err != nil {
@@ -222,9 +232,15 @@ func TestListRepositoriesEmpty(t *testing.T) {
 func TestListRepositories(t *testing.T) {
 	d, _ := initDB(t)
 
-	d.AddRepository("repo1", "alpha", "/path1", "main")
-	d.AddRepository("repo2", "beta", "/path2", "main")
-	d.AddRepository("repo3", "gamma", "/path3", "main")
+	if _, err := d.AddRepository("repo1", "alpha", "/path1", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
+	if _, err := d.AddRepository("repo2", "beta", "/path2", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
+	if _, err := d.AddRepository("repo3", "gamma", "/path3", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	repos, err := d.ListRepositories()
 	if err != nil {
@@ -240,9 +256,15 @@ func TestListRepositoriesOrdering(t *testing.T) {
 	d, _ := initDB(t)
 
 	// Add in non-alphabetical order
-	d.AddRepository("repo1", "zebra", "/path1", "main")
-	d.AddRepository("repo2", "apple", "/path2", "main")
-	d.AddRepository("repo3", "banana", "/path3", "main")
+	if _, err := d.AddRepository("repo1", "zebra", "/path1", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
+	if _, err := d.AddRepository("repo2", "apple", "/path2", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
+	if _, err := d.AddRepository("repo3", "banana", "/path3", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	repos, err := d.ListRepositories()
 	if err != nil {
@@ -263,7 +285,9 @@ func TestListRepositoriesOrdering(t *testing.T) {
 func TestRemoveRepository(t *testing.T) {
 	d, _ := initDB(t)
 
-	d.AddRepository("repo1", "my-repo", "/path/to/repo", "main")
+	if _, err := d.AddRepository("repo1", "my-repo", "/path/to/repo", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	err := d.RemoveRepository("my-repo")
 	if err != nil {
@@ -291,7 +315,9 @@ func TestRemoveRepositoryNotFound(t *testing.T) {
 func TestRenameRepository(t *testing.T) {
 	d, _ := initDB(t)
 
-	d.AddRepository("repo1", "old-alias", "/path/to/repo", "main")
+	if _, err := d.AddRepository("repo1", "old-alias", "/path/to/repo", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	err := d.RenameRepository("old-alias", "new-alias")
 	if err != nil {
@@ -328,7 +354,9 @@ func TestRenameRepositoryNotFound(t *testing.T) {
 func TestUpdateDefaultBranch(t *testing.T) {
 	d, _ := initDB(t)
 
-	d.AddRepository("repo1", "my-repo", "/path/to/repo", "main")
+	if _, err := d.AddRepository("repo1", "my-repo", "/path/to/repo", "main"); err != nil {
+		t.Fatalf("AddRepository failed: %v", err)
+	}
 
 	err := d.UpdateDefaultBranch("my-repo", "master")
 	if err != nil {
@@ -336,7 +364,10 @@ func TestUpdateDefaultBranch(t *testing.T) {
 	}
 
 	// Verify the change
-	repo, _ := d.GetRepository("my-repo")
+	repo, err := d.GetRepository("my-repo")
+	if err != nil {
+		t.Fatalf("GetRepository failed: %v", err)
+	}
 	if repo.DefaultBranch != "master" {
 		t.Errorf("DefaultBranch = %q, want %q", repo.DefaultBranch, "master")
 	}
@@ -348,10 +379,13 @@ func TestClose(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
-	d, _ := db.Open(dbPath)
-
-	err := d.Close()
+	d, err := db.Open(dbPath)
 	if err != nil {
-		t.Errorf("Close failed: %v", err)
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	closeErr := d.Close()
+	if closeErr != nil {
+		t.Errorf("Close failed: %v", closeErr)
 	}
 }

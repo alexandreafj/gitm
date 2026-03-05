@@ -93,13 +93,24 @@ func runStatus(cmd *cobra.Command, args []string, fetchRemote bool) error {
 				return
 			}
 			if isDirty {
-				files, _ := git.DirtyFiles(repo.Path)
+				files, filesErr := git.DirtyFiles(repo.Path)
+				if filesErr != nil {
+					s.err = filesErr.Error()
+					statuses[i] = s
+					return
+				}
 				s.dirty = fmt.Sprintf("%d modified", len(files))
 			} else {
 				s.dirty = "clean"
 			}
 
-			s.ahead, s.behind, _ = git.AheadBehind(repo.Path, fetchRemote)
+			ahead, behind, abErr := git.AheadBehind(repo.Path, fetchRemote)
+			if abErr != nil {
+				s.err = abErr.Error()
+				statuses[i] = s
+				return
+			}
+			s.ahead, s.behind = ahead, behind
 			statuses[i] = s
 		}()
 	}

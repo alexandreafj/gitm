@@ -252,7 +252,11 @@ func gatherResetInfo(repos []*db.Repository, numCommits int, resetRef string) ([
 			continue
 		}
 
-		ahead, _, _ := git.AheadBehind(repo.Path, false)
+		ahead, _, aheadErr := git.AheadBehind(repo.Path, false)
+		if aheadErr != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: could not check ahead/behind: %v", repo.Alias, aheadErr))
+			continue
+		}
 
 		// How many of the commits-to-be-undone are already pushed?
 		// If we are N ahead and we're resetting M commits:
@@ -353,7 +357,11 @@ func offerForcePush(repos []*db.Repository, undoneCommits int) {
 		color.RedString("[y/N]") + " ")
 
 	reader := bufio.NewReader(os.Stdin)
-	answer, _ := reader.ReadString('\n')
+	answer, readErr := reader.ReadString('\n')
+	if readErr != nil {
+		color.Yellow("Skipped — could not read confirmation input: %v", readErr)
+		return
+	}
 	answer = strings.TrimSpace(strings.ToLower(answer))
 
 	if answer != "y" && answer != "yes" {
@@ -368,7 +376,10 @@ func offerForcePush(repos []*db.Repository, undoneCommits int) {
 		if err := git.ForcePush(repo.Path); err != nil {
 			return "", "", fmt.Errorf("force-push failed: %w", err)
 		}
-		branch, _ := git.CurrentBranch(repo.Path)
+		branch, branchErr := git.CurrentBranch(repo.Path)
+		if branchErr != nil {
+			return "", "", fmt.Errorf("get branch: %w", branchErr)
+		}
 		return fmt.Sprintf("force-pushed branch %s to origin", color.CyanString(branch)), "", nil
 	})
 }
