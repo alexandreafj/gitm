@@ -47,7 +47,6 @@ func TestBranchRename_NoRemote(t *testing.T) {
 	if git.BranchExists(dir, "old") {
 		t.Fatal("expected old branch to be gone")
 	}
-
 }
 
 func TestBranchRename_Remote(t *testing.T) {

@@ -7,7 +7,7 @@ INSTALL_DIR := $(shell go env GOPATH)/bin
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS    := -ldflags "-X main.version=$(VERSION) -s -w"
 
-.PHONY: all build build-linux install clean test lint lint-check fmt format-check tidy run help
+.PHONY: all build build-linux install clean test coverage lint lint-check fmt format-check tidy run help
 
 ## all: Build the binary (default)
 all: build
@@ -36,6 +36,19 @@ run: build
 ## test: Run all tests with race detection
 test:
 	go test ./... -v -race -timeout 60s
+
+## coverage: Run tests with coverage report (HTML output)
+coverage:
+	@mkdir -p $(BUILD_DIR)
+	@go test ./... -race -timeout 60s -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
+	@go tool cover -html=$(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
+	@echo ""
+	@echo "Coverage Summary:"
+	@echo "  Total: $$(go tool cover -func=$(BUILD_DIR)/coverage.out | grep total | awk '{printf "%.1f%%", $$3}')"
+	@go tool cover -func=$(BUILD_DIR)/coverage.out | grep -E '^github.com/anomalyco' | awk '{print "  " $$1 ": " $$NF}' | sort
+	@echo ""
+	@echo "Report: $(BUILD_DIR)/coverage.html"
+	@echo ""
 
 ## lint: Run golangci-lint (auto-fixes where possible)
 lint:
