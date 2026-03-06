@@ -37,7 +37,10 @@ jobs:
         id: format
 
       - name: Run linting
-        run: make lint-check
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: ./...
         id: lint
 
       - name: Run unit tests

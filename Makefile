@@ -76,9 +76,9 @@ fmt:
 
 ## format-check: Check if code is formatted (for CI)
 format-check:
-	@if [ -n "$$(gofmt -s -l ./...)" ]; then \
+	@if [ -n "$$(gofmt -s -l ./internal ./cmd)" ]; then \
 		echo "Code is not formatted. Run: make fmt"; \
-		gofmt -s -d ./...; \
+		gofmt -s -d ./internal ./cmd; \
 		exit 1; \
 	fi
 
