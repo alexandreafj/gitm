@@ -7,7 +7,7 @@ INSTALL_DIR := $(shell go env GOPATH)/bin
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS    := -ldflags "-X main.version=$(VERSION) -s -w"
 
-.PHONY: all build build-linux install clean test coverage lint lint-check fmt format-check tidy run help
+.PHONY: all build build-linux install clean test coverage coverage-check lint lint-check fmt format-check tidy run help
 
 ## all: Build the binary (default)
 all: build
@@ -49,6 +49,17 @@ coverage:
 	@echo ""
 	@echo "Report: $(BUILD_DIR)/coverage.html"
 	@echo ""
+
+## coverage-check: Run tests and verify coverage meets 50% minimum
+coverage-check:
+	@mkdir -p $(BUILD_DIR)
+	@go test ./... -race -timeout 60s -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
+	@COVERAGE=$$(go tool cover -func=$(BUILD_DIR)/coverage.out | grep total | awk '{printf "%.1f", $$3}'); \
+	echo "Coverage: $${COVERAGE}%"; \
+	if [ "$$(echo "$${COVERAGE} < 50" | bc)" -eq 1 ]; then \
+		echo "Error: Coverage is below minimum threshold of 50%"; \
+		exit 1; \
+	fi
 
 ## lint: Run golangci-lint (auto-fixes where possible)
 lint:

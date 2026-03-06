@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24', '1.23']
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Tidy dependencies
+        run: go mod tidy
+
+      - name: Check format
+        run: make format-check
+        id: format
+
+      - name: Run linting
+        run: make lint-check
+        id: lint
+
+      - name: Run unit tests
+        run: make test
+        id: tests
+
+      - name: Check coverage threshold
+        run: make coverage-check
+        id: coverage
+        continue-on-error: true
+
+      - name: Extract coverage percentage
+        if: always()
+        run: |
+          COV=$(go tool cover -func=./bin/coverage.out | grep total | awk '{printf "%.1f", $3}')
+          echo "COVERAGE=${COV}%" >> $GITHUB_ENV
+        id: extract_cov
+
+      - name: Post PR comment on success
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ All checks passed (Go ${{ matrix.go-version }})\n\nCoverage: ${{ env.COVERAGE }}`
+            })
+
+      - name: Post PR comment on failure
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let failedStage = 'Unknown';
+            if ('${{ steps.format.outcome }}' === 'failure') {
+              failedStage = 'Format check';
+            } else if ('${{ steps.lint.outcome }}' === 'failure') {
+              failedStage = 'Lint check';
+            } else if ('${{ steps.tests.outcome }}' === 'failure') {
+              failedStage = 'Unit tests';
+            } else if ('${{ steps.coverage.outcome }}' === 'failure') {
+              failedStage = 'Coverage check';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `❌ CI Failed - ${failedStage} failed (Go ${{ matrix.go-version }})\n\nCoverage: ${{ env.COVERAGE }}\n\nPrevious checks passed: ${{ steps.format.outcome === 'success' ? 'Format ✓' : 'Format ✗' }} ${{ steps.lint.outcome === 'success' ? 'Lint ✓' : 'Lint ✗' }} ${{ steps.tests.outcome === 'success' ? 'Tests ✓' : 'Tests ✗' }}`
+            })
+
+      - name: Fail if coverage below threshold
+        if: steps.coverage.outcome == 'failure'
+        run: exit 1
