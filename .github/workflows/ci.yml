@@ -73,24 +73,33 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fmtOutcome = '${{ steps.format.outcome }}';
+            const lintOutcome = '${{ steps.lint.outcome }}';
+            const testOutcome = '${{ steps.tests.outcome }}';
+            const covOutcome = '${{ steps.coverage.outcome }}';
+            
             let failedStage = 'Unknown';
-            if ('${{ steps.format.outcome }}' === 'failure') {
+            if (fmtOutcome === 'failure') {
               failedStage = 'Format check';
-            } else if ('${{ steps.lint.outcome }}' === 'failure') {
+            } else if (lintOutcome === 'failure') {
               failedStage = 'Lint check';
-            } else if ('${{ steps.tests.outcome }}' === 'failure') {
+            } else if (testOutcome === 'failure') {
               failedStage = 'Unit tests';
-            } else if ('${{ steps.coverage.outcome }}' === 'failure') {
+            } else if (covOutcome === 'failure') {
               failedStage = 'Coverage check';
             }
+            
+            const fmtStatus = fmtOutcome === 'success' ? 'Format ✓' : 'Format ✗';
+            const lintStatus = lintOutcome === 'success' ? 'Lint ✓' : 'Lint ✗';
+            const testStatus = testOutcome === 'success' ? 'Tests ✓' : 'Tests ✗';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `❌ CI Failed - ${failedStage} failed (Go ${{ matrix.go-version }})\n\nCoverage: ${{ env.COVERAGE }}\n\nPrevious checks passed: ${{ steps.format.outcome === 'success' ? 'Format ✓' : 'Format ✗' }} ${{ steps.lint.outcome === 'success' ? 'Lint ✓' : 'Lint ✗' }} ${{ steps.tests.outcome === 'success' ? 'Tests ✓' : 'Tests ✗' }}`
+              body: `❌ CI Failed - ${failedStage} failed (Go ${{ matrix.go-version }})\n\nCoverage: ${{ env.COVERAGE }}\n\nPrevious checks passed: ${fmtStatus} ${lintStatus} ${testStatus}`
             })
 
       - name: Fail if coverage below threshold
-        if: steps.coverage.outcome == 'failure'
+        if: steps.coverage.conclusion == 'failure'
         run: exit 1
