@@ -407,7 +407,9 @@ func TestRepoName(t *testing.T) {
 	}
 	_ = os.RemoveAll(temp)
 	defer func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("Chdir back to cwd: %v", err)
+		}
 	}()
 
 	got = git.RepoName("foo/bar")

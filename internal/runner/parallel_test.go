@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/runner"
@@ -168,10 +169,8 @@ func TestRunParallelExecution(t *testing.T) {
 		}
 		mu.Unlock()
 
-		// Simulate some work
-		for i := 0; i < 100000; i++ {
-			_ = i
-		}
+		// Sleep long enough for goroutines to genuinely overlap
+		time.Sleep(20 * time.Millisecond)
 
 		mu.Lock()
 		concurrent--
@@ -211,10 +210,8 @@ func TestRunMaxConcurrency(t *testing.T) {
 		}
 		mu.Unlock()
 
-		// Simulate work
-		for i := 0; i < 100000; i++ {
-			_ = i
-		}
+		// Sleep long enough for goroutines to genuinely overlap
+		time.Sleep(20 * time.Millisecond)
 
 		mu.Lock()
 		concurrent--

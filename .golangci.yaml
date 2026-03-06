@@ -5,31 +5,24 @@ run:
 
 linters:
   enable:
-    - errcheck          # Unhandled errors
-    - gofmt             # Code formatting
-    - goimports         # Import organization
-    - govet             # go vet
-    - staticcheck       # Static analysis
-    - misspell          # Spell checking
-    - ineffassign       # Ineffective assignments
-    - gosimple          # Code simplifications
-    - unused            # Unused code/variables
-    - whitespace        # Whitespace issues
-    - bodyclose         # Response body not closed
-    - errorlint         # Error wrapping issues
-    - nolintlint        # Improper nolint directives
-    - stylecheck        # Style checks
-    - unconvert         # Unnecessary conversions
+    - errcheck
+    - govet
+    - staticcheck
+    - misspell
+    - ineffassign
+    - gosimple
+    - unused
+    - whitespace
+    - bodyclose
+    - errorlint
+    - nolintlint
+    - stylecheck
+    - unconvert
 
 linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
-
-  govet:
-    check-composites: true
-    check-tests: true
-
   misspell:
     locale: US
 
@@ -39,24 +32,18 @@ issues:
     - linters:
         - nolintlint
       text: "directive `//nolint` is unused"
-    
+
     # Allow underscore imports (used for side effects)
     - linters:
         - unused
       text: "imported but not used"
       source: "^import _"
-    
+
     # Allow intentional error ignoring with blank identifier in tests
     - linters:
         - errcheck
       source: "^\\s*_, _ :="
       text: "Error return value is not checked"
-
-  # Don't exclude test files from linting
-  include-tests: true
-  
-  # Don't treat as strict - allow warnings
-  strict: false
 
 output:
   formats:

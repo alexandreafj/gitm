@@ -12,7 +12,9 @@ func TestBranchCreate_SelectAll(t *testing.T) {
 	_, _ = newRepo(t, database, "repo2")
 
 	cmd := branchCreateCmd()
-	cmd.Flags().Set("all", "true")
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
 	if err := cmd.RunE(cmd, []string{"feature/test"}); err != nil {
 		t.Fatalf("branch create: %v", err)
 	}
@@ -35,8 +37,12 @@ func TestBranchRename_NoRemote(t *testing.T) {
 	mustRunGit(t, dir, "branch", "old")
 
 	cmd := branchRenameCmd()
-	cmd.Flags().Set("all", "true")
-	cmd.Flags().Set("no-remote", "true")
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	if err := cmd.Flags().Set("no-remote", "true"); err != nil {
+		t.Fatalf("set flag no-remote: %v", err)
+	}
 	if err := cmd.RunE(cmd, []string{"old", "new"}); err != nil {
 		t.Fatalf("branch rename: %v", err)
 	}
@@ -61,7 +67,9 @@ func TestBranchRename_Remote(t *testing.T) {
 	}
 
 	cmd := branchRenameCmd()
-	cmd.Flags().Set("all", "true")
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
 	if err := cmd.RunE(cmd, []string{"old", "new"}); err != nil {
 		t.Fatalf("branch rename: %v", err)
 	}

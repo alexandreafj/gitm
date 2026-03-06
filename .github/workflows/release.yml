@@ -82,9 +82,9 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+        shell: bash
         run: |
-          VERSION=${{ github.ref_name }}
-          go build -ldflags "-X main.version=$VERSION -s -w" -o ${{ matrix.output }} ./cmd/gitm
+          go build -ldflags "-X main.version=${{ github.ref_name }} -s -w" -o ${{ matrix.output }} ./cmd/gitm
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
