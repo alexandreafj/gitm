@@ -118,10 +118,6 @@ func runStashPop(cmd *cobra.Command, args []string) error {
 	return runStashApplyOrPopWithUI(liveUI{}, true)
 }
 
-func runStashApplyOrPop(pop bool) error {
-	return runStashApplyOrPopWithUI(liveUI{}, pop)
-}
-
 func runStashApplyOrPopWithUI(ui ui, pop bool) error {
 	repos, err := database.ListRepositories()
 	if err != nil {

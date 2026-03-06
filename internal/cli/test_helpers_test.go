@@ -142,14 +142,6 @@ func initRepoWithRemote(t *testing.T) (repoDir, originDir, branch string) {
 	return repoDir, originDir, branch
 }
 
-func gitBranchExists(dir, name string) bool {
-	return git.BranchExists(dir, name)
-}
-
-func gitRemoteBranchExists(dir, name string) bool {
-	return git.RemoteBranchExists(dir, name)
-}
-
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
@@ -170,12 +162,5 @@ func gitCreateBranch(t *testing.T, dir, name string) {
 	t.Helper()
 	if err := git.CreateBranch(dir, name); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
-	}
-}
-
-func gitCheckout(t *testing.T, dir, branch string) {
-	t.Helper()
-	if err := git.Checkout(dir, branch); err != nil {
-		t.Fatalf("Checkout: %v", err)
 	}
 }

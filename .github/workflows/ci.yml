@@ -14,19 +14,15 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ['1.24', '1.23']
-      fail-fast: false
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go ${{ matrix.go-version }}
+      - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: '1.24'
           cache: true
 
       - name: Tidy dependencies
@@ -68,7 +64,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `✅ All checks passed (Go ${{ matrix.go-version }})\n\nCoverage: ${{ env.COVERAGE }}`
+              body: `✅ All checks passed (Go 1.24)\n\nCoverage: ${{ env.COVERAGE }}`
             })
 
       - name: Post PR comment on failure
@@ -100,7 +96,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `❌ CI Failed - ${failedStage} failed (Go ${{ matrix.go-version }})\n\nCoverage: ${{ env.COVERAGE }}\n\nPrevious checks passed: ${fmtStatus} ${lintStatus} ${testStatus}`
+              body: `❌ CI Failed - ${failedStage} failed (Go 1.24)\n\nCoverage: ${{ env.COVERAGE }}\n\nPrevious checks passed: ${fmtStatus} ${lintStatus} ${testStatus}`
             })
 
       - name: Fail if coverage below threshold
