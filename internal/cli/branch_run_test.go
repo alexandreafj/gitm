@@ -8,8 +8,14 @@ import (
 
 func TestBranchCreate_SelectAll(t *testing.T) {
 	database = setupTestDB(t)
-	_, _ = newRepo(t, database, "repo1")
-	_, _ = newRepo(t, database, "repo2")
+	repo1Dir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repo1Dir, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+	repo2Dir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo2", "repo2", repo2Dir, "main"); err != nil {
+		t.Fatalf("AddRepository repo2: %v", err)
+	}
 
 	cmd := branchCreateCmd()
 	if err := cmd.Flags().Set("all", "true"); err != nil {

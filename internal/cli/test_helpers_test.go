@@ -161,10 +161,3 @@ func gitCurrentBranch(t *testing.T, dir string) string {
 	}
 	return branch
 }
-
-func gitCreateBranch(t *testing.T, dir, name string) {
-	t.Helper()
-	if err := git.CreateBranch(dir, name); err != nil {
-		t.Fatalf("CreateBranch: %v", err)
-	}
-}
