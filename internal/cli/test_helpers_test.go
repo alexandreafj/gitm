@@ -18,6 +18,7 @@ type fakeUI struct {
 	fileSelect  []string
 	commitErr   error
 	commitMsg   string
+	branchSeen  *string
 	branchErr   error
 	branchName  string
 }
@@ -42,9 +43,12 @@ func (f fakeUI) MultiSelect(repos []*db.Repository, title string, preSelectAll b
 	return repos, nil
 }
 
-func (f fakeUI) CommitMessageInput(repoAlias string) (string, error) {
+func (f fakeUI) CommitMessageInput(repoAlias, branchName string) (string, error) {
 	if f.commitErr != nil {
 		return "", f.commitErr
+	}
+	if f.branchSeen != nil {
+		*f.branchSeen = branchName
 	}
 	if f.commitMsg != "" {
 		return f.commitMsg, nil
