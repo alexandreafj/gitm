@@ -61,10 +61,18 @@ func TextInput(title, hint, placeholder string) (string, error) {
 
 // CommitMessageInput shows a single-line text prompt for a commit message.
 // Returns the entered message, or an error if the user cancels.
-func CommitMessageInput(repoAlias string) (string, error) {
+
+func CommitMessageInput(repoAlias, branchName string) (string, error) {
+	title := fmt.Sprintf("Commit message for %s", repoAlias)
+	hint := "Type your commit message  •  enter to confirm  •  esc to cancel"
+	if branchName != "" {
+		title = fmt.Sprintf("%s [%s]", title, branchName)
+		hint = fmt.Sprintf("Branch prefix %s will be added automatically  •  enter to confirm  •  esc to cancel", branchName)
+	}
+
 	return TextInput(
-		fmt.Sprintf("Commit message for %s", repoAlias),
-		"Type your commit message  •  enter to confirm  •  esc to cancel",
+		title,
+		hint,
 		"e.g. fix: correct null pointer in login handler",
 	)
 }

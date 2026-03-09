@@ -29,7 +29,7 @@ func initRepo(t *testing.T) string {
 		}
 	}
 
-	mustGit("init")
+	mustGit("init", "-b", "main")
 	mustGit("config", "user.email", "test@example.com")
 	mustGit("config", "user.name", "Test User")
 	mustGit("config", "commit.gpgsign", "false")
@@ -366,7 +366,7 @@ func TestResetSoftMultipleCommits(t *testing.T) {
 func TestForcePush(t *testing.T) {
 	// Create a bare repo to act as origin.
 	bareDir := t.TempDir()
-	mustRunGit(t, bareDir, "init", "--bare")
+	mustRunGit(t, bareDir, "init", "--bare", "--initial-branch=main")
 
 	// Create a working repo and push an initial commit.
 	workDir := initRepo(t)

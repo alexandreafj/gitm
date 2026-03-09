@@ -51,12 +51,16 @@ jobs:
       - name: Extract coverage percentage
         if: always()
         run: |
-          COV=$(go tool cover -func=./bin/coverage.out | grep total | awk '{printf "%.1f", $3}')
-          echo "COVERAGE=${COV}%" >> $GITHUB_ENV
+          if [ -f ./bin/coverage.out ]; then
+            COV=$(go tool cover -func=./bin/coverage.out | grep total | awk '{printf "%.1f", $3}')
+            echo "COVERAGE=${COV}%" >> $GITHUB_ENV
+          else
+            echo "COVERAGE=unavailable" >> $GITHUB_ENV
+          fi
         id: extract_cov
 
       - name: Post PR comment on success
-        if: github.event_name == 'pull_request' && success()
+        if: github.event_name == 'pull_request' && steps.format.outcome == 'success' && steps.lint.outcome == 'success' && steps.tests.outcome == 'success' && steps.coverage.outcome == 'success'
         uses: actions/github-script@v7
         with:
           script: |
@@ -92,11 +96,13 @@ jobs:
             const lintStatus = lintOutcome === 'success' ? 'Lint ✓' : 'Lint ✗';
             const testStatus = testOutcome === 'success' ? 'Tests ✓' : 'Tests ✗';
             
+            const coverageValue = process.env.COVERAGE || 'unavailable';
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `❌ CI Failed - ${failedStage} failed (Go 1.24)\n\nCoverage: ${{ env.COVERAGE }}\n\nPrevious checks passed: ${fmtStatus} ${lintStatus} ${testStatus}`
+              body: `❌ CI Failed - ${failedStage} failed (Go 1.24)\n\nCoverage: ${coverageValue}\n\nPrevious checks passed: ${fmtStatus} ${lintStatus} ${testStatus}`
             })
 
       - name: Fail if coverage below threshold

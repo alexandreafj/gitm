@@ -46,6 +46,10 @@ func runCommit(noPush bool) error {
 }
 
 func runCommitWithUI(ui ui, noPush bool) error {
+	return runCommitWithBranchLookup(ui, noPush, git.CurrentBranch)
+}
+
+func runCommitWithBranchLookup(ui ui, noPush bool, currentBranch func(string) (string, error)) error {
 	repos, err := database.ListRepositories()
 	if err != nil {
 		return fmt.Errorf("list repositories: %w", err)
@@ -147,7 +151,13 @@ func runCommitWithUI(ui ui, noPush bool) error {
 		}
 
 		// 3c. Commit message input.
-		message, err := ui.CommitMessageInput(repo.Alias)
+		branchName, err := currentBranch(repo.Path)
+		if err != nil {
+			color.Yellow("  ⚠  Cannot detect current branch: %v — continuing without branch prefix", err)
+			branchName = ""
+		}
+
+		message, err := ui.CommitMessageInput(repo.Alias, branchName)
 		if err != nil {
 			if err.Error() == "canceled" {
 				color.Yellow("  ⚠  Skipped (canceled commit message)")
@@ -157,6 +167,9 @@ func runCommitWithUI(ui ui, noPush bool) error {
 			color.Red("  ✗ Commit message error: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})
 			continue
+		}
+		if branchName != "" {
+			message = branchName + " " + message
 		}
 
 		// 3d. Stage files.

@@ -18,6 +18,7 @@ type fakeUI struct {
 	fileSelect  []string
 	commitErr   error
 	commitMsg   string
+	branchSeen  *string
 	branchErr   error
 	branchName  string
 }
@@ -42,9 +43,12 @@ func (f fakeUI) MultiSelect(repos []*db.Repository, title string, preSelectAll b
 	return repos, nil
 }
 
-func (f fakeUI) CommitMessageInput(repoAlias string) (string, error) {
+func (f fakeUI) CommitMessageInput(repoAlias, branchName string) (string, error) {
 	if f.commitErr != nil {
 		return "", f.commitErr
+	}
+	if f.branchSeen != nil {
+		*f.branchSeen = branchName
 	}
 	if f.commitMsg != "" {
 		return f.commitMsg, nil
@@ -102,7 +106,7 @@ func mustRunGit(t *testing.T, dir string, args ...string) string {
 func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	mustRunGit(t, dir, "init")
+	mustRunGit(t, dir, "init", "-b", "main")
 	mustRunGit(t, dir, "config", "user.email", "test@example.com")
 	mustRunGit(t, dir, "config", "user.name", "Test User")
 	mustRunGit(t, dir, "config", "commit.gpgsign", "false")
@@ -115,7 +119,7 @@ func initRepo(t *testing.T) string {
 func initBareRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	mustRunGit(t, dir, "init", "--bare")
+	mustRunGit(t, dir, "init", "--bare", "--initial-branch=main")
 	return dir
 }
 
@@ -156,11 +160,4 @@ func gitCurrentBranch(t *testing.T, dir string) string {
 		t.Fatalf("CurrentBranch: %v", err)
 	}
 	return branch
-}
-
-func gitCreateBranch(t *testing.T, dir, name string) {
-	t.Helper()
-	if err := git.CreateBranch(dir, name); err != nil {
-		t.Fatalf("CreateBranch: %v", err)
-	}
 }
