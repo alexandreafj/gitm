@@ -33,6 +33,9 @@ func TestRunCheckoutDefault(t *testing.T) {
 	if head == "" {
 		t.Error("expected branch to be set")
 	}
+	if head != "main" {
+		t.Fatalf("head = %q, want %q", head, "main")
+	}
 }
 
 func TestRunCheckoutBranch_SkipsDirty(t *testing.T) {
@@ -45,6 +48,10 @@ func TestRunCheckoutBranch_SkipsDirty(t *testing.T) {
 
 	if err := runCheckoutBranch([]*db.Repository{repo}, "feature/test"); err != nil {
 		t.Fatalf("runCheckoutBranch: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "main" {
+		t.Fatalf("head = %q, want %q", head, "main")
 	}
 }
 
@@ -89,5 +96,9 @@ func TestRunCheckoutInteractive(t *testing.T) {
 	ui := fakeUI{branchName: "feature/test"}
 	if err := runCheckoutInteractive([]*db.Repository{repo}, ui); err != nil {
 		t.Fatalf("runCheckoutInteractive: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "feature/test" {
+		t.Fatalf("head = %q, want %q", head, "feature/test")
 	}
 }

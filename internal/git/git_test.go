@@ -29,7 +29,7 @@ func initRepo(t *testing.T) string {
 		}
 	}
 
-	mustGit("init")
+	mustGit("init", "-b", "main")
 	mustGit("config", "user.email", "test@example.com")
 	mustGit("config", "user.name", "Test User")
 	mustGit("config", "commit.gpgsign", "false")

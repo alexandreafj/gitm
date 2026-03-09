@@ -13,7 +13,7 @@ import (
 func initBareRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	mustRunGit(t, dir, "init", "--bare")
+	mustRunGit(t, dir, "init", "--bare", "--initial-branch=main")
 	return dir
 }
 

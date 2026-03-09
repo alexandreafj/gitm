@@ -24,6 +24,13 @@ func TestBranchCreate_SelectAll(t *testing.T) {
 	if err := cmd.RunE(cmd, []string{"feature/test"}); err != nil {
 		t.Fatalf("branch create: %v", err)
 	}
+
+	if !git.BranchExists(repo1Dir, "feature/test") {
+		t.Fatal("expected feature/test to exist in repo1")
+	}
+	if !git.BranchExists(repo2Dir, "feature/test") {
+		t.Fatal("expected feature/test to exist in repo2")
+	}
 }
 
 func TestBranchRename_NoReposWithBranch(t *testing.T) {

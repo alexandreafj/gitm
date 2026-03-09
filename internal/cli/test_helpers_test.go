@@ -106,7 +106,7 @@ func mustRunGit(t *testing.T, dir string, args ...string) string {
 func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	mustRunGit(t, dir, "init")
+	mustRunGit(t, dir, "init", "-b", "main")
 	mustRunGit(t, dir, "config", "user.email", "test@example.com")
 	mustRunGit(t, dir, "config", "user.name", "Test User")
 	mustRunGit(t, dir, "config", "commit.gpgsign", "false")
@@ -119,7 +119,7 @@ func initRepo(t *testing.T) string {
 func initBareRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	mustRunGit(t, dir, "init", "--bare")
+	mustRunGit(t, dir, "init", "--bare", "--initial-branch=main")
 	return dir
 }
 
