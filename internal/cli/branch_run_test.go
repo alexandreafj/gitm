@@ -33,6 +33,52 @@ func TestBranchCreate_SelectAll(t *testing.T) {
 	}
 }
 
+func TestBranchCreate_UntrackedFilesAllowed(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	// Add an untracked file — should NOT block branch creation.
+	writeFile(t, repoDir, "untracked.txt", "I am untracked\n")
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"feature/untracked-test"}); err != nil {
+		t.Fatalf("branch create: %v", err)
+	}
+
+	if !git.BranchExists(repoDir, "feature/untracked-test") {
+		t.Fatal("expected feature/untracked-test to exist despite untracked file")
+	}
+}
+
+func TestBranchCreate_TrackedChangesBlocked(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	// Modify a tracked file — should still block branch creation.
+	writeFile(t, repoDir, "README.md", "modified content\n")
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"feature/should-be-skipped"}); err != nil {
+		t.Fatalf("branch create: %v", err)
+	}
+
+	if git.BranchExists(repoDir, "feature/should-be-skipped") {
+		t.Fatal("expected branch creation to be skipped due to tracked changes")
+	}
+}
+
 func TestBranchRename_NoReposWithBranch(t *testing.T) {
 	database = setupTestDB(t)
 	_, _ = newRepo(t, database, "repo1")

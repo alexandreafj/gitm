@@ -43,7 +43,7 @@ func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch stri
 			base = fromBranch
 		}
 
-		dirty, err := git.IsDirty(repo.Path)
+		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status: %w", err)
 		}
