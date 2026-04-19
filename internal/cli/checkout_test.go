@@ -35,3 +35,15 @@ func TestCheckoutCmdIsRunnable(t *testing.T) {
 		t.Error("checkoutCmd has no RunE function")
 	}
 }
+
+// TestCheckoutCmdHasRepoFlag verifies the --repo flag exists with -r shorthand.
+func TestCheckoutCmdHasRepoFlag(t *testing.T) {
+	cmd := checkoutCmd()
+	f := cmd.Flags().Lookup("repo")
+	if f == nil {
+		t.Fatal("checkoutCmd missing --repo flag")
+	}
+	if f.Shorthand != "r" {
+		t.Errorf("--repo shorthand = %q, want %q", f.Shorthand, "r")
+	}
+}

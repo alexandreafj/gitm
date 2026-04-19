@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alexandreferreira/gitm/internal/db"
@@ -12,7 +13,7 @@ func TestRunCheckoutWithUI_NoRepos(t *testing.T) {
 	database = setupTestDB(t)
 	ui := fakeUI{}
 
-	if err := runCheckoutWithUI(ui, []string{""}); err != nil {
+	if err := runCheckoutWithUI(ui, []string{""}, nil); err != nil {
 		t.Fatalf("runCheckoutWithUI: %v", err)
 	}
 }
@@ -100,5 +101,143 @@ func TestRunCheckoutInteractive(t *testing.T) {
 
 	if head := gitCurrentBranch(t, dir); head != "feature/test" {
 		t.Fatalf("head = %q, want %q", head, "feature/test")
+	}
+}
+
+func TestRunCheckoutWithUI_RepoFlag_DefaultBranch_SingleRepo(t *testing.T) {
+	database = setupTestDB(t)
+
+	dir1, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", dir1, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	dir2, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo2", "repo2", dir2, "main"); err != nil {
+		t.Fatalf("AddRepository repo2: %v", err)
+	}
+
+	// Put both repos on a feature branch.
+	mustRunGit(t, dir1, "checkout", "-b", "feature/work")
+	mustRunGit(t, dir2, "checkout", "-b", "feature/work")
+
+	// Checkout default branch only for repo1.
+	if err := runCheckoutWithUI(fakeUI{}, []string{"master"}, []string{"repo1"}); err != nil {
+		t.Fatalf("runCheckoutWithUI: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir1); head != "main" {
+		t.Fatalf("repo1 head = %q, want main", head)
+	}
+	if head := gitCurrentBranch(t, dir2); head != "feature/work" {
+		t.Fatalf("repo2 should stay on feature/work, got %q", head)
+	}
+}
+
+func TestRunCheckoutWithUI_RepoFlag_DefaultBranch_MultipleRepos(t *testing.T) {
+	database = setupTestDB(t)
+
+	dir1, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", dir1, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	dir2, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo2", "repo2", dir2, "main"); err != nil {
+		t.Fatalf("AddRepository repo2: %v", err)
+	}
+
+	dir3, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo3", "repo3", dir3, "main"); err != nil {
+		t.Fatalf("AddRepository repo3: %v", err)
+	}
+
+	mustRunGit(t, dir1, "checkout", "-b", "feature/work")
+	mustRunGit(t, dir2, "checkout", "-b", "feature/work")
+	mustRunGit(t, dir3, "checkout", "-b", "feature/work")
+
+	if err := runCheckoutWithUI(fakeUI{}, []string{"master"}, []string{"repo1", "repo3"}); err != nil {
+		t.Fatalf("runCheckoutWithUI: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir1); head != "main" {
+		t.Fatalf("repo1 head = %q, want main", head)
+	}
+	if head := gitCurrentBranch(t, dir2); head != "feature/work" {
+		t.Fatalf("repo2 should stay on feature/work, got %q", head)
+	}
+	if head := gitCurrentBranch(t, dir3); head != "main" {
+		t.Fatalf("repo3 head = %q, want main", head)
+	}
+}
+
+func TestRunCheckoutWithUI_RepoFlag_SpecificBranch(t *testing.T) {
+	database = setupTestDB(t)
+
+	dir1, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", dir1, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	dir2, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo2", "repo2", dir2, "main"); err != nil {
+		t.Fatalf("AddRepository repo2: %v", err)
+	}
+
+	// Create feature branch in both repos but we'll only checkout repo1.
+	mustRunGit(t, dir1, "checkout", "-b", "feature/targeted")
+	mustRunGit(t, dir1, "push", "--set-upstream", "origin", "feature/targeted")
+	mustRunGit(t, dir1, "checkout", "main")
+
+	mustRunGit(t, dir2, "checkout", "-b", "feature/targeted")
+	mustRunGit(t, dir2, "push", "--set-upstream", "origin", "feature/targeted")
+	mustRunGit(t, dir2, "checkout", "main")
+
+	if err := runCheckoutWithUI(fakeUI{}, []string{"feature/targeted"}, []string{"repo1"}); err != nil {
+		t.Fatalf("runCheckoutWithUI: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir1); head != "feature/targeted" {
+		t.Fatalf("repo1 head = %q, want feature/targeted", head)
+	}
+	if head := gitCurrentBranch(t, dir2); head != "main" {
+		t.Fatalf("repo2 should stay on main, got %q", head)
+	}
+}
+
+func TestRunCheckoutWithUI_RepoFlag_UnknownAlias(t *testing.T) {
+	database = setupTestDB(t)
+
+	dir1, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", dir1, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	err := runCheckoutWithUI(fakeUI{}, []string{"master"}, []string{"does-not-exist"})
+	if err == nil {
+		t.Fatal("expected error for unknown alias, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error = %q, want to contain \"not found\"", err.Error())
+	}
+}
+
+func TestRunCheckoutWithUI_RepoFlag_EmptySlice(t *testing.T) {
+	database = setupTestDB(t)
+
+	dir1, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", dir1, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	mustRunGit(t, dir1, "checkout", "-b", "feature/work")
+
+	// Empty slice should behave like nil — update all repos.
+	if err := runCheckoutWithUI(fakeUI{}, []string{"master"}, []string{}); err != nil {
+		t.Fatalf("runCheckoutWithUI: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir1); head != "main" {
+		t.Fatalf("repo1 head = %q, want main", head)
 	}
 }
