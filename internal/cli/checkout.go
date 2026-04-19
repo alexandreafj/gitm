@@ -18,6 +18,8 @@ var defaultBranchKeywords = map[string]bool{
 }
 
 func checkoutCmd() *cobra.Command {
+	var repoAliases []string
+
 	cmd := &cobra.Command{
 		Use:   "checkout [branch]",
 		Short: "Checkout a branch across repositories",
@@ -36,22 +38,28 @@ Three modes of operation:
       Checks out <branch-name> in ALL repos where it exists.
       Repos where the branch is not found are skipped with a warning.
 
-Repositories with uncommitted tracked changes are always skipped.`,
+Repositories with uncommitted tracked changes are always skipped.
+
+Use --repo to limit the operation to specific repositories by alias.`,
 		Example: `  gitm checkout
   gitm checkout master
-  gitm checkout feature/JIRA-12345`,
+  gitm checkout feature/JIRA-12345
+  gitm checkout master --repo=api-gateway,auth-service
+  gitm checkout feature/JIRA-12345 -r api-gateway`,
 		Args: cobra.ArbitraryArgs,
-		RunE: runCheckout,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCheckoutWithUI(liveUI{}, args, repoAliases)
+		},
 	}
+
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil,
+		"Limit checkout to specific repository aliases (comma-separated)")
+
 	return cmd
 }
 
-func runCheckout(cmd *cobra.Command, args []string) error {
-	return runCheckoutWithUI(liveUI{}, args)
-}
-
-func runCheckoutWithUI(ui ui, args []string) error {
-	repos, err := database.ListRepositories()
+func runCheckoutWithUI(ui ui, args []string, repoAliases []string) error {
+	repos, err := resolveRepos(repoAliases)
 	if err != nil {
 		return err
 	}

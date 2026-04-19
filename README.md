@@ -245,7 +245,7 @@ gitm repo rename v2 www-api-v2
 Switch repositories to a branch and pull. Three modes of operation. Runs in **parallel**.
 
 ```
-gitm checkout [branch]
+gitm checkout [branch] [--repo alias1,alias2]
 ```
 
 **Modes:**
@@ -255,6 +255,12 @@ gitm checkout [branch]
 | `gitm checkout` _(no args)_ | Interactive: multi-select repos, then type a branch name |
 | `gitm checkout master` or `gitm checkout main` | Switch **all** repos to their configured default branch + pull |
 | `gitm checkout <branch-name>` | Check out `<branch-name>` in **all** repos; skip with warning where it doesn't exist |
+
+**Flags:**
+
+| Flag | Shorthand | Description |
+|---|---|---|
+| `--repo` | `-r` | Limit checkout to specific repository aliases (comma-separated) |
 
 **Behaviour (all modes):**
 
@@ -276,6 +282,19 @@ Checking out default branch and pulling for 4 repositories…
 [payment-svc        ] ✓ on main — already up to date
 
 Done: 3 succeeded, 1 skipped
+```
+
+**Example — specific repos only:**
+
+```
+$ gitm checkout master --repo=api-gateway,auth-service
+
+Checking out default branch and pulling for 2 repositories…
+
+[api-gateway        ] ✓ on main — already up to date
+[auth-service       ] ✓ on master — 3 files changed, 47 insertions(+)
+
+Done: 2 succeeded, 0 skipped
 ```
 
 **Example — specific branch:**
