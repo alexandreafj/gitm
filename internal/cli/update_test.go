@@ -35,3 +35,15 @@ func TestUpdateCmdIsRunnable(t *testing.T) {
 		t.Error("updateCmd has no RunE function")
 	}
 }
+
+// TestUpdateCmdHasRepoFlag verifies the --repo flag is registered with shorthand -r.
+func TestUpdateCmdHasRepoFlag(t *testing.T) {
+	cmd := updateCmd()
+	f := cmd.Flags().Lookup("repo")
+	if f == nil {
+		t.Fatal("updateCmd missing --repo flag")
+	}
+	if f.Shorthand != "r" {
+		t.Errorf("--repo shorthand = %q, want %q", f.Shorthand, "r")
+	}
+}

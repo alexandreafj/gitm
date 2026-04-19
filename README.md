@@ -572,17 +572,41 @@ Nothing to discard — all repositories are clean.
 Pull the latest changes on the **current branch** of every repository in parallel. Unlike `checkout master`, this does **not** switch branches.
 
 ```
-gitm update
+gitm update [flags]
 ```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(all repos)_ | Limit update to specific repository aliases (comma-separated). |
 
 **Behaviour:**
 
-1. For each registered repository (in parallel):
+1. If `--repo` is specified, only the listed repos are updated. Otherwise, all registered repos are updated.
+2. For each repository (in parallel):
    - Checks for uncommitted changes — skips if dirty.
    - Runs `git pull --ff-only` on the current branch.
-2. Streams results live with a summary.
+3. Streams results live with a summary.
+4. If a `--repo` alias doesn't match any registered repository, the command exits with an error before pulling anything.
 
 **Use case:** You've been working on a feature branch for a while and want to pull in the latest changes your teammates pushed to the same branch across multiple repos.
+
+**Examples:**
+
+```bash
+# Update all registered repos
+gitm update
+
+# Update a single repo by alias
+gitm update --repo=api-gateway
+
+# Update multiple specific repos
+gitm update --repo=api-gateway,auth-service
+
+# Short form
+gitm update -r api-gateway,auth-service
+```
 
 **Example output:**
 
@@ -984,15 +1008,6 @@ make lint     # Run go vet + staticcheck
 make clean    # Remove ./bin/
 make tidy     # Tidy go.mod
 make help     # Show all targets
-```
-
-### Running locally during development
-
-```bash
-# Build and run a command in one step
-make run ARGS="repo list"
-make run ARGS="checkout master"
-make run ARGS="branch create feature/test --all"
 ```
 
 ### Adding a new command
