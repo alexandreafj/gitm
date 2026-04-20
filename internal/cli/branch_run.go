@@ -8,10 +8,10 @@ import (
 	"github.com/alexandreferreira/gitm/internal/runner"
 )
 
-func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch string) error {
+func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string) error {
 	branchName := args[0]
 
-	allRepos, err := database.ListRepositories()
+	allRepos, err := resolveRepos(repoAliases)
 	if err != nil {
 		return err
 	}
@@ -21,9 +21,13 @@ func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch stri
 	}
 
 	var chosen []*db.Repository
-	if selectAll {
+	switch {
+	case len(repoAliases) > 0:
+		// --repo provided: use resolved repos directly, no prompt.
 		chosen = allRepos
-	} else {
+	case selectAll:
+		chosen = allRepos
+	default:
 		chosen, err = ui.MultiSelect(
 			allRepos,
 			fmt.Sprintf("Select repositories for new branch: %s", branchName),
@@ -75,8 +79,8 @@ func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch stri
 	return nil
 }
 
-func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote bool) error {
-	allRepos, err := database.ListRepositories()
+func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote bool, repoAliases []string) error {
+	allRepos, err := resolveRepos(repoAliases)
 	if err != nil {
 		return err
 	}
@@ -97,9 +101,13 @@ func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote b
 	}
 
 	var chosen []*db.Repository
-	if selectAll {
+	switch {
+	case len(repoAliases) > 0:
+		// --repo provided: use repos-with-branch subset directly, no prompt.
 		chosen = reposWithBranch
-	} else {
+	case selectAll:
+		chosen = reposWithBranch
+	default:
 		chosen, err = ui.MultiSelect(
 			reposWithBranch,
 			fmt.Sprintf("Select repositories to rename: %s → %s", oldName, newName),
