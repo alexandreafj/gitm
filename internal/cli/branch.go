@@ -16,8 +16,9 @@ func branchCmd() *cobra.Command {
 
 func branchCreateCmd() *cobra.Command {
 	var (
-		selectAll  bool
-		fromBranch string
+		selectAll   bool
+		fromBranch  string
+		repoAliases []string
 	)
 
 	cmd := &cobra.Command{
@@ -25,26 +26,32 @@ func branchCreateCmd() *cobra.Command {
 		Short: "Create a new branch in selected repositories",
 		Long: `Interactively select repositories, then create a new branch in each one.
 The branch is created from the repository's default branch (main/master)
-unless --from is specified. All operations run in parallel.`,
+unless --from is specified. All operations run in parallel.
+
+Use --repo to target specific repositories by alias, bypassing the interactive
+selection UI entirely.`,
 		Example: `  gitm branch create feature/JIRA-123
   gitm branch create feature/JIRA-123 --all
+  gitm branch create feature/JIRA-123 --repo api-gateway,auth-service
   gitm branch create hotfix/bug --from develop`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBranchCreateWithUI(liveUI{}, args, selectAll, fromBranch)
+			return runBranchCreateWithUI(liveUI{}, args, selectAll, fromBranch, repoAliases)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all registered repositories without prompting")
 	cmd.Flags().StringVarP(&fromBranch, "from", "f", "", "Base branch to create from (default: repo's default branch)")
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 
 	return cmd
 }
 
 func branchRenameCmd() *cobra.Command {
 	var (
-		selectAll bool
-		noRemote  bool
+		selectAll   bool
+		noRemote    bool
+		repoAliases []string
 	)
 
 	cmd := &cobra.Command{
@@ -56,18 +63,22 @@ Steps per repository:
   2. git push origin --delete <old>   (delete old remote branch)
   3. git push --set-upstream origin <new>  (push new name + set tracking)
 
-Use --no-remote to skip the remote steps.`,
+Use --no-remote to skip the remote steps.
+Use --repo to target specific repositories by alias, bypassing the interactive
+selection UI entirely.`,
 		Example: `  gitm branch rename feature/JIRA-123 feature/JIRA-456
   gitm branch rename feature/JIRA-123 feature/JIRA-456 --all
+  gitm branch rename feature/JIRA-123 feature/JIRA-456 --repo api-gateway,auth-service
   gitm branch rename old-name new-name --no-remote`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBranchRenameWithUI(liveUI{}, args[0], args[1], selectAll, noRemote)
+			return runBranchRenameWithUI(liveUI{}, args[0], args[1], selectAll, noRemote, repoAliases)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all repositories that have the old branch")
 	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only rename locally, skip remote push")
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 
 	return cmd
 }

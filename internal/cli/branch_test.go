@@ -45,6 +45,31 @@ func TestBranchCreateCmdExists(t *testing.T) {
 	}
 }
 
+// TestBranchCreateCmdFlags verifies all expected flags are registered on branch create.
+func TestBranchCreateCmdFlags(t *testing.T) {
+	cmd := branchCreateCmd()
+
+	flags := []struct {
+		long  string
+		short string
+	}{
+		{"all", "a"},
+		{"from", "f"},
+		{"repo", "r"},
+	}
+
+	for _, f := range flags {
+		flag := cmd.Flags().Lookup(f.long)
+		if flag == nil {
+			t.Errorf("flag --%s not found on branch create", f.long)
+			continue
+		}
+		if flag.Shorthand != f.short {
+			t.Errorf("flag --%s: expected shorthand -%s, got -%s", f.long, f.short, flag.Shorthand)
+		}
+	}
+}
+
 // TestBranchRenameCmdExists verifies the rename subcommand exists.
 func TestBranchRenameCmdExists(t *testing.T) {
 	cmd := branchRenameCmd()
@@ -54,5 +79,30 @@ func TestBranchRenameCmdExists(t *testing.T) {
 
 	if cmd.Use == "" {
 		t.Error("branchRenameCmd has empty Use")
+	}
+}
+
+// TestBranchRenameCmdFlags verifies all expected flags are registered on branch rename.
+func TestBranchRenameCmdFlags(t *testing.T) {
+	cmd := branchRenameCmd()
+
+	flags := []struct {
+		long  string
+		short string
+	}{
+		{"all", "a"},
+		{"no-remote", ""},
+		{"repo", "r"},
+	}
+
+	for _, f := range flags {
+		flag := cmd.Flags().Lookup(f.long)
+		if flag == nil {
+			t.Errorf("flag --%s not found on branch rename", f.long)
+			continue
+		}
+		if flag.Shorthand != f.short {
+			t.Errorf("flag --%s: expected shorthand %q, got %q", f.long, f.short, flag.Shorthand)
+		}
 	}
 }

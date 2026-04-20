@@ -338,7 +338,7 @@ Checking out branch "feature/JIRA-12345" in 2 repositories…
 
 ### `gitm branch create`
 
-Create a new branch in selected repositories. An interactive multi-select UI lets you choose which repositories to apply the operation to.
+Create a new branch in selected repositories. An interactive multi-select UI lets you choose which repositories to apply the operation to. Use `--repo` to skip the UI entirely and target specific repositories by alias.
 
 ```
 gitm branch create <branch-name> [flags]
@@ -356,6 +356,7 @@ gitm branch create <branch-name> [flags]
 |---|---|---|---|
 | `--all` | `-a` | false | Skip the selection UI and apply to all registered repositories. |
 | `--from` | `-f` | _(repo default branch)_ | Base branch to create from instead of the repo's default branch. |
+| `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
 
 **Interactive UI:**
 
@@ -402,8 +403,14 @@ gitm branch create feature/JIRA-456
 # Create in all repos without prompting
 gitm branch create feature/JIRA-456 --all
 
+# Create only in specific repos by alias (no prompt)
+gitm branch create feature/AA-1 --repo api-gateway,auth-service
+
 # Create from a specific base branch
 gitm branch create hotfix/critical-bug --from develop
+
+# Target specific repos and use a custom base branch
+gitm branch create feature/AA-1 --repo api-gateway --from develop
 ```
 
 ---
@@ -429,6 +436,7 @@ gitm branch rename <old-name> <new-name> [flags]
 |---|---|---|---|
 | `--all` | `-a` | false | Apply to all repositories that have the old branch. |
 | `--no-remote` | — | false | Only rename locally. Skip deleting the old remote branch and pushing the new one. |
+| `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
 
 **Behaviour:**
 
@@ -448,6 +456,9 @@ gitm branch rename feature/JIRA-123 feature/JIRA-456
 
 # Apply to all repos that have the branch
 gitm branch rename feature/JIRA-123 feature/JIRA-456 --all
+
+# Rename only in specific repos by alias (no prompt)
+gitm branch rename feature/JIRA-123 feature/JIRA-456 --repo api-gateway,auth-service
 
 # Local rename only (skip remote)
 gitm branch rename old-name new-name --no-remote
