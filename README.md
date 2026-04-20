@@ -101,6 +101,9 @@ gitm repo add /path/to/docs-api/v1 --alias docs-api-v1
 # Or register the current directory
 cd /path/to/my-repo && gitm repo add .
 
+# Got a folder full of repos? Register them all at once
+gitm repo add /path/to/projects --auto-detect
+
 # 2. See all registered repos
 gitm repo list
 
@@ -139,7 +142,8 @@ gitm repo add <path> [path...]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--alias` | _(directory name)_ | Custom display name for the repository. Must be unique across all registered repos. Useful when two repos share the same directory name (e.g. two repos both named `v1`). |
+| `--alias` | _(directory name)_ | Custom display name for the repository. Must be unique across all registered repos. Useful when two repos share the same directory name (e.g. two repos both named `v1`). Cannot be combined with `--auto-detect`. |
+| `--auto-detect` | false | Scan the immediate subdirectories of the given path and register every git repository found. Skips plain directories and hidden directories (names starting with `.`). Cannot be combined with `--alias`. |
 
 **Examples:**
 
@@ -156,6 +160,39 @@ gitm repo add .
 # Add two repos that share the same directory name using aliases
 gitm repo add /home/user/work/www-api/v1 --alias www-api-v1
 gitm repo add /home/user/work/docs-api/v1 --alias docs-api-v1
+
+# Scan a parent folder and register every git repo found inside it
+gitm repo add /home/user/work --auto-detect
+```
+
+**`--auto-detect` example output:**
+
+```
+$ gitm repo add /home/user/work --auto-detect
+
+Found 4 git repository(ies) in /home/user/work
+
+  ✓ added api-gateway (default branch: main)
+  ✓ added auth-service (default branch: master)
+  ✓ added frontend (default branch: main)
+  ✓ added payment-svc (default branch: main)
+
+4 repository(ies) registered. Run `gitm repo list` to see all.
+```
+
+If some repos are already registered, they are reported as skipped (⚠) and do not cause an error:
+
+```
+$ gitm repo add /home/user/work --auto-detect
+
+Found 4 git repository(ies) in /home/user/work
+
+  ✓ added auth-service (default branch: master)
+  ⚠ /home/user/work/api-gateway: already registered as "api-gateway"
+  ⚠ /home/user/work/frontend: already registered as "frontend"
+  ✓ added payment-svc (default branch: main)
+
+2 repository(ies) registered. Run `gitm repo list` to see all.
 ```
 
 **Behaviour:**
@@ -165,6 +202,7 @@ gitm repo add /home/user/work/docs-api/v1 --alias docs-api-v1
 - The alias (display name) defaults to the directory base name. Use `--alias` to override — this is required when two repos share the same directory name.
 - If the alias is already taken by another path, prints a clear error with a suggested `--alias` command.
 - Stores the alias, path, and default branch in `~/.gitm/gitm.db`.
+- With `--auto-detect`: scans only **immediate subdirectories** (depth = 1). Hidden directories (`.git`, `.cache`, etc.) are always skipped.
 
 ---
 
