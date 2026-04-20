@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -31,22 +32,54 @@ func repoCmd() *cobra.Command {
 // repoAddCmd adds one or more repositories.
 func repoAddCmd() *cobra.Command {
 	var alias string
+	var autoDetect bool
 
 	cmd := &cobra.Command{
 		Use:   "add <path> [path...]",
 		Short: "Register one or more git repositories",
+		Long: `Register one or more local git repositories with gitm.
+
+Paths can be absolute or relative. Use "." for the current directory.
+
+With --auto-detect, provide a single parent directory and gitm will scan its
+immediate subdirectories, registering every git repository it finds. This is
+the fastest way to onboard a folder full of repos without adding them one by one.`,
 		Example: `  gitm repo add .
   gitm repo add /home/user/work/api-gateway
   gitm repo add /home/user/work/api-gateway /home/user/work/auth-service
-  gitm repo add /home/user/work/www-api/v1 --alias www-v1`,
+  gitm repo add /home/user/work/www-api/v1 --alias www-v1
+
+  # Scan a folder and register every git repo found inside it
+  gitm repo add /home/user/work --auto-detect`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias != "" && len(args) > 1 {
 				return fmt.Errorf("--alias can only be used when adding a single repository")
 			}
+			if autoDetect && alias != "" {
+				return fmt.Errorf("--auto-detect and --alias cannot be used together")
+			}
+			if autoDetect && len(args) > 1 {
+				return fmt.Errorf("--auto-detect requires exactly one path argument (the parent directory to scan)")
+			}
+
+			// --auto-detect: expand the single parent dir into its git-repo children.
+			paths := args
+			if autoDetect {
+				discovered, err := discoverRepos(args[0])
+				if err != nil {
+					return err
+				}
+				if len(discovered) == 0 {
+					fmt.Println("No git repositories found in the specified directory.")
+					return nil
+				}
+				fmt.Printf("Found %d git repository(ies) in %s\n\n", len(discovered), args[0])
+				paths = discovered
+			}
 
 			var added, failed int
-			for _, arg := range args {
+			for _, arg := range paths {
 				abs, err := filepath.Abs(arg)
 				if err != nil {
 					color.Red("  ✗ %s: cannot resolve path: %v", arg, err)
@@ -108,7 +141,44 @@ func repoAddCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&alias, "alias", "", "Custom display name for the repository (must be unique)")
+	cmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Scan immediate subdirectories of the given path and register every git repository found")
 	return cmd
+}
+
+// discoverRepos scans the immediate subdirectories of parentDir and returns
+// the absolute paths of every directory that is the root of a git repository.
+// Hidden directories (those whose name starts with ".") are skipped.
+func discoverRepos(parentDir string) ([]string, error) {
+	abs, err := filepath.Abs(parentDir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve path %q: %w", parentDir, err)
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("cannot access %q: %w", abs, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%q is not a directory", abs)
+	}
+
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read directory %q: %w", abs, err)
+	}
+
+	var repos []string
+	for _, entry := range entries {
+		// Skip files and hidden directories.
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		candidate := filepath.Join(abs, entry.Name())
+		if git.IsGitRepo(candidate) {
+			repos = append(repos, candidate)
+		}
+	}
+	return repos, nil
 }
 
 // repoListCmd lists all registered repositories.

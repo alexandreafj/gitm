@@ -31,13 +31,22 @@ func IsGitRepo(path string) bool {
 		return false
 	}
 	// Confirm the root matches the supplied path (handles nested dirs).
-	abs, err := filepath.Abs(path)
+	// EvalSymlinks is used on both sides so that macOS /var → /private/var
+	// symlinks (and similar) do not cause false negatives.
+	abs, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return false
+		// Fall back to Abs if the path cannot be resolved (e.g. doesn't exist).
+		abs, err = filepath.Abs(path)
+		if err != nil {
+			return false
+		}
 	}
-	repoRoot, err := filepath.Abs(out)
+	repoRoot, err := filepath.EvalSymlinks(out)
 	if err != nil {
-		return false
+		repoRoot, err = filepath.Abs(out)
+		if err != nil {
+			return false
+		}
 	}
 	return abs == repoRoot
 }
