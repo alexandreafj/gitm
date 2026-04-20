@@ -324,3 +324,68 @@ func TestDiscoverReposFileNotDir(t *testing.T) {
 		t.Fatal("expected error when path is a file")
 	}
 }
+
+// TestDiscoverReposFollowsSymlinks verifies that symlinked directories
+// pointing to git repos are discovered (not skipped).
+func TestDiscoverReposFollowsSymlinks(t *testing.T) {
+	// Create the real repo outside the parent directory.
+	realRepo := t.TempDir()
+	mustRunGit(t, realRepo, "init", "-b", "main")
+	mustRunGit(t, realRepo, "config", "user.email", "test@example.com")
+	mustRunGit(t, realRepo, "config", "user.name", "Test User")
+	mustRunGit(t, realRepo, "config", "commit.gpgsign", "false")
+	writeFile(t, realRepo, "README.md", "# real repo\n")
+	mustRunGit(t, realRepo, "add", ".")
+	mustRunGit(t, realRepo, "commit", "-m", "init")
+
+	// Create a parent directory with a symlink to the real repo.
+	parent := t.TempDir()
+	link := filepath.Join(parent, "linked-repo")
+	if err := os.Symlink(realRepo, link); err != nil {
+		t.Skipf("cannot create symlink (OS restriction): %v", err)
+	}
+
+	repos, err := discoverRepos(parent)
+	if err != nil {
+		t.Fatalf("discoverRepos: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo (via symlink), got %d: %v", len(repos), repos)
+	}
+}
+
+// TestRepoAddNormalizesSymlinkedPaths verifies that adding the same repo via
+// two different paths (real path and symlink) does not create a duplicate.
+func TestRepoAddNormalizesSymlinkedPaths(t *testing.T) {
+	d := setupTestDB(t)
+
+	// Create a real repo.
+	realRepo := initRepo(t)
+
+	// Create a symlink to it.
+	tmp := t.TempDir()
+	link := filepath.Join(tmp, "linked")
+	if err := os.Symlink(realRepo, link); err != nil {
+		t.Skipf("cannot create symlink (OS restriction): %v", err)
+	}
+
+	// Add via the real path first.
+	cmd1 := repoAddCmd()
+	if err := cmd1.RunE(cmd1, []string{realRepo}); err != nil {
+		t.Fatalf("add real path: %v", err)
+	}
+
+	// Add via the symlink — should NOT create a duplicate.
+	cmd2 := repoAddCmd()
+	if err := cmd2.RunE(cmd2, []string{link}); err != nil {
+		t.Fatalf("add symlink path: %v", err)
+	}
+
+	repos, err := d.ListRepositories()
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo (no duplicate), got %d", len(repos))
+	}
+}

@@ -87,6 +87,14 @@ the fastest way to onboard a folder full of repos without adding them one by one
 					continue
 				}
 
+				// Resolve symlinks so the canonical path is persisted.
+				// This prevents registering the same repo twice under
+				// different-but-equivalent paths (e.g. /var/... vs
+				// /private/var/... on macOS).
+				if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+					abs = resolved
+				}
+
 				if !git.IsGitRepo(abs) {
 					color.Red("  ✗ %s: not a git repository", abs)
 					failed++
@@ -169,11 +177,21 @@ func discoverRepos(parentDir string) ([]string, error) {
 
 	var repos []string
 	for _, entry := range entries {
-		// Skip files and hidden directories.
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+		// Skip hidden entries (e.g. .git, .cache).
+		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
+
 		candidate := filepath.Join(abs, entry.Name())
+
+		// Use os.Stat (not entry.IsDir) so that symlinks pointing to
+		// directories are followed. A common layout is:
+		//   parent/linked-repo -> /real/repo
+		info, err := os.Stat(candidate)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+
 		if git.IsGitRepo(candidate) {
 			repos = append(repos, candidate)
 		}
