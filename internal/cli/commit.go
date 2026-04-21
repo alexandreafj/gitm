@@ -117,15 +117,21 @@ func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, current
 	var chosen []*db.Repository
 	if len(repoAliases) > 0 {
 		// --repo bypasses the UI — use all dirty, unprotected candidates directly.
+		protectedCount := 0
 		for _, c := range candidates {
 			if !c.protected {
 				chosen = append(chosen, c.repo)
 			} else {
+				protectedCount++
 				color.Yellow("  ⚠  %s: on default branch — skipping (protected)", c.repo.Alias)
 			}
 		}
 		if len(chosen) == 0 {
-			fmt.Println("No dirty repositories to commit in the specified repos.")
+			if protectedCount > 0 {
+				fmt.Println("All dirty repositories are on their default branch (protected). Switch to a feature branch first.")
+			} else {
+				fmt.Println("No dirty repositories found in the specified repos.")
+			}
 			return nil
 		}
 	} else {

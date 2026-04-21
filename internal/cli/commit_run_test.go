@@ -267,3 +267,26 @@ func TestRunCommit_RepoFlag_SkipsNonDirtyRepoSilently(t *testing.T) {
 		t.Errorf("repo1: unexpected commit in clean repo: %s", log1)
 	}
 }
+
+func TestRunCommit_RepoFlag_AllDirtyProtected(t *testing.T) {
+	database = setupTestDB(t)
+
+	// repo1 — dirty but on default branch (protected)
+	repo1Dir := initRepo(t)
+	writeFile(t, repo1Dir, "change.txt", "dirty\n")
+	if _, err := database.AddRepository("repo1", "repo1", repo1Dir, "main"); err != nil {
+		t.Fatalf("AddRepository repo1: %v", err)
+	}
+
+	ui := fakeUI{commitMsg: "should not be called"}
+	// Should not error — protected repos are skipped gracefully.
+	if err := runCommitWithUI(ui, true, []string{"repo1"}); err != nil {
+		t.Fatalf("runCommitWithUI: %v", err)
+	}
+
+	// Confirm no commit was made.
+	log1 := mustRunGit(t, repo1Dir, "log", "--oneline")
+	if strings.Contains(log1, "should not be called") {
+		t.Errorf("repo1: unexpected commit on protected branch: %s", log1)
+	}
+}

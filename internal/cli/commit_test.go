@@ -50,11 +50,10 @@ func TestCommitCmdFlags(t *testing.T) {
 
 	flags := []struct {
 		long      string
-		short     string
 		wantShort string
 	}{
-		{long: "no-push", short: "", wantShort: ""},
-		{long: "repo", short: "r", wantShort: "r"},
+		{long: "no-push", wantShort: ""},
+		{long: "repo", wantShort: "r"},
 	}
 
 	for _, f := range flags {
