@@ -693,7 +693,7 @@ Done: 3 succeeded, 1 skipped
 
 ### `gitm commit`
 
-Interactively stage files and commit across dirty repositories. Walks you through each selected repository **sequentially** — pick files, write a message, and push.
+Interactively stage files and commit across dirty repositories. Walks you through each selected repository **sequentially** — pick files, write a message, and push. Use `--repo` to skip the selection UI and target specific repositories by alias.
 
 ```
 gitm commit [flags]
@@ -701,15 +701,16 @@ gitm commit [flags]
 
 **Flags:**
 
-| Flag | Default | Description |
-|---|---|---|
-| `--no-push` | false | Commit but skip `git push` after each commit. |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--no-push` | — | false | Commit but skip `git push` after each commit. |
+| `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive multi-select UI. Non-dirty repos in the list are silently skipped. |
 
 **What it does:**
 
-1. **Scans** all registered repositories for uncommitted changes.
+1. **Scans** the registered repositories (all, or only those in `--repo`) for uncommitted changes.
 2. **Filters** to dirty repos only — repos on their default branch are shown but marked `⛔ protected branch` and cannot be selected.
-3. **Multi-select UI** — pick which repos you want to commit.
+3. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
 4. For each selected repo, **sequentially**:
    - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, dim `??`). Nothing is pre-selected.
    - **Commit message input** — single-line text input; rejects empty messages.
@@ -780,6 +781,12 @@ gitm commit
 
 # Interactive commit, skip push
 gitm commit --no-push
+
+# Commit only specific repos by alias (no selection prompt)
+gitm commit --repo api-gateway,auth-service
+
+# Commit specific repos and skip push
+gitm commit --repo api-gateway --no-push
 ```
 
 ---

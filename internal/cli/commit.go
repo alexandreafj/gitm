@@ -11,7 +11,10 @@ import (
 )
 
 func commitCmd() *cobra.Command {
-	var noPush bool
+	var (
+		noPush      bool
+		repoAliases []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "commit",
@@ -22,13 +25,21 @@ lets you pick which repos to commit, then walks through each one sequentially:
   2. Enter a commit message
   3. Stage selected files, commit, and push (use --no-push to skip push)
 
-Repositories on their default branch are shown but cannot be selected (protected).`,
+Repositories on their default branch are shown but cannot be selected (protected).
+
+Use --repo to target specific repositories by alias, bypassing the interactive
+multi-select UI entirely. Non-dirty repos in the list are silently skipped.`,
+		Example: `  gitm commit
+  gitm commit --no-push
+  gitm commit --repo api-gateway,auth-service
+  gitm commit --repo api-gateway --no-push`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommit(noPush)
+			return runCommit(noPush, repoAliases)
 		},
 	}
 
 	cmd.Flags().BoolVar(&noPush, "no-push", false, "Skip git push after committing")
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 
 	return cmd
 }
@@ -41,18 +52,18 @@ type repoCommitResult struct {
 	pushed  bool
 }
 
-func runCommit(noPush bool) error {
-	return runCommitWithUI(liveUI{}, noPush)
+func runCommit(noPush bool, repoAliases []string) error {
+	return runCommitWithUI(liveUI{}, noPush, repoAliases)
 }
 
-func runCommitWithUI(ui ui, noPush bool) error {
-	return runCommitWithBranchLookup(ui, noPush, git.CurrentBranch)
+func runCommitWithUI(ui ui, noPush bool, repoAliases []string) error {
+	return runCommitWithBranchLookup(ui, noPush, repoAliases, git.CurrentBranch)
 }
 
-func runCommitWithBranchLookup(ui ui, noPush bool, currentBranch func(string) (string, error)) error {
-	repos, err := database.ListRepositories()
+func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, currentBranch func(string) (string, error)) error {
+	repos, err := resolveRepos(repoAliases)
 	if err != nil {
-		return fmt.Errorf("list repositories: %w", err)
+		return err
 	}
 	if len(repos) == 0 {
 		return fmt.Errorf("no repositories registered — run `gitm repo add <path>` first")
@@ -102,17 +113,33 @@ func runCommitWithBranchLookup(ui ui, noPush bool, currentBranch func(string) (s
 		}
 	}
 
-	// Step 2: Multi-select repos.
-	chosen, err := ui.MultiSelect(
-		displayRepos,
-		"Select repositories to commit",
-		false,
-		disabledIdxs,
-	)
-	if err != nil {
-		// "no repositories selected" or "canceled" — not a fatal error.
-		fmt.Println(err)
-		return nil
+	// Step 2: Multi-select repos (skipped when --repo is provided).
+	var chosen []*db.Repository
+	if len(repoAliases) > 0 {
+		// --repo bypasses the UI — use all dirty, unprotected candidates directly.
+		for _, c := range candidates {
+			if !c.protected {
+				chosen = append(chosen, c.repo)
+			} else {
+				color.Yellow("  ⚠  %s: on default branch — skipping (protected)", c.repo.Alias)
+			}
+		}
+		if len(chosen) == 0 {
+			fmt.Println("No dirty repositories to commit in the specified repos.")
+			return nil
+		}
+	} else {
+		chosen, err = ui.MultiSelect(
+			displayRepos,
+			"Select repositories to commit",
+			false,
+			disabledIdxs,
+		)
+		if err != nil {
+			// "no repositories selected" or "canceled" — not a fatal error.
+			fmt.Println(err)
+			return nil
+		}
 	}
 
 	// Step 3: Sequential per-repo commit workflow.
