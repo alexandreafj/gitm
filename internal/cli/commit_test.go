@@ -43,3 +43,27 @@ func TestCommitCmdIsRunnable(t *testing.T) {
 		t.Error("commitCmd has no RunE function")
 	}
 }
+
+// TestCommitCmdFlags verifies all expected flags are registered on commit.
+func TestCommitCmdFlags(t *testing.T) {
+	cmd := commitCmd()
+
+	flags := []struct {
+		long      string
+		wantShort string
+	}{
+		{long: "no-push", wantShort: ""},
+		{long: "repo", wantShort: "r"},
+	}
+
+	for _, f := range flags {
+		flag := cmd.Flags().Lookup(f.long)
+		if flag == nil {
+			t.Errorf("flag --%s not found on commit", f.long)
+			continue
+		}
+		if flag.Shorthand != f.wantShort {
+			t.Errorf("flag --%s: expected shorthand %q, got %q", f.long, f.wantShort, flag.Shorthand)
+		}
+	}
+}
