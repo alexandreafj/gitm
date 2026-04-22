@@ -43,11 +43,9 @@ func repoAddCmd() *cobra.Command {
 Paths can be absolute or relative. Use "." for the current directory.
 
 With --auto-detect, provide a single parent directory and gitm will scan its
-immediate subdirectories, registering every git repository it finds. This is
-the fastest way to onboard a folder full of repos without adding them one by one.
-
-Use --depth N with --auto-detect to scan N levels deep (default 1). This is
-useful when repos are nested inside grouping folders (e.g. project/v1, project/v2).`,
+subdirectories, registering every git repository it finds. By default it scans
+one level deep (immediate children); use --depth N to scan N levels deep. This
+is useful when repos are nested inside grouping folders (e.g. project/v1, project/v2).`,
 		Example: `  gitm repo add .
   gitm repo add /home/user/work/api-gateway
   gitm repo add /home/user/work/api-gateway /home/user/work/auth-service
@@ -162,7 +160,7 @@ useful when repos are nested inside grouping folders (e.g. project/v1, project/v
 	}
 
 	cmd.Flags().StringVar(&alias, "alias", "", "Custom display name for the repository (must be unique)")
-	cmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Scan immediate subdirectories of the given path and register every git repository found")
+	cmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Scan subdirectories of the given path and register every git repository found (default depth 1; use --depth to scan deeper)")
 	cmd.Flags().IntVar(&depth, "depth", 1, "How many directory levels to scan when using --auto-detect (default 1)")
 	return cmd
 }
@@ -186,6 +184,8 @@ func discoverRepos(parentDir string, maxDepth int) ([]string, error) {
 	}
 
 	var repos []string
+	visited := make(map[string]bool)
+
 	var walk func(dir string, currentDepth int) error
 	walk = func(dir string, currentDepth int) error {
 		if currentDepth > maxDepth {
@@ -210,6 +210,15 @@ func discoverRepos(parentDir string, maxDepth int) ([]string, error) {
 			if err != nil || !info.IsDir() {
 				continue
 			}
+
+			realPath, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				continue
+			}
+			if visited[realPath] {
+				continue
+			}
+			visited[realPath] = true
 
 			if git.IsGitRepo(candidate) {
 				repos = append(repos, candidate)

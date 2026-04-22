@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alexandreferreira/gitm/internal/db"
@@ -257,17 +258,32 @@ func TestRepoAddAutoDetectSkipsHiddenDirs(t *testing.T) {
 // TestRepoAddDepthRejectsWithoutAutoDetect verifies that --depth without
 // --auto-detect returns an error.
 func TestRepoAddDepthRejectsWithoutAutoDetect(t *testing.T) {
+	setupTestDB(t)
+
+	parent := t.TempDir()
+	initRepoAt(t, filepath.Join(parent, "some-repo"))
+
 	cmd := repoAddCmd()
 	if err := cmd.Flags().Set("depth", "2"); err != nil {
 		t.Fatalf("set flag: %v", err)
 	}
-	if err := cmd.RunE(cmd, []string{"/tmp/some-dir"}); err == nil {
+	err := cmd.RunE(cmd, []string{parent})
+	if err == nil {
 		t.Fatal("expected error when --depth is used without --auto-detect")
+	}
+	want := "--depth can only be used with --auto-detect"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("expected error containing %q, got %q", want, err.Error())
 	}
 }
 
 // TestRepoAddDepthRejectsZero verifies that --depth=0 returns an error.
 func TestRepoAddDepthRejectsZero(t *testing.T) {
+	setupTestDB(t)
+
+	parent := t.TempDir()
+	initRepoAt(t, filepath.Join(parent, "some-repo"))
+
 	cmd := repoAddCmd()
 	if err := cmd.Flags().Set("auto-detect", "true"); err != nil {
 		t.Fatalf("set flag: %v", err)
@@ -275,8 +291,13 @@ func TestRepoAddDepthRejectsZero(t *testing.T) {
 	if err := cmd.Flags().Set("depth", "0"); err != nil {
 		t.Fatalf("set flag: %v", err)
 	}
-	if err := cmd.RunE(cmd, []string{"/tmp/some-dir"}); err == nil {
+	err := cmd.RunE(cmd, []string{parent})
+	if err == nil {
 		t.Fatal("expected error when --depth is 0")
+	}
+	want := "--depth must be at least 1"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("expected error containing %q, got %q", want, err.Error())
 	}
 }
 
