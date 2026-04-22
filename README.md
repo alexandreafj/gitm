@@ -205,6 +205,7 @@ gitm repo add <path> [path...]
 |---|---|---|
 | `--alias` | _(directory name)_ | Custom display name for the repository. Must be unique across all registered repos. Useful when two repos share the same directory name (e.g. two repos both named `v1`). Cannot be combined with `--auto-detect`. |
 | `--auto-detect` | false | Scan the immediate subdirectories of the given path and register every git repository found. Skips plain directories and hidden directories (names starting with `.`). Cannot be combined with `--alias`. |
+| `--depth` | 1 | How many directory levels to scan when using `--auto-detect`. Use `--depth 2` when repos are nested inside grouping folders (e.g. `project/v1`). Requires `--auto-detect`. |
 
 **Examples:**
 
@@ -224,6 +225,9 @@ gitm repo add /home/user/work/docs-api/v1 --alias docs-api-v1
 
 # Scan a parent folder and register every git repo found inside it
 gitm repo add /home/user/work --auto-detect
+
+# Scan two levels deep to find repos in subfolders (e.g. api-group/v1, api-group/v2)
+gitm repo add /home/user/work --auto-detect --depth 2
 ```
 
 **`--auto-detect` example output:**
@@ -263,7 +267,7 @@ Found 4 git repository(ies) in /home/user/work
 - The alias (display name) defaults to the directory base name. Use `--alias` to override — this is required when two repos share the same directory name.
 - If the alias is already taken by another path, prints a clear error with a suggested `--alias` command.
 - Stores the alias, path, and default branch in `~/.gitm/gitm.db`.
-- With `--auto-detect`: scans only **immediate subdirectories** (depth = 1). Hidden directories (`.git`, `.cache`, etc.) are always skipped.
+- With `--auto-detect`: scans subdirectories up to `--depth` levels deep (default 1). When a git repo is found, its children are not scanned. Hidden directories (`.git`, `.cache`, etc.) are always skipped at every level.
 
 ---
 

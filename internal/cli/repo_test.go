@@ -254,12 +254,38 @@ func TestRepoAddAutoDetectSkipsHiddenDirs(t *testing.T) {
 	}
 }
 
+// TestRepoAddDepthRejectsWithoutAutoDetect verifies that --depth without
+// --auto-detect returns an error.
+func TestRepoAddDepthRejectsWithoutAutoDetect(t *testing.T) {
+	cmd := repoAddCmd()
+	if err := cmd.Flags().Set("depth", "2"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"/tmp/some-dir"}); err == nil {
+		t.Fatal("expected error when --depth is used without --auto-detect")
+	}
+}
+
+// TestRepoAddDepthRejectsZero verifies that --depth=0 returns an error.
+func TestRepoAddDepthRejectsZero(t *testing.T) {
+	cmd := repoAddCmd()
+	if err := cmd.Flags().Set("auto-detect", "true"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	if err := cmd.Flags().Set("depth", "0"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"/tmp/some-dir"}); err == nil {
+		t.Fatal("expected error when --depth is 0")
+	}
+}
+
 // ─── TestDiscoverRepos ──────────────────────────────────────────────────────
 
 // TestDiscoverReposEmptyDir verifies that an empty directory returns no repos.
 func TestDiscoverReposEmptyDir(t *testing.T) {
 	parent := t.TempDir()
-	repos, err := discoverRepos(parent)
+	repos, err := discoverRepos(parent, 1)
 	if err != nil {
 		t.Fatalf("discoverRepos: %v", err)
 	}
@@ -290,7 +316,7 @@ func TestDiscoverReposFindsGitRepos(t *testing.T) {
 	mustRunGit(t, gitDir, "add", ".")
 	mustRunGit(t, gitDir, "commit", "-m", "init")
 
-	repos, err := discoverRepos(parent)
+	repos, err := discoverRepos(parent, 1)
 	if err != nil {
 		t.Fatalf("discoverRepos: %v", err)
 	}
@@ -305,7 +331,7 @@ func TestDiscoverReposFindsGitRepos(t *testing.T) {
 // TestDiscoverReposNonExistentPath verifies that a non-existent path returns
 // a descriptive error.
 func TestDiscoverReposNonExistentPath(t *testing.T) {
-	_, err := discoverRepos("/this/path/does/not/exist/at/all")
+	_, err := discoverRepos("/this/path/does/not/exist/at/all", 1)
 	if err == nil {
 		t.Fatal("expected error for non-existent path")
 	}
@@ -319,7 +345,7 @@ func TestDiscoverReposFileNotDir(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	_, err := discoverRepos(f)
+	_, err := discoverRepos(f, 1)
 	if err == nil {
 		t.Fatal("expected error when path is a file")
 	}
@@ -345,12 +371,190 @@ func TestDiscoverReposFollowsSymlinks(t *testing.T) {
 		t.Skipf("cannot create symlink (OS restriction): %v", err)
 	}
 
-	repos, err := discoverRepos(parent)
+	repos, err := discoverRepos(parent, 1)
 	if err != nil {
 		t.Fatalf("discoverRepos: %v", err)
 	}
 	if len(repos) != 1 {
 		t.Fatalf("expected 1 repo (via symlink), got %d: %v", len(repos), repos)
+	}
+}
+
+// TestDiscoverReposDepthTwo verifies that discoverRepos with maxDepth=2
+// finds repos nested one level deeper than immediate children.
+func TestDiscoverReposDepthTwo(t *testing.T) {
+	parent := t.TempDir()
+
+	repoD1 := filepath.Join(parent, "repo-at-depth1")
+	group := filepath.Join(parent, "project-group")
+	repoD2 := filepath.Join(group, "repo-at-depth2")
+	plain := filepath.Join(group, "not-a-repo")
+
+	for _, dir := range []string{repoD1, repoD2, plain} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", dir, err)
+		}
+	}
+
+	for _, dir := range []string{repoD1, repoD2} {
+		mustRunGit(t, dir, "init", "-b", "main")
+		mustRunGit(t, dir, "config", "user.email", "test@example.com")
+		mustRunGit(t, dir, "config", "user.name", "Test User")
+		mustRunGit(t, dir, "config", "commit.gpgsign", "false")
+		writeFile(t, dir, "README.md", "# test\n")
+		mustRunGit(t, dir, "add", ".")
+		mustRunGit(t, dir, "commit", "-m", "init")
+	}
+
+	repos, err := discoverRepos(parent, 2)
+	if err != nil {
+		t.Fatalf("discoverRepos: %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d: %v", len(repos), repos)
+	}
+}
+
+// TestDiscoverReposDoesNotDescendIntoGitRepos verifies that once a git repo
+// is found, its subdirectories are not scanned (the repo is a leaf node).
+func TestDiscoverReposDoesNotDescendIntoGitRepos(t *testing.T) {
+	parent := t.TempDir()
+
+	outerRepo := filepath.Join(parent, "outer-repo")
+	innerRepo := filepath.Join(outerRepo, "inner-repo")
+
+	for _, dir := range []string{outerRepo, innerRepo} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", dir, err)
+		}
+	}
+
+	for _, dir := range []string{outerRepo, innerRepo} {
+		mustRunGit(t, dir, "init", "-b", "main")
+		mustRunGit(t, dir, "config", "user.email", "test@example.com")
+		mustRunGit(t, dir, "config", "user.name", "Test User")
+		mustRunGit(t, dir, "config", "commit.gpgsign", "false")
+		writeFile(t, dir, "README.md", "# test\n")
+		mustRunGit(t, dir, "add", ".")
+		mustRunGit(t, dir, "commit", "-m", "init")
+	}
+
+	repos, err := discoverRepos(parent, 2)
+	if err != nil {
+		t.Fatalf("discoverRepos: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo (outer only), got %d: %v", len(repos), repos)
+	}
+	if filepath.Base(repos[0]) != "outer-repo" {
+		t.Errorf("expected outer-repo, got %q", repos[0])
+	}
+}
+
+// TestDiscoverReposSkipsHiddenDirsAtAllDepths verifies that hidden directories
+// are skipped at every depth level, not just the first.
+func TestDiscoverReposSkipsHiddenDirsAtAllDepths(t *testing.T) {
+	parent := t.TempDir()
+
+	group := filepath.Join(parent, "group")
+	hiddenRepo := filepath.Join(group, ".hidden-repo")
+	visibleRepo := filepath.Join(group, "visible-repo")
+
+	for _, dir := range []string{hiddenRepo, visibleRepo} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", dir, err)
+		}
+		mustRunGit(t, dir, "init", "-b", "main")
+		mustRunGit(t, dir, "config", "user.email", "test@example.com")
+		mustRunGit(t, dir, "config", "user.name", "Test User")
+		mustRunGit(t, dir, "config", "commit.gpgsign", "false")
+		writeFile(t, dir, "README.md", "# test\n")
+		mustRunGit(t, dir, "add", ".")
+		mustRunGit(t, dir, "commit", "-m", "init")
+	}
+
+	repos, err := discoverRepos(parent, 2)
+	if err != nil {
+		t.Fatalf("discoverRepos: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo (hidden skipped), got %d: %v", len(repos), repos)
+	}
+	if filepath.Base(repos[0]) != "visible-repo" {
+		t.Errorf("expected visible-repo, got %q", repos[0])
+	}
+}
+
+// TestDiscoverReposDepthOneIgnoresNestedRepos verifies that depth=1 (default)
+// does not find repos at depth 2, preserving backwards compatibility.
+func TestDiscoverReposDepthOneIgnoresNestedRepos(t *testing.T) {
+	parent := t.TempDir()
+
+	group := filepath.Join(parent, "project-group")
+	nestedRepo := filepath.Join(group, "nested-repo")
+
+	if err := os.MkdirAll(nestedRepo, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	mustRunGit(t, nestedRepo, "init", "-b", "main")
+	mustRunGit(t, nestedRepo, "config", "user.email", "test@example.com")
+	mustRunGit(t, nestedRepo, "config", "user.name", "Test User")
+	mustRunGit(t, nestedRepo, "config", "commit.gpgsign", "false")
+	writeFile(t, nestedRepo, "README.md", "# test\n")
+	mustRunGit(t, nestedRepo, "add", ".")
+	mustRunGit(t, nestedRepo, "commit", "-m", "init")
+
+	repos, err := discoverRepos(parent, 1)
+	if err != nil {
+		t.Fatalf("discoverRepos: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("expected 0 repos at depth=1, got %d: %v", len(repos), repos)
+	}
+}
+
+// TestRepoAddAutoDetectWithDepth verifies that the full repo add command
+// with --auto-detect --depth 2 discovers and registers nested repos.
+func TestRepoAddAutoDetectWithDepth(t *testing.T) {
+	d := setupTestDB(t)
+
+	parent := t.TempDir()
+
+	repoD1 := filepath.Join(parent, "repo-shallow")
+	group := filepath.Join(parent, "api-group")
+	repoD2 := filepath.Join(group, "v2")
+
+	for _, dir := range []string{repoD1, repoD2} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", dir, err)
+		}
+		mustRunGit(t, dir, "init", "-b", "main")
+		mustRunGit(t, dir, "config", "user.email", "test@example.com")
+		mustRunGit(t, dir, "config", "user.name", "Test User")
+		mustRunGit(t, dir, "config", "commit.gpgsign", "false")
+		writeFile(t, dir, "README.md", "# test\n")
+		mustRunGit(t, dir, "add", ".")
+		mustRunGit(t, dir, "commit", "-m", "init")
+	}
+
+	cmd := repoAddCmd()
+	if err := cmd.Flags().Set("auto-detect", "true"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	if err := cmd.Flags().Set("depth", "2"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{parent}); err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	repos, err := d.ListRepositories()
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 registered repos, got %d", len(repos))
 	}
 }
 
