@@ -33,6 +33,7 @@ func repoCmd() *cobra.Command {
 func repoAddCmd() *cobra.Command {
 	var alias string
 	var autoDetect bool
+	var depth int
 
 	cmd := &cobra.Command{
 		Use:   "add <path> [path...]",
@@ -42,15 +43,19 @@ func repoAddCmd() *cobra.Command {
 Paths can be absolute or relative. Use "." for the current directory.
 
 With --auto-detect, provide a single parent directory and gitm will scan its
-immediate subdirectories, registering every git repository it finds. This is
-the fastest way to onboard a folder full of repos without adding them one by one.`,
+subdirectories, registering every git repository it finds. By default it scans
+one level deep (immediate children); use --depth N to scan N levels deep. This
+is useful when repos are nested inside grouping folders (e.g. project/v1, project/v2).`,
 		Example: `  gitm repo add .
   gitm repo add /home/user/work/api-gateway
   gitm repo add /home/user/work/api-gateway /home/user/work/auth-service
   gitm repo add /home/user/work/www-api/v1 --alias www-v1
 
   # Scan a folder and register every git repo found inside it
-  gitm repo add /home/user/work --auto-detect`,
+  gitm repo add /home/user/work --auto-detect
+
+  # Scan two levels deep to find repos in subfolders
+  gitm repo add /home/user/work --auto-detect --depth 2`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias != "" && len(args) > 1 {
@@ -62,11 +67,17 @@ the fastest way to onboard a folder full of repos without adding them one by one
 			if autoDetect && len(args) > 1 {
 				return fmt.Errorf("--auto-detect requires exactly one path argument (the parent directory to scan)")
 			}
+			if !autoDetect && cmd.Flags().Changed("depth") {
+				return fmt.Errorf("--depth can only be used with --auto-detect")
+			}
+			if depth < 1 {
+				return fmt.Errorf("--depth must be at least 1")
+			}
 
 			// --auto-detect: expand the single parent dir into its git-repo children.
 			paths := args
 			if autoDetect {
-				discovered, err := discoverRepos(args[0])
+				discovered, err := discoverRepos(args[0], depth)
 				if err != nil {
 					return err
 				}
@@ -149,14 +160,16 @@ the fastest way to onboard a folder full of repos without adding them one by one
 	}
 
 	cmd.Flags().StringVar(&alias, "alias", "", "Custom display name for the repository (must be unique)")
-	cmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Scan immediate subdirectories of the given path and register every git repository found")
+	cmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Scan subdirectories of the given path and register every git repository found (default depth 1; use --depth to scan deeper)")
+	cmd.Flags().IntVar(&depth, "depth", 1, "How many directory levels to scan when using --auto-detect (default 1)")
 	return cmd
 }
 
-// discoverRepos scans the immediate subdirectories of parentDir and returns
-// the absolute paths of every directory that is the root of a git repository.
-// Hidden directories (those whose name starts with ".") are skipped.
-func discoverRepos(parentDir string) ([]string, error) {
+// discoverRepos scans subdirectories of parentDir up to maxDepth levels deep
+// and returns the absolute paths of every directory that is the root of a git
+// repository. Hidden directories (those whose name starts with ".") are skipped.
+// When a git repo is found, its children are not scanned (the repo is a leaf).
+func discoverRepos(parentDir string, maxDepth int) ([]string, error) {
 	abs, err := filepath.Abs(parentDir)
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve path %q: %w", parentDir, err)
@@ -170,31 +183,59 @@ func discoverRepos(parentDir string) ([]string, error) {
 		return nil, fmt.Errorf("%q is not a directory", abs)
 	}
 
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read directory %q: %w", abs, err)
+	var repos []string
+	visited := make(map[string]bool)
+
+	var walk func(dir string, currentDepth int) error
+	walk = func(dir string, currentDepth int) error {
+		if currentDepth > maxDepth {
+			return nil
+		}
+
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("cannot read directory %q: %w", dir, err)
+		}
+
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+
+			candidate := filepath.Join(dir, entry.Name())
+
+			// Use os.Stat (not entry.IsDir) so that symlinks pointing to
+			// directories are followed.
+			info, err := os.Stat(candidate)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
+			realPath, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				continue
+			}
+			if visited[realPath] {
+				continue
+			}
+			visited[realPath] = true
+
+			if git.IsGitRepo(candidate) {
+				repos = append(repos, candidate)
+				continue
+			}
+
+			if currentDepth < maxDepth {
+				if err := walk(candidate, currentDepth+1); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}
 
-	var repos []string
-	for _, entry := range entries {
-		// Skip hidden entries (e.g. .git, .cache).
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-
-		candidate := filepath.Join(abs, entry.Name())
-
-		// Use os.Stat (not entry.IsDir) so that symlinks pointing to
-		// directories are followed. A common layout is:
-		//   parent/linked-repo -> /real/repo
-		info, err := os.Stat(candidate)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-
-		if git.IsGitRepo(candidate) {
-			repos = append(repos, candidate)
-		}
+	if err := walk(abs, 1); err != nil {
+		return nil, err
 	}
 	return repos, nil
 }

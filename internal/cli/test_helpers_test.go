@@ -106,6 +106,15 @@ func mustRunGit(t *testing.T, dir string, args ...string) string {
 func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	initRepoAt(t, dir)
+	return dir
+}
+
+func initRepoAt(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", dir, err)
+	}
 	mustRunGit(t, dir, "init", "-b", "main")
 	mustRunGit(t, dir, "config", "user.email", "test@example.com")
 	mustRunGit(t, dir, "config", "user.name", "Test User")
@@ -113,7 +122,6 @@ func initRepo(t *testing.T) string {
 	writeFile(t, dir, "README.md", "# test repo\n")
 	mustRunGit(t, dir, "add", ".")
 	mustRunGit(t, dir, "commit", "-m", "initial commit")
-	return dir
 }
 
 func initBareRepo(t *testing.T) string {

@@ -53,12 +53,12 @@ When working across many repositories, daily git operations become repetitive:
 
 ### Download pre-built binary
 
-Pre-built binaries for all major platforms are available on the [GitHub Releases](https://github.com/alexandreafj/cli-git-commands/releases) page.
+Pre-built binaries for all major platforms are available on the [GitHub Releases](https://github.com/alexandreferreira/gitm/releases) page.
 
 #### macOS (Apple Silicon)
 
 ```bash
-curl -L https://github.com/alexandreafj/cli-git-commands/releases/latest/download/gitm-macos-arm64 -o gitm
+curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-macos-arm64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -66,7 +66,7 @@ sudo mv gitm /usr/local/bin/
 #### macOS (Intel)
 
 ```bash
-curl -L https://github.com/alexandreafj/cli-git-commands/releases/latest/download/gitm-macos-x86_64 -o gitm
+curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-macos-x86_64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -74,7 +74,7 @@ sudo mv gitm /usr/local/bin/
 #### Linux (x86_64)
 
 ```bash
-curl -L https://github.com/alexandreafj/cli-git-commands/releases/latest/download/gitm-linux-amd64 -o gitm
+curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-linux-amd64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -82,7 +82,7 @@ sudo mv gitm /usr/local/bin/
 #### Linux (ARM64)
 
 ```bash
-curl -L https://github.com/alexandreafj/cli-git-commands/releases/latest/download/gitm-linux-arm64 -o gitm
+curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-linux-arm64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -90,7 +90,7 @@ sudo mv gitm /usr/local/bin/
 #### Windows (x86_64) — PowerShell
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/alexandreafj/cli-git-commands/releases/latest/download/gitm-windows-amd64.exe -OutFile gitm.exe
+Invoke-WebRequest -Uri https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-windows-amd64.exe -OutFile gitm.exe
 Move-Item gitm.exe C:\Users\<your-user>\AppData\Local\Microsoft\WindowsApps\
 ```
 
@@ -100,7 +100,7 @@ Each release includes a `checksums.txt` file. To verify your download:
 
 ```bash
 # Download the checksums file
-curl -L https://github.com/alexandreafj/cli-git-commands/releases/latest/download/checksums.txt -o checksums.txt
+curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/checksums.txt -o checksums.txt
 
 # Verify (Linux/macOS)
 sha256sum -c checksums.txt --ignore-missing
@@ -205,6 +205,7 @@ gitm repo add <path> [path...]
 |---|---|---|
 | `--alias` | _(directory name)_ | Custom display name for the repository. Must be unique across all registered repos. Useful when two repos share the same directory name (e.g. two repos both named `v1`). Cannot be combined with `--auto-detect`. |
 | `--auto-detect` | false | Scan the immediate subdirectories of the given path and register every git repository found. Skips plain directories and hidden directories (names starting with `.`). Cannot be combined with `--alias`. |
+| `--depth` | 1 | How many directory levels to scan when using `--auto-detect`. Use `--depth 2` when repos are nested inside grouping folders (e.g. `project/v1`). Requires `--auto-detect`. |
 
 **Examples:**
 
@@ -224,6 +225,9 @@ gitm repo add /home/user/work/docs-api/v1 --alias docs-api-v1
 
 # Scan a parent folder and register every git repo found inside it
 gitm repo add /home/user/work --auto-detect
+
+# Scan two levels deep to find repos in subfolders (e.g. api-group/v1, api-group/v2)
+gitm repo add /home/user/work --auto-detect --depth 2
 ```
 
 **`--auto-detect` example output:**
@@ -263,7 +267,7 @@ Found 4 git repository(ies) in /home/user/work
 - The alias (display name) defaults to the directory base name. Use `--alias` to override — this is required when two repos share the same directory name.
 - If the alias is already taken by another path, prints a clear error with a suggested `--alias` command.
 - Stores the alias, path, and default branch in `~/.gitm/gitm.db`.
-- With `--auto-detect`: scans only **immediate subdirectories** (depth = 1). Hidden directories (`.git`, `.cache`, etc.) are always skipped.
+- With `--auto-detect`: scans subdirectories up to `--depth` levels deep (default 1). When a git repo is found, its children are not scanned. Hidden directories (`.git`, `.cache`, etc.) are always skipped at every level.
 
 ---
 
