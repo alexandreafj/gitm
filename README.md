@@ -53,7 +53,7 @@ When working across many repositories, daily git operations become repetitive:
 
 ### Download pre-built binary
 
-Pre-built binaries for all major platforms are available on the [GitHub Releases](https://github.com/alexandreferreira/gitm/releases) page.
+Pre-built binaries for all major platforms are available on the [GitHub Releases](https://github.com/alexandreafj/gitm/releases) page.
 
 #### macOS (Apple Silicon)
 
