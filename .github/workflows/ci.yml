@@ -3,8 +3,20 @@ name: CI
 on:
   push:
     branches: [master]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [master]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/ci.yml'
 
 permissions:
   contents: read
