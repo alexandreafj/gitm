@@ -58,7 +58,7 @@ Pre-built binaries for all major platforms are available on the [GitHub Releases
 #### macOS (Apple Silicon)
 
 ```bash
-curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-macos-arm64 -o gitm
+curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-macos-arm64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -66,7 +66,7 @@ sudo mv gitm /usr/local/bin/
 #### macOS (Intel)
 
 ```bash
-curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-macos-x86_64 -o gitm
+curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-macos-x86_64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -74,7 +74,7 @@ sudo mv gitm /usr/local/bin/
 #### Linux (x86_64)
 
 ```bash
-curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-linux-amd64 -o gitm
+curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-linux-amd64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -82,7 +82,7 @@ sudo mv gitm /usr/local/bin/
 #### Linux (ARM64)
 
 ```bash
-curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-linux-arm64 -o gitm
+curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-linux-arm64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
 ```
@@ -90,7 +90,7 @@ sudo mv gitm /usr/local/bin/
 #### Windows (x86_64) — PowerShell
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/alexandreferreira/gitm/releases/latest/download/gitm-windows-amd64.exe -OutFile gitm.exe
+Invoke-WebRequest -Uri https://github.com/alexandreafj/gitm/releases/latest/download/gitm-windows-amd64.exe -OutFile gitm.exe
 Move-Item gitm.exe C:\Users\<your-user>\AppData\Local\Microsoft\WindowsApps\
 ```
 
@@ -100,7 +100,7 @@ Each release includes a `checksums.txt` file. To verify your download:
 
 ```bash
 # Download the checksums file
-curl -L https://github.com/alexandreferreira/gitm/releases/latest/download/checksums.txt -o checksums.txt
+curl -L https://github.com/alexandreafj/gitm/releases/latest/download/checksums.txt -o checksums.txt
 
 # Verify (Linux/macOS)
 sha256sum -c checksums.txt --ignore-missing
@@ -121,7 +121,7 @@ gitm --help
 
 ```bash
 # Clone the repository
-git clone https://github.com/alexandreferreira/gitm.git
+git clone https://github.com/alexandreafj/gitm.git
 cd gitm
 
 # Build and install to GOPATH/bin
