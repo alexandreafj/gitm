@@ -150,6 +150,85 @@ func DiscardChanges(path string) error {
 	return nil
 }
 
+// DiscardFiles selectively discards uncommitted changes for the given files.
+// Each entry in porcelainFiles is a porcelain-format line (e.g. " M foo.go",
+// "?? bar.txt", "A  new.go"). The function groups files by status and runs
+// the appropriate git command for each group:
+//
+//   - Staged new files (A): git reset HEAD -- <files>, then git clean -f -- <files>
+//   - Tracked modifications/deletions (M, D, etc.): git reset HEAD -- <files>,
+//     then git checkout -- <files> (reset first to unstage any staged changes)
+//   - Untracked files (??): git clean -f -- <files>
+//
+// This is irreversible.
+func DiscardFiles(path string, porcelainFiles []string) error {
+	if len(porcelainFiles) == 0 {
+		return nil
+	}
+
+	var staged []string    // "A " — newly staged files
+	var tracked []string   // " M", "M ", "MM", " D", "D ", etc. — tracked modifications
+	var untracked []string // "??" — untracked files
+
+	for _, line := range porcelainFiles {
+		if len(line) < 4 {
+			continue
+		}
+		status := line[:2]
+		filePath := strings.TrimSpace(line[3:])
+		if filePath == "" {
+			continue
+		}
+
+		switch {
+		case status == "??":
+			untracked = append(untracked, filePath)
+		case status[0] == 'A':
+			// Staged new file: index says Added, work-tree may or may not differ.
+			staged = append(staged, filePath)
+		default:
+			// Everything else (M, D, R, etc.) — tracked file with changes.
+			tracked = append(tracked, filePath)
+		}
+	}
+
+	// Unstage and remove staged new files.
+	if len(staged) > 0 {
+		resetArgs := append([]string{"reset", "HEAD", "--"}, staged...)
+		if _, err := run(path, resetArgs...); err != nil {
+			return fmt.Errorf("reset staged files: %w", err)
+		}
+		cleanArgs := append([]string{"clean", "-f", "--"}, staged...)
+		if _, err := run(path, cleanArgs...); err != nil {
+			return fmt.Errorf("clean staged files: %w", err)
+		}
+	}
+
+	// Revert tracked modifications/deletions: reset index first (handles
+	// staged modifications like "M " or "MM"), then checkout to restore
+	// working-tree state to match HEAD.
+	if len(tracked) > 0 {
+		resetArgs := append([]string{"reset", "HEAD", "--"}, tracked...)
+		if _, err := run(path, resetArgs...); err != nil {
+			return fmt.Errorf("reset tracked files: %w", err)
+		}
+		checkoutArgs := append([]string{"checkout", "--"}, tracked...)
+		if _, err := run(path, checkoutArgs...); err != nil {
+			return fmt.Errorf("discard tracked changes: %w", err)
+		}
+	}
+
+	// Remove untracked files.
+	if len(untracked) > 0 {
+		cleanArgs := append([]string{"clean", "-f", "--"}, untracked...)
+		if _, err := run(path, cleanArgs...); err != nil {
+			return fmt.Errorf("clean untracked files: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Pull runs git pull on the current branch.
 func Pull(path string) (string, error) {
 	return run(path, "pull", "--ff-only")

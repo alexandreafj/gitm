@@ -43,3 +43,23 @@ func TestDiscardCmdIsRunnable(t *testing.T) {
 		t.Error("discardCmd has no RunE function")
 	}
 }
+
+// TestDiscardCmdHasRepoFlag verifies the --repo / -r flag exists.
+func TestDiscardCmdHasRepoFlag(t *testing.T) {
+	cmd := discardCmd()
+	f := cmd.Flags().Lookup("repo")
+	if f == nil {
+		t.Fatal("discardCmd missing --repo flag")
+	}
+	if f.Shorthand != "r" {
+		t.Errorf("--repo shorthand = %q, want %q", f.Shorthand, "r")
+	}
+}
+
+// TestDiscardCmdHasExample verifies the command has example text.
+func TestDiscardCmdHasExample(t *testing.T) {
+	cmd := discardCmd()
+	if cmd.Example == "" {
+		t.Error("discardCmd has empty Example")
+	}
+}

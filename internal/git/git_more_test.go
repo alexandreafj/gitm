@@ -502,3 +502,156 @@ func TestUntrackFilesNotTracked(t *testing.T) {
 		t.Error("expected error when untracking a file that doesn't exist in index")
 	}
 }
+
+// ─── DiscardFiles ───────────────────────────────────────────────────────────
+
+func TestDiscardFiles_TrackedOnly(t *testing.T) {
+	dir := initRepo(t)
+
+	// Create a tracked file, commit it, then modify it.
+	writeFile(t, dir, "tracked.txt", "original\n")
+	mustRunGit(t, dir, "add", "tracked.txt")
+	mustRunGit(t, dir, "commit", "-m", "add tracked.txt")
+	writeFile(t, dir, "tracked.txt", "modified\n")
+
+	// Also create an untracked file that should NOT be affected.
+	writeFile(t, dir, "untracked.txt", "should survive\n")
+
+	err := git.DiscardFiles(dir, []string{" M tracked.txt"})
+	if err != nil {
+		t.Fatalf("DiscardFiles: %v", err)
+	}
+
+	// tracked.txt should be reverted.
+	content := readFileContent(t, dir, "tracked.txt")
+	if content != "original\n" {
+		t.Errorf("tracked.txt = %q, want %q", content, "original\n")
+	}
+
+	// untracked.txt should still exist.
+	if _, statErr := os.Stat(filepath.Join(dir, "untracked.txt")); statErr != nil {
+		t.Error("untracked.txt should still exist — it was not selected for discard")
+	}
+}
+
+func TestDiscardFiles_UntrackedOnly(t *testing.T) {
+	dir := initRepo(t)
+
+	// Create an untracked file and a tracked modification.
+	writeFile(t, dir, "untracked.txt", "new file\n")
+	writeFile(t, dir, "README.md", "modified readme\n")
+
+	// Only discard the untracked file.
+	err := git.DiscardFiles(dir, []string{"?? untracked.txt"})
+	if err != nil {
+		t.Fatalf("DiscardFiles: %v", err)
+	}
+
+	// untracked.txt should be gone.
+	if _, statErr := os.Stat(filepath.Join(dir, "untracked.txt")); !os.IsNotExist(statErr) {
+		t.Error("untracked.txt should have been removed")
+	}
+
+	// README.md should still be modified.
+	content := readFileContent(t, dir, "README.md")
+	if content != "modified readme\n" {
+		t.Errorf("README.md = %q, want %q (modification should survive)", content, "modified readme\n")
+	}
+}
+
+func TestDiscardFiles_Mixed(t *testing.T) {
+	dir := initRepo(t)
+
+	// Tracked file: modify it.
+	writeFile(t, dir, "README.md", "modified\n")
+
+	// Untracked file.
+	writeFile(t, dir, "newfile.txt", "brand new\n")
+
+	// A third file that should survive (untracked, not selected).
+	writeFile(t, dir, "survivor.txt", "keep me\n")
+
+	err := git.DiscardFiles(dir, []string{
+		" M README.md",
+		"?? newfile.txt",
+	})
+	if err != nil {
+		t.Fatalf("DiscardFiles: %v", err)
+	}
+
+	// README.md should be reverted.
+	content := readFileContent(t, dir, "README.md")
+	if content != "# test repo\n" {
+		t.Errorf("README.md = %q, want %q", content, "# test repo\n")
+	}
+
+	// newfile.txt should be removed.
+	if _, statErr := os.Stat(filepath.Join(dir, "newfile.txt")); !os.IsNotExist(statErr) {
+		t.Error("newfile.txt should have been removed")
+	}
+
+	// survivor.txt should still exist.
+	if _, statErr := os.Stat(filepath.Join(dir, "survivor.txt")); statErr != nil {
+		t.Error("survivor.txt should still exist")
+	}
+}
+
+func TestDiscardFiles_StagedNewFile(t *testing.T) {
+	dir := initRepo(t)
+
+	// Create and stage a new file.
+	writeFile(t, dir, "staged.txt", "staged content\n")
+	mustRunGit(t, dir, "add", "staged.txt")
+
+	// Also create an untracked file that should survive.
+	writeFile(t, dir, "survivor.txt", "keep me\n")
+
+	err := git.DiscardFiles(dir, []string{"A  staged.txt"})
+	if err != nil {
+		t.Fatalf("DiscardFiles: %v", err)
+	}
+
+	// staged.txt should be removed (unstaged + cleaned).
+	if _, statErr := os.Stat(filepath.Join(dir, "staged.txt")); !os.IsNotExist(statErr) {
+		t.Error("staged.txt should have been removed after discard")
+	}
+
+	// survivor.txt should survive.
+	if _, statErr := os.Stat(filepath.Join(dir, "survivor.txt")); statErr != nil {
+		t.Error("survivor.txt should still exist")
+	}
+}
+
+func TestDiscardFiles_StagedModification(t *testing.T) {
+	dir := initRepo(t)
+
+	// Modify and stage a tracked file.
+	writeFile(t, dir, "README.md", "staged modification\n")
+	mustRunGit(t, dir, "add", "README.md")
+
+	err := git.DiscardFiles(dir, []string{"M  README.md"})
+	if err != nil {
+		t.Fatalf("DiscardFiles: %v", err)
+	}
+
+	// README.md should be reverted to HEAD.
+	content := readFileContent(t, dir, "README.md")
+	if content != "# test repo\n" {
+		t.Errorf("README.md = %q, want %q", content, "# test repo\n")
+	}
+}
+
+func TestDiscardFiles_Empty(t *testing.T) {
+	dir := initRepo(t)
+
+	// Empty list should be a no-op.
+	err := git.DiscardFiles(dir, nil)
+	if err != nil {
+		t.Fatalf("DiscardFiles(nil): %v", err)
+	}
+
+	err = git.DiscardFiles(dir, []string{})
+	if err != nil {
+		t.Fatalf("DiscardFiles(empty): %v", err)
+	}
+}

@@ -691,56 +691,90 @@ gitm status --fetch
 
 ### `gitm discard`
 
-Interactively select which repositories to discard uncommitted changes in. Only repositories that actually have changes are shown in the selection list — if none of your repos have uncommitted changes, the command exits immediately with a message.
+Interactively select which repositories and **which files** to discard uncommitted changes in. Only repositories that actually have changes are shown in the selection list — if none of your repos have uncommitted changes, the command exits immediately with a message.
 
 ```
-gitm discard
+gitm discard [flags]
 ```
 
 > **WARNING:** This operation is irreversible. Discarded changes cannot be recovered.
 
-**What it does per selected repository:**
+**Flags:**
 
-```
-git checkout -- .   → discard modifications to tracked files
-git clean -fd       → remove untracked files and directories
-```
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive repo selection. |
+
+**What it does per selected file (based on status):**
+
+| File status | Git command(s) | Effect |
+|---|---|---|
+| Modified tracked (` M`, `M `, `MM`) | `git reset HEAD -- <file>` + `git checkout -- <file>` | Reverts to last committed version |
+| Staged new file (`A `) | `git reset HEAD -- <file>` + `git clean -f -- <file>` | Unstages and removes the file |
+| Untracked (`??`) | `git clean -f -- <file>` | Removes the file |
 
 **Behaviour:**
 
-1. Scans all registered repositories for uncommitted changes.
+1. Scans all registered repositories (or those specified with `--repo`) for uncommitted changes.
 2. If **none** are dirty, prints `Nothing to discard — all repositories are clean.` and exits.
-3. If some are dirty, shows a summary of how many files each has modified, then opens the interactive multi-select showing **only the dirty repos**.
-4. Executes discard in parallel on all selected repositories.
-5. Streams results live.
+3. If some are dirty, shows a summary of how many files each has modified, then opens the interactive multi-select showing **only the dirty repos** (skipped when `--repo` is used).
+4. For each selected repo, opens a **file picker** where you choose exactly which files to discard. **No files are pre-selected** — you must explicitly pick every file you want gone.
+5. Discards only the selected files in each repo.
+6. Prints a per-repo summary.
 
 **Example flow:**
 
 ```
 3 repositories with uncommitted changes:
 
-  repo             2 file(s) modified
-  repo             2 file(s) modified
-  repo             12 file(s) modified
+  api-gateway            2 file(s) modified
+  auth-service           5 file(s) modified
+  frontend               12 file(s) modified
 
 WARNING: Select repositories to discard changes in (irreversible)
 ↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
 
-  [ ] repo          /home/user/work/repo
-▶ [✓] repo  /home/user/work/repo
-  [ ] repo  /home/user/work/repo
+  [ ] api-gateway        /home/user/work/api-gateway
+▶ [✓] auth-service       /home/user/work/auth-service
+  [ ] frontend           /home/user/work/frontend
 
 1/3 selected
+```
+
+After selecting a repo, the **file picker** appears:
+
+```
+━━━ auth-service ━━━
+Select files to discard in auth-service (irreversible)
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+▶ [ ] M  src/handler.go
+  [✓] M  src/config.go
+  [ ] ?? tmp/debug.log
+  [✓] A  src/new_service.go
+
+2/4 selected
 ```
 
 After confirming:
 
 ```
-Discarding changes in 1 repository(ies)…
+  ✓ Discarded 2 file(s):
+       src/config.go
+       src/new_service.go
 
-[repo         ] ✓ discarded 2 file(s)
+Summary
+───────────────────────
+  ✓  auth-service (2 file(s) discarded)
 
-Done: 1 succeeded
+1 discarded  0 skipped  0 failed
+```
+
+**Example with --repo flag:**
+
+```
+$ gitm discard --repo api-gateway
+$ gitm discard -r api-gateway,auth-service
 ```
 
 **Example when nothing to discard:**
