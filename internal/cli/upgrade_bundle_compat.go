@@ -39,8 +39,8 @@ type legacyCosignBundle struct {
 }
 
 type legacyRekorBundle struct {
-	SignedEntryTimestamp string              `json:"SignedEntryTimestamp"`
-	Payload             legacyRekorPayload  `json:"Payload"`
+	SignedEntryTimestamp string             `json:"SignedEntryTimestamp"`
+	Payload              legacyRekorPayload `json:"Payload"`
 }
 
 type legacyRekorPayload struct {
