@@ -1117,11 +1117,12 @@ gitm untrack [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--path` | `-p` | _(all files)_ | Filter files by glob pattern or path prefix (e.g. `"*.env"`, `"public/"`). |
 
 **What it does:**
 
 1. Opens the interactive multi-select to choose which repos to untrack files from.
-2. For each selected repo, shows **all tracked files** in the file picker.
+2. For each selected repo, shows tracked files in the file picker (filtered by `--path` if provided).
 3. Runs `git rm --cached` on the selected files — removes from git's index only.
 4. The files remain on disk untouched.
 
@@ -1163,6 +1164,15 @@ gitm untrack
 
 # Untrack files only in specific repos by alias
 gitm untrack --repo api-gateway
+
+# Filter to only show .env files
+gitm untrack --path "*.env"
+
+# Filter to only show files under public/
+gitm untrack --path "public/"
+
+# Combine repo and path filters
+gitm untrack --repo api-gateway --path "*.log"
 ```
 
 ---

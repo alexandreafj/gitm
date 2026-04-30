@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -11,7 +13,10 @@ import (
 )
 
 func untrackCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		pathFilter  string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "untrack",
@@ -21,26 +26,65 @@ multiple repositories. Files are removed from the git index but remain on disk.
 
 This is useful for accidentally committed files like .env, logs, or build artifacts.
 
+Use --path to filter which tracked files are shown (supports glob patterns and
+path prefixes). Without --path, all tracked files are listed.
+
 Use --repo to target specific repositories by alias, bypassing the interactive
 multi-select UI.`,
 		Example: `  gitm untrack
-  gitm untrack --repo api-gateway,auth-service`,
+  gitm untrack --path "*.env"
+  gitm untrack --path "public/"
+  gitm untrack --path "debug.log"
+  gitm untrack --repo api-gateway --path "*.log"`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUntrack(repoAliases)
+			return runUntrack(repoAliases, pathFilter)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	cmd.Flags().StringVarP(&pathFilter, "path", "p", "", "Filter files by glob pattern or path prefix (e.g. \"*.env\", \"public/\")")
 
 	return cmd
 }
 
-func runUntrack(repoAliases []string) error {
-	return runUntrackWithUI(liveUI{}, repoAliases)
+func runUntrack(repoAliases []string, pathFilter string) error {
+	return runUntrackWithUI(liveUI{}, repoAliases, pathFilter)
 }
 
-func runUntrackWithUI(ui ui, repoAliases []string) error {
+func filterTrackedFiles(files []string, pattern string) []string {
+	if pattern == "" {
+		return files
+	}
+
+	var matched []string
+	for _, f := range files {
+		var path string
+		if len(f) > 3 {
+			path = strings.TrimSpace(f[3:])
+		} else {
+			path = strings.TrimSpace(f)
+		}
+
+		if strings.HasPrefix(path, pattern) {
+			matched = append(matched, f)
+			continue
+		}
+
+		base := filepath.Base(path)
+		if ok, err := filepath.Match(pattern, base); err == nil && ok {
+			matched = append(matched, f)
+			continue
+		}
+
+		if ok, err := filepath.Match(pattern, path); err == nil && ok {
+			matched = append(matched, f)
+		}
+	}
+	return matched
+}
+
+func runUntrackWithUI(ui ui, repoAliases []string, pathFilter string) error {
 	repos, err := resolveRepos(repoAliases)
 	if err != nil {
 		return err
@@ -76,10 +120,17 @@ func runUntrackWithUI(ui ui, repoAliases []string) error {
 			return "", "no tracked files", nil
 		}
 
-		selectedFiles, selectErr := ui.FileSelect(
-			files,
-			fmt.Sprintf("Select files to untrack for %s (files stay on disk)", repo.Alias),
-		)
+		files = filterTrackedFiles(files, pathFilter)
+		if len(files) == 0 {
+			return "", fmt.Sprintf("no files matching %q", pathFilter), nil
+		}
+
+		title := fmt.Sprintf("Select files to untrack for %s (files stay on disk)", repo.Alias)
+		if pathFilter != "" {
+			title = fmt.Sprintf("Select files to untrack for %s [filter: %s] (files stay on disk)", repo.Alias, pathFilter)
+		}
+
+		selectedFiles, selectErr := ui.FileSelect(files, title)
 		if selectErr != nil {
 			return "", selectErr.Error(), nil
 		}

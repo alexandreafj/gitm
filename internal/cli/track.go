@@ -85,7 +85,7 @@ func runTrackWithUI(ui ui, repoAliases []string) error {
 		chosen, err = ui.MultiSelect(
 			withUntracked,
 			"Select repositories to track files in",
-			true,
+			false,
 			nil,
 		)
 		if err != nil {
