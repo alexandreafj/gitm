@@ -160,7 +160,7 @@ func TestRunUpgradeAlreadyUpToDate(t *testing.T) {
 	uc := &fakeUpgradeClient{
 		release: &ghRelease{TagName: "v1.0.0"},
 	}
-	err := runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
+	err := runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{}, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -170,7 +170,7 @@ func TestRunUpgradeFetchError(t *testing.T) {
 	uc := &fakeUpgradeClient{
 		err: fmt.Errorf("network error"),
 	}
-	err := runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
+	err := runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{}, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -190,7 +190,7 @@ func TestRunUpgradeMissingAsset(t *testing.T) {
 			Assets:  []ghAsset{{Name: "some-other-binary", BrowserDownloadURL: "https://example.com/other"}},
 		},
 	}
-	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
+	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing asset")
 	}
@@ -222,7 +222,7 @@ func TestRunUpgradeChecksumMismatch(t *testing.T) {
 			"https://example.com/checksums": []byte(checksumData),
 		},
 	}
-	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
+	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{}, nil)
 	if err == nil {
 		t.Fatal("expected checksum mismatch error")
 	}
@@ -396,6 +396,18 @@ func (f *fakeSignatureVerifier) Verify(_, _ []byte) error {
 	return f.err
 }
 
+// testExecPath creates a fake binary in a temp dir that installBinary can safely
+// overwrite without corrupting the test binary.
+func testExecPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "gitm")
+	if err := os.WriteFile(p, []byte("old-binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func TestRunUpgradeSignatureVerificationSuccess(t *testing.T) {
 	name, err := assetName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -424,16 +436,14 @@ func TestRunUpgradeSignatureVerificationSuccess(t *testing.T) {
 	}
 
 	sv := &fakeSignatureVerifier{}
+	opts := &upgradeOpts{execPath: testExecPath(t)}
 
-	// runUpgrade will try to replace the current executable, which will fail in test.
-	// That's fine — we only care that signature verification passed and was called.
-	err = runUpgrade("v1.0.0", uc, sv)
-	if !sv.called {
-		t.Fatalf("expected verifier to be called; err=%v", err)
+	err = runUpgrade("v1.0.0", uc, sv, opts)
+	if err != nil {
+		t.Fatalf("expected successful upgrade, got: %v", err)
 	}
-	// The error should be about locating/installing the binary, not signature verification.
-	if err != nil && strings.Contains(err.Error(), "signature") {
-		t.Fatalf("signature verification should have passed, got: %v", err)
+	if !sv.called {
+		t.Fatal("expected verifier to be called")
 	}
 }
 
@@ -466,7 +476,7 @@ func TestRunUpgradeSignatureVerificationFailure(t *testing.T) {
 
 	sv := &fakeSignatureVerifier{err: fmt.Errorf("invalid signature")}
 
-	err = runUpgrade("v1.0.0", uc, sv)
+	err = runUpgrade("v1.0.0", uc, sv, nil)
 	if err == nil {
 		t.Fatal("expected signature verification error")
 	}
@@ -502,19 +512,19 @@ func TestRunUpgradeBundleMissingFallback(t *testing.T) {
 	}
 
 	sv := &fakeSignatureVerifier{}
+	opts := &upgradeOpts{execPath: testExecPath(t)}
 
 	// Should NOT fail — falls back to SHA-256 only with a warning.
-	err = runUpgrade("v1.0.0", uc, sv)
+	err = runUpgrade("v1.0.0", uc, sv, opts)
+	if err != nil {
+		t.Fatalf("expected successful fallback upgrade, got: %v", err)
+	}
 	if sv.called {
 		t.Error("verifier must not be called when bundle is absent")
 	}
-	// The error, if any, should be about binary install — not signature.
-	if err != nil && strings.Contains(err.Error(), "signature") {
-		t.Fatalf("with missing bundle, should fallback not fail on signature, got: %v", err)
-	}
 }
 
-func TestRunUpgradeNilVerifierSkipsSignature(t *testing.T) {
+func TestRunUpgradeNilVerifierWithBundleErrors(t *testing.T) {
 	name, err := assetName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		t.Fatal(err)
@@ -541,10 +551,12 @@ func TestRunUpgradeNilVerifierSkipsSignature(t *testing.T) {
 		},
 	}
 
-	// Pass nil verifier — should skip signature check entirely
-	err = runUpgrade("v1.0.0", uc, nil)
-	// Should not fail on signature — may fail on binary install which is fine
-	if err != nil && strings.Contains(err.Error(), "signature") {
-		t.Fatalf("with nil verifier, should skip signature check, got: %v", err)
+	// nil verifier with bundle present should hard-error (verification is mandatory)
+	err = runUpgrade("v1.0.0", uc, nil, nil)
+	if err == nil {
+		t.Fatal("expected error when bundle present but verifier is nil")
+	}
+	if !strings.Contains(err.Error(), "no verifier is available") {
+		t.Errorf("expected 'no verifier is available' error, got: %v", err)
 	}
 }

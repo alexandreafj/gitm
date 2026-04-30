@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	releaseAPIURL = "https://api.github.com/repos/alexandreafj/gitm/releases/latest"
-	httpTimeout   = 60 * time.Second
-	userAgent     = "gitm-upgrade"
+	releaseAPIURL    = "https://api.github.com/repos/alexandreafj/gitm/releases/latest"
+	httpTimeout      = 60 * time.Second
+	userAgent        = "gitm-upgrade"
+	maxBundleSize    = 1 << 20 // 1 MiB — bundles are typically <10KB
 )
 
 type ghRelease struct {
@@ -163,7 +164,15 @@ func (h *httpUpgradeClient) downloadBytes(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	limited := io.LimitReader(resp.Body, maxBundleSize+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBundleSize {
+		return nil, fmt.Errorf("response exceeds maximum allowed size (%d bytes)", maxBundleSize)
+	}
+	return data, nil
 }
 
 func fileSHA256(path string) (string, error) {
@@ -227,7 +236,15 @@ func installBinary(srcPath, execPath string) error {
 	return nil
 }
 
-func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier) error {
+// upgradeOpts holds optional configuration for runUpgrade.
+// Fields left at zero value use sensible defaults.
+type upgradeOpts struct {
+	// execPath overrides os.Executable() for determining the install target.
+	// Used in tests to avoid overwriting the test binary.
+	execPath string
+}
+
+func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier, opts *upgradeOpts) error {
 	bold := color.New(color.Bold)
 	green := color.New(color.FgGreen, color.Bold)
 	yellow := color.New(color.FgYellow)
@@ -304,6 +321,8 @@ func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier) e
 				return fmt.Errorf("signature verification failed: %w", err)
 			}
 			green.Println("ok")
+		} else if hasBundle && sv == nil {
+			return fmt.Errorf("release %s includes a signature bundle but no verifier is available; refusing to proceed without verification", rel.TagName)
 		} else if sv != nil {
 			yellow.Println("⚠ release predates signing — verifying SHA-256 only")
 		}
@@ -326,9 +345,15 @@ func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier) e
 		green.Println("ok")
 	}
 
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate current binary: %w", err)
+	var execPath string
+	if opts != nil && opts.execPath != "" {
+		execPath = opts.execPath
+	} else {
+		var err error
+		execPath, err = os.Executable()
+		if err != nil {
+			return fmt.Errorf("locate current binary: %w", err)
+		}
 	}
 
 	if err := installBinary(tmpPath, execPath); err != nil {
@@ -371,13 +396,22 @@ func upgradeCmd(currentVersion string) *cobra.Command {
 The binary's checksums file is verified against a Sigstore signature bundle
 produced by this repository's release workflow. When upgrading from a release
 that predates signing, verification falls back to SHA-256 only with a warning.`,
+		Example: `  # Upgrade to the latest release
+  gitm upgrade
+
+  # Example output (signed release):
+  #   Checking for updates... found v1.2.0
+  #   Downloading gitm-macos-arm64... done
+  #   Verifying signature... ok
+  #   Verifying checksum... ok
+  #   Updated gitm: v1.1.0 → v1.2.0`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sv, err := newSigstoreVerifier()
 			if err != nil {
 				return fmt.Errorf("init signature verifier: %w", err)
 			}
-			return runUpgrade(currentVersion, newHTTPUpgradeClient(), sv)
+			return runUpgrade(currentVersion, newHTTPUpgradeClient(), sv, nil)
 		},
 	}
 }
