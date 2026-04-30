@@ -9,7 +9,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
 [![CI](https://github.com/alexandreafj/gitm/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandreafj/gitm/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/alexandreafj/gitm?sort=semver&cacheSeconds=300)](https://github.com/alexandreafj/gitm/releases/latest)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/alexandreafj/gitm)](go.mod)
-[![Go Report Card](https://goreportcard.com/badge/github.com/alexandreferreira/gitm)](https://goreportcard.com/report/github.com/alexandreferreira/gitm)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alexandreafj/gitm)](https://goreportcard.com/report/github.com/alexandreafj/gitm)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#installation)
 [![License](https://img.shields.io/github/license/alexandreafj/gitm)](LICENSE)
 
