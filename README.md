@@ -1,6 +1,29 @@
-# gitm — Multi-Repository Git Manager
+<div align="center">
 
-`gitm` is a fast CLI tool for managing git operations across multiple repositories simultaneously. All operations run **in parallel** with live-streaming output, so working across 20+ repositories is as quick as working on one.
+# gitm
+
+**Multi-Repository Git Manager**
+
+Run git operations across dozens of repositories in parallel — checkout, pull, commit, stash, reset, track — from one command.
+
+[![CI](https://github.com/alexandreafj/gitm/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandreafj/gitm/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/alexandreafj/gitm?sort=semver)](https://github.com/alexandreafj/gitm/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/alexandreafj/gitm)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alexandreferreira/gitm)](https://goreportcard.com/report/github.com/alexandreferreira/gitm)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#installation)
+[![License](https://img.shields.io/github/license/alexandreafj/gitm)](LICENSE)
+
+</div>
+
+---
+
+## Highlights
+
+- **Parallel by default** — 10 concurrent git ops, live-streamed output.
+- **Safe** — never force-resets your work; dirty repos are skipped, not clobbered.
+- **Interactive TUI** — multi-select repos and files with bubbletea.
+- **Self-updating** — `gitm upgrade` pulls signed binaries from GitHub Releases.
+- **Zero config** — single SQLite file at `~/.gitm/gitm.db`, no daemons.
 
 ---
 
@@ -1231,3 +1254,13 @@ make help     # Show all targets
 | `github.com/charmbracelet/lipgloss` | v1.x | Terminal styling |
 | `github.com/fatih/color` | v1.x | Colored output |
 | `golang.org/x/sync` | latest | `errgroup` for parallel ops |
+
+---
+
+## Contributing
+
+See [`AGENTS.md`](./AGENTS.md) for the development workflow, coding standards, and the (short) list of approved dependencies. Briefly: feature branch off `master`, real git in tests (no mocks), `make lint && make test` before pushing.
+
+## License
+
+[MIT](./LICENSE) — see the LICENSE file for details.
