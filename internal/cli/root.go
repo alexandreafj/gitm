@@ -15,10 +15,11 @@ var (
 )
 
 // Root returns the root cobra command with all sub-commands attached.
-func Root() *cobra.Command {
+func Root(version string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "gitm",
-		Short: "Multi-repository git manager",
+		Use:     "gitm",
+		Version: version,
+		Short:   "Multi-repository git manager",
 		Long: `gitm — Manage git operations across multiple repositories in parallel.
 
 Registered repositories are stored in ~/.gitm/gitm.db.
@@ -26,8 +27,7 @@ All multi-repo operations run concurrently for speed.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Skip DB init for completion commands.
-			if cmd.Name() == "__complete" || cmd.Name() == "help" {
+			if cmd.Name() == "__complete" || cmd.Name() == "help" || cmd.Name() == "upgrade" {
 				return nil
 			}
 
@@ -60,6 +60,7 @@ All multi-repo operations run concurrently for speed.`,
 	root.AddCommand(commitCmd())
 	root.AddCommand(stashCmd())
 	root.AddCommand(resetCmd())
+	root.AddCommand(upgradeCmd(version))
 
 	return root
 }

@@ -6,7 +6,7 @@ import (
 
 // TestRootCommandExists verifies that the root command is created without error.
 func TestRootCommandExists(t *testing.T) {
-	cmd := Root()
+	cmd := Root("test")
 	if cmd == nil {
 		t.Fatal("Root() returned nil")
 	}
@@ -14,7 +14,7 @@ func TestRootCommandExists(t *testing.T) {
 
 // TestRootCommandHasUse verifies the root command has the correct Use field.
 func TestRootCommandHasUse(t *testing.T) {
-	cmd := Root()
+	cmd := Root("test")
 	if cmd.Use != "gitm" {
 		t.Errorf("Root command Use = %q, want %q", cmd.Use, "gitm")
 	}
@@ -22,7 +22,7 @@ func TestRootCommandHasUse(t *testing.T) {
 
 // TestRootCommandHasShort verifies the root command has a Short description.
 func TestRootCommandHasShort(t *testing.T) {
-	cmd := Root()
+	cmd := Root("test")
 	if cmd.Short == "" {
 		t.Error("Root command Short is empty")
 	}
@@ -30,7 +30,7 @@ func TestRootCommandHasShort(t *testing.T) {
 
 // TestRootCommandHasSubcommands verifies the root command has subcommands registered.
 func TestRootCommandHasSubcommands(t *testing.T) {
-	cmd := Root()
+	cmd := Root("test")
 	if len(cmd.Commands()) == 0 {
 		t.Error("Root command has no subcommands")
 	}
@@ -38,8 +38,8 @@ func TestRootCommandHasSubcommands(t *testing.T) {
 
 // TestRootCommandSubcommandNames verifies expected subcommands exist.
 func TestRootCommandSubcommandNames(t *testing.T) {
-	cmd := Root()
-	expectedCommands := []string{"repo", "checkout", "branch", "status", "update", "discard", "commit", "stash", "reset"}
+	cmd := Root("test")
+	expectedCommands := []string{"repo", "checkout", "branch", "status", "update", "discard", "commit", "stash", "reset", "upgrade"}
 
 	actual := make(map[string]bool)
 	for _, sc := range cmd.Commands() {
