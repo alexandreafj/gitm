@@ -45,10 +45,9 @@ jobs:
         id: format
 
       - name: Run linting
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: ./...
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          golangci-lint run ./...
         id: lint
 
       - name: Run unit tests
