@@ -23,6 +23,7 @@
   - [commit](#gitm-commit)
   - [stash](#gitm-stash)
   - [reset](#gitm-reset)
+  - [upgrade](#gitm-upgrade)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
 - [Development](#development)
@@ -114,7 +115,7 @@ gitm --help
 
 ### Prerequisites (building from source)
 
-- [Go 1.24+](https://golang.org/dl/)
+- [Go 1.26+](https://golang.org/dl/)
 - `git` available in your `PATH`
 
 ### From source
@@ -1034,6 +1035,63 @@ Done: 1 succeeded
 
 ---
 
+### `gitm upgrade`
+
+Self-update gitm to the latest release from GitHub. Downloads the correct binary for your platform, verifies the checksum, and replaces the current binary — no manual download needed.
+
+```
+gitm upgrade
+```
+
+**What it does:**
+
+1. Queries the [GitHub Releases API](https://github.com/alexandreafj/gitm/releases) for the latest version.
+2. Compares against the currently installed version (`gitm --version`).
+3. Detects your OS and architecture to download the correct binary.
+4. Downloads the binary and `checksums.txt`, then verifies SHA256 integrity.
+5. Atomically replaces the current binary (backs up the old one, swaps in the new one).
+6. Sets executable permissions on Linux/macOS (`chmod 755`).
+
+**Supported platforms:**
+
+| Platform | Binary |
+|---|---|
+| macOS (Apple Silicon) | `gitm-macos-arm64` |
+| macOS (Intel) | `gitm-macos-x86_64` |
+| Linux (x86_64) | `gitm-linux-amd64` |
+| Linux (ARM64) | `gitm-linux-arm64` |
+| Windows (x86_64) | `gitm-windows-amd64.exe` |
+
+**Example — upgrade available:**
+
+```
+$ gitm upgrade
+
+Checking for updates... found v1.1.0
+Downloading gitm-macos-arm64... done
+Verifying checksum... ok
+Updated gitm: v1.0.6 → v1.1.0
+```
+
+**Example — already up to date:**
+
+```
+$ gitm upgrade
+
+Checking for updates... already up to date (v1.1.0)
+```
+
+**Version check:**
+
+```bash
+# See your current version
+gitm --version
+```
+
+> **Note:** This command does not require database access — it works even if `~/.gitm/gitm.db` doesn't exist yet.
+
+---
+
 ## How It Works
 
 ### Parallel Execution
@@ -1118,7 +1176,8 @@ cli-git-commands/
 │   │   ├── discard.go           # discard
 │   │   ├── commit.go            # commit
 │   │   ├── stash.go             # stash / stash apply / stash pop / stash list
-│   │   └── reset.go             # reset --soft / --hard with force-push support
+│   │   ├── reset.go             # reset --soft / --hard with force-push support
+│   │   └── upgrade.go           # self-update from GitHub releases
 │   ├── config/
 │   │   └── config.go            # App config & data dir
 │   ├── db/
@@ -1152,9 +1211,14 @@ make help     # Show all targets
 
 ### Adding a new command
 
-1. Create `internal/cli/<command>.go`.
-2. Define a function `func <command>Cmd() *cobra.Command`.
-3. Register it in `internal/cli/root.go` by adding `root.AddCommand(<command>Cmd())`.
+1. Create a feature branch: `git checkout -b feat/<command-name>`.
+2. Create `internal/cli/<command>.go`.
+3. Define a function `func <command>Cmd() *cobra.Command`.
+4. Register it in `internal/cli/root.go` by adding `root.AddCommand(<command>Cmd())`.
+5. If the command doesn't need DB access, add its name to the skip list in `PersistentPreRunE`.
+6. Create `internal/cli/<command>_test.go` with unit tests (real git repos, no mocks).
+7. Update this `README.md`: add to Table of Contents, Commands Reference, and Project Structure.
+8. Run `make test && make lint` before committing.
 
 ### Dependencies
 
