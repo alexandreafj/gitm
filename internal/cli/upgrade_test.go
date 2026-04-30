@@ -5,6 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -87,7 +90,9 @@ func TestFileSHA256(t *testing.T) {
 	if _, err := f.Write(content); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := fileSHA256(f.Name())
 	if err != nil {
@@ -145,16 +150,178 @@ func TestRunUpgradeFetchError(t *testing.T) {
 	}
 }
 
-func TestRunUpgradeUnsupportedPlatform(t *testing.T) {
+func TestRunUpgradeMissingAsset(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
 	uc := &fakeUpgradeClient{
 		release: &ghRelease{
 			TagName: "v2.0.0",
-			Assets:  []ghAsset{},
+			Assets:  []ghAsset{{Name: "some-other-binary", BrowserDownloadURL: "https://example.com/other"}},
 		},
 	}
-	err := runUpgrade("v1.0.0", uc)
+	err = runUpgrade("v1.0.0", uc)
 	if err == nil {
 		t.Fatal("expected error for missing asset")
+	}
+	if !strings.Contains(err.Error(), name) {
+		t.Errorf("error should mention expected asset %q, got: %v", name, err)
+	}
+}
+
+func TestRunUpgradeChecksumMismatch(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binaryContent := []byte("fake binary content")
+	wrongChecksum := "0000000000000000000000000000000000000000000000000000000000000000"
+	checksumData := fmt.Sprintf("%s  %s\n", wrongChecksum, name)
+
+	uc := &fakeUpgradeClient{
+		release: &ghRelease{
+			TagName: "v2.0.0",
+			Assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+			},
+		},
+		files: map[string][]byte{
+			"https://example.com/binary":    binaryContent,
+			"https://example.com/checksums": []byte(checksumData),
+		},
+	}
+	err = runUpgrade("v1.0.0", uc)
+	if err == nil {
+		t.Fatal("expected checksum mismatch error")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("expected checksum mismatch error, got: %v", err)
+	}
+}
+
+func TestInstallBinarySuccess(t *testing.T) {
+	dir := t.TempDir()
+
+	oldBinary := filepath.Join(dir, "gitm")
+	if err := os.WriteFile(oldBinary, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	newBinary := filepath.Join(dir, "new-gitm")
+	if err := os.WriteFile(newBinary, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installBinary(newBinary, oldBinary); err != nil {
+		t.Fatalf("installBinary: %v", err)
+	}
+
+	content, err := os.ReadFile(oldBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new" {
+		t.Errorf("expected 'new', got %q", string(content))
+	}
+
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(oldBinary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&0111 == 0 {
+			t.Error("expected executable permissions on installed binary")
+		}
+	}
+
+	if _, err := os.Stat(oldBinary + ".old"); !os.IsNotExist(err) {
+		t.Error("backup file should have been cleaned up")
+	}
+}
+
+func TestInstallBinaryRemovesStaleBackup(t *testing.T) {
+	dir := t.TempDir()
+
+	oldBinary := filepath.Join(dir, "gitm")
+	if err := os.WriteFile(oldBinary, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	staleBackup := oldBinary + ".old"
+	if err := os.WriteFile(staleBackup, []byte("stale"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	newBinary := filepath.Join(dir, "new-gitm")
+	if err := os.WriteFile(newBinary, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installBinary(newBinary, oldBinary); err != nil {
+		t.Fatalf("installBinary with stale backup: %v", err)
+	}
+
+	content, err := os.ReadFile(oldBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new" {
+		t.Errorf("expected 'new', got %q", string(content))
+	}
+}
+
+func TestInstallBinaryRollbackOnFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	oldBinary := filepath.Join(dir, "gitm")
+	if err := os.WriteFile(oldBinary, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := installBinary("/nonexistent/path", oldBinary)
+	if err == nil {
+		t.Fatal("expected error for nonexistent source")
+	}
+
+	content, err := os.ReadFile(oldBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "old" {
+		t.Errorf("expected original content 'old' after rollback, got %q", string(content))
+	}
+}
+
+func TestCopyFile(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+
+	if err := os.WriteFile(src, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyFile(src, dst); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "content" {
+		t.Errorf("expected 'content', got %q", string(got))
+	}
+}
+
+func TestCopyFileSourceNotFound(t *testing.T) {
+	dir := t.TempDir()
+	err := copyFile("/nonexistent", filepath.Join(dir, "dst"))
+	if err == nil {
+		t.Fatal("expected error for nonexistent source")
 	}
 }
 
@@ -168,7 +335,7 @@ func TestUpgradeCmd(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdSkipsDB(t *testing.T) {
+func TestUpgradeSubcommandRegistered(t *testing.T) {
 	root := Root("v1.0.0")
 	var found bool
 	for _, c := range root.Commands() {

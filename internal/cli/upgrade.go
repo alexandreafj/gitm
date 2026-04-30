@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -17,6 +19,8 @@ import (
 
 const (
 	releaseAPIURL = "https://api.github.com/repos/alexandreafj/gitm/releases/latest"
+	httpTimeout   = 60 * time.Second
+	userAgent     = "gitm-upgrade"
 )
 
 type ghRelease struct {
@@ -75,12 +79,19 @@ type httpUpgradeClient struct {
 	client *http.Client
 }
 
+func newHTTPUpgradeClient() *httpUpgradeClient {
+	return &httpUpgradeClient{
+		client: &http.Client{Timeout: httpTimeout},
+	}
+}
+
 func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
 	req, err := http.NewRequest("GET", releaseAPIURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -88,6 +99,9 @@ func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("GitHub API rate limit exceeded (HTTP 403); try again later")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
@@ -100,7 +114,13 @@ func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
 }
 
 func (h *httpUpgradeClient) downloadToFile(url, path string) error {
-	resp, err := h.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -114,10 +134,16 @@ func (h *httpUpgradeClient) downloadToFile(url, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func fileSHA256(path string) (string, error) {
@@ -132,6 +158,53 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// installBinary atomically replaces the binary at execPath with the one at srcPath.
+func installBinary(srcPath, execPath string) error {
+	dir := filepath.Dir(execPath)
+
+	// Remove any leftover backup from a previous failed upgrade.
+	backupPath := execPath + ".old"
+	_ = os.Remove(backupPath)
+
+	// Write the new binary to a temp file in the same directory so rename is atomic.
+	tmpFile, err := os.CreateTemp(dir, ".gitm-new-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+
+	if err := copyFile(srcPath, tmpPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("copy new binary: %w", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(tmpPath, 0755); err != nil {
+			os.Remove(tmpPath)
+			return fmt.Errorf("set executable permission: %w", err)
+		}
+	}
+
+	// Back up the current binary so we can restore on failure.
+	if err := os.Rename(execPath, backupPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("backup current binary: %w", err)
+	}
+
+	// Atomic rename of the new binary into place.
+	if err := os.Rename(tmpPath, execPath); err != nil {
+		if rbErr := os.Rename(backupPath, execPath); rbErr != nil {
+			return fmt.Errorf("install new binary: %w (rollback also failed: %w)", err, rbErr)
+		}
+		return fmt.Errorf("install new binary: %w", err)
+	}
+
+	// Best-effort cleanup of the backup.
+	_ = os.Remove(backupPath)
+	return nil
 }
 
 func runUpgrade(currentVersion string, uc upgradeClient) error {
@@ -219,25 +292,9 @@ func runUpgrade(currentVersion string, uc upgradeClient) error {
 		return fmt.Errorf("locate current binary: %w", err)
 	}
 
-	backupPath := execPath + ".old"
-	if err := os.Rename(execPath, backupPath); err != nil {
-		return fmt.Errorf("backup current binary: %w", err)
+	if err := installBinary(tmpPath, execPath); err != nil {
+		return err
 	}
-
-	if err := copyFile(tmpPath, execPath); err != nil {
-		if rbErr := os.Rename(backupPath, execPath); rbErr != nil {
-			return fmt.Errorf("install new binary: %w (rollback also failed: %w)", err, rbErr)
-		}
-		return fmt.Errorf("install new binary: %w", err)
-	}
-
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(execPath, 0755); err != nil {
-			return fmt.Errorf("set executable permission: %w", err)
-		}
-	}
-
-	_ = os.Remove(backupPath)
 
 	green.Printf("Updated gitm: %s → %s\n", currentVersion, rel.TagName)
 	return nil
@@ -254,10 +311,16 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func upgradeCmd(currentVersion string) *cobra.Command {
@@ -267,8 +330,7 @@ func upgradeCmd(currentVersion string) *cobra.Command {
 		Long:  "Download and install the latest gitm binary from GitHub releases.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			uc := &httpUpgradeClient{client: http.DefaultClient}
-			return runUpgrade(currentVersion, uc)
+			return runUpgrade(currentVersion, newHTTPUpgradeClient())
 		},
 	}
 }
