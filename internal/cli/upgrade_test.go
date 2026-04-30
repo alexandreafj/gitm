@@ -578,7 +578,9 @@ func TestHTTPDownloadBytesOversizedRejected(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(oversized)
+		if _, err := w.Write(oversized); err != nil {
+			t.Errorf("write oversized payload: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -600,7 +602,9 @@ func TestHTTPDownloadBytesExactLimitAccepted(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(exactPayload)
+		if _, err := w.Write(exactPayload); err != nil {
+			t.Errorf("write exact-limit payload: %v", err)
+		}
 	}))
 	defer srv.Close()
 
