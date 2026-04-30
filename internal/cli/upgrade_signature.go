@@ -42,11 +42,20 @@ func newSigstoreVerifier() (*sigstoreVerifier, error) {
 // access by definition.
 func (s *sigstoreVerifier) Verify(checksumsBytes, bundleBytes []byte) error {
 	// Parse the Sigstore bundle from its JSON representation.
-	// bundle.NewBundle requires a protobuf bundle; UnmarshalJSON handles the
-	// JSON wire format directly.
-	var b bundle.Bundle
-	if err := b.UnmarshalJSON(bundleBytes); err != nil {
-		return fmt.Errorf("parse bundle: %w", err)
+	// Releases v1.0.8 and v1.0.9 shipped with cosign's legacy bundle format
+	// (top-level "base64Signature" key). Detect and convert before parsing.
+	var b *bundle.Bundle
+	if isLegacyCosignBundle(bundleBytes) {
+		converted, err := convertLegacyBundle(bundleBytes, checksumsBytes)
+		if err != nil {
+			return fmt.Errorf("parse bundle: %w", err)
+		}
+		b = converted
+	} else {
+		b = new(bundle.Bundle)
+		if err := b.UnmarshalJSON(bundleBytes); err != nil {
+			return fmt.Errorf("parse bundle: %w", err)
+		}
 	}
 
 	// Fetch the Sigstore public-good trust root. Requires network access.
@@ -78,7 +87,7 @@ func (s *sigstoreVerifier) Verify(checksumsBytes, bundleBytes []byte) error {
 		verify.WithCertificateIdentity(identity),
 	)
 
-	if _, err := verifier.Verify(&b, policy); err != nil {
+	if _, err := verifier.Verify(b, policy); err != nil {
 		return fmt.Errorf("signature verify: %w", err)
 	}
 	return nil

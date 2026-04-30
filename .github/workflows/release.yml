@@ -129,6 +129,7 @@ jobs:
         working-directory: release
         run: |
           cosign sign-blob --yes \
+            --new-bundle-format \
             --bundle checksums.txt.bundle \
             checksums.txt
           ls -la checksums.txt.bundle
