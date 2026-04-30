@@ -225,7 +225,9 @@ func runUpgrade(currentVersion string, uc upgradeClient) error {
 	}
 
 	if err := copyFile(tmpPath, execPath); err != nil {
-		_ = os.Rename(backupPath, execPath)
+		if rbErr := os.Rename(backupPath, execPath); rbErr != nil {
+			return fmt.Errorf("install new binary: %w (rollback also failed: %w)", err, rbErr)
+		}
 		return fmt.Errorf("install new binary: %w", err)
 	}
 
