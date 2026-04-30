@@ -23,6 +23,8 @@
   - [commit](#gitm-commit)
   - [stash](#gitm-stash)
   - [reset](#gitm-reset)
+  - [track](#gitm-track)
+  - [untrack](#gitm-untrack)
   - [upgrade](#gitm-upgrade)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
@@ -1035,6 +1037,146 @@ Done: 1 succeeded
 
 ---
 
+### `gitm track`
+
+Start tracking untracked files across multiple repositories. Only repositories with untracked files are shown in the selection list.
+
+```
+gitm track [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+
+**What it does:**
+
+1. Scans all registered repositories for untracked files.
+2. If **none** have untracked files, prints a message and exits.
+3. Shows a summary of how many untracked files each repo has.
+4. Opens the interactive multi-select to choose which repos to track files in.
+5. For each selected repo, opens the file picker showing only untracked files.
+6. Runs `git add` on the selected files.
+
+**Example flow:**
+
+```
+$ gitm track
+
+2 repositories with untracked files:
+
+  api-gateway            3 untracked file(s)
+  auth-service           1 untracked file(s)
+
+Select repositories to track files in
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+▶ [✓] api-gateway       /home/user/work/api-gateway
+  [ ] auth-service       /home/user/work/auth-service
+
+1/2 selected
+
+Select files to track for api-gateway
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+  [✓] ?? src/new-handler.go
+  [✓] ?? src/new-handler_test.go
+  [ ] ?? scratch.txt
+
+2/3 selected
+
+[api-gateway        ] ✓ tracked 2 file(s)
+
+Done: 1 succeeded
+```
+
+**Examples:**
+
+```bash
+# Interactive — select repos and files
+gitm track
+
+# Track files only in specific repos by alias
+gitm track --repo api-gateway,auth-service
+```
+
+---
+
+### `gitm untrack`
+
+Stop tracking files across multiple repositories. Files are removed from the git index but **remain on disk**. This is useful for accidentally committed files like `.env`, logs, or build artifacts.
+
+```
+gitm untrack [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--path` | `-p` | _(all files)_ | Filter files by glob pattern or path prefix (e.g. `"*.env"`, `"public/"`). |
+
+**What it does:**
+
+1. Opens the interactive multi-select to choose which repos to untrack files from.
+2. For each selected repo, shows tracked files in the file picker (filtered by `--path` if provided).
+3. Runs `git rm --cached` on the selected files — removes from git's index only.
+4. The files remain on disk untouched.
+
+> **Tip:** After untracking a file, add it to `.gitignore` to prevent it from being tracked again.
+
+**Example flow:**
+
+```
+$ gitm untrack
+
+Select repositories to untrack files from
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+▶ [✓] api-gateway       /home/user/work/api-gateway
+  [ ] auth-service       /home/user/work/auth-service
+
+1/1 selected
+
+Select files to untrack for api-gateway (files stay on disk)
+↑/↓ or j/k to move  •  space to toggle  •  a to select all  •  enter to confirm  •  q/esc to cancel
+
+  [ ] T  go.mod
+  [ ] T  go.sum
+  [✓] T  .env
+  [✓] T  debug.log
+
+2/15 selected
+
+[api-gateway        ] ✓ untracked 2 file(s)
+
+Done: 1 succeeded
+```
+
+**Examples:**
+
+```bash
+# Interactive — select repos and files
+gitm untrack
+
+# Untrack files only in specific repos by alias
+gitm untrack --repo api-gateway
+
+# Filter to only show .env files
+gitm untrack --path "*.env"
+
+# Filter to only show files under public/
+gitm untrack --path "public/"
+
+# Combine repo and path filters
+gitm untrack --repo api-gateway --path "*.log"
+```
+
+---
+
 ### `gitm upgrade`
 
 Self-update gitm to the latest release from GitHub. Downloads the correct binary for your platform, verifies the checksum, and replaces the current binary — no manual download needed.
@@ -1177,6 +1319,8 @@ cli-git-commands/
 │   │   ├── commit.go            # commit
 │   │   ├── stash.go             # stash / stash apply / stash pop / stash list
 │   │   ├── reset.go             # reset --soft / --hard with force-push support
+│   │   ├── track.go             # start tracking untracked files
+│   │   ├── untrack.go           # stop tracking files (git rm --cached)
 │   │   └── upgrade.go           # self-update from GitHub releases
 │   ├── config/
 │   │   └── config.go            # App config & data dir

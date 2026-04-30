@@ -215,6 +215,62 @@ func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 	return ahead, behind, nil
 }
 
+// TrackedFiles returns all tracked files in the repository as porcelain-style
+// lines with a " T " prefix (e.g. " T src/main.go") for display in the file picker.
+func TrackedFiles(path string) ([]string, error) {
+	out, err := run(path, "ls-files")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var files []string
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			files = append(files, " T "+l)
+		}
+	}
+	return files, nil
+}
+
+// UntrackedFiles returns all untracked, non-ignored files as porcelain-style
+// lines (e.g. "?? scratch.txt") for display in the file picker.
+func UntrackedFiles(path string) ([]string, error) {
+	out, err := run(path, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var files []string
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			files = append(files, "?? "+l)
+		}
+	}
+	return files, nil
+}
+
+// UntrackFiles removes files from the git index but keeps them on disk.
+// Equivalent to: git rm --cached -- <files>
+func UntrackFiles(path string, files []string) error {
+	cleaned := make([]string, 0, len(files))
+	for _, f := range files {
+		if len(f) > 3 {
+			cleaned = append(cleaned, strings.TrimSpace(f[3:]))
+		} else {
+			cleaned = append(cleaned, strings.TrimSpace(f))
+		}
+	}
+	args := append([]string{"rm", "--cached", "--"}, cleaned...)
+	_, err := run(path, args...)
+	return err
+}
+
 // StageFiles stages specific files (by their path relative to the repo root).
 func StageFiles(path string, files []string) error {
 	// Strip the porcelain status prefix (e.g. " M ", "?? ") to get the raw path.

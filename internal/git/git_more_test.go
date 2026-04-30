@@ -417,3 +417,88 @@ func TestRepoName(t *testing.T) {
 		t.Errorf("RepoName(rel) = %q, want %q", got, "bar")
 	}
 }
+
+func TestTrackedFiles(t *testing.T) {
+	dir := initRepo(t)
+
+	files, err := git.TrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("expected at least one tracked file (README.md)")
+	}
+
+	found := false
+	for _, f := range files {
+		if strings.Contains(f, "README.md") {
+			found = true
+			if !strings.HasPrefix(f, " T ") {
+				t.Errorf("expected ' T ' prefix, got %q", f)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("README.md not found in tracked files")
+	}
+}
+
+func TestUntrackedFiles(t *testing.T) {
+	dir := initRepo(t)
+
+	files, err := git.UntrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Errorf("expected no untracked files in clean repo, got %d", len(files))
+	}
+
+	writeFile(t, dir, "newfile.txt", "untracked\n")
+
+	files, err = git.UntrackedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 untracked file, got %d", len(files))
+	}
+	if !strings.Contains(files[0], "newfile.txt") {
+		t.Errorf("expected newfile.txt, got %q", files[0])
+	}
+	if !strings.HasPrefix(files[0], "??") {
+		t.Errorf("expected '??' prefix, got %q", files[0])
+	}
+}
+
+func TestUntrackFiles(t *testing.T) {
+	dir := initRepo(t)
+
+	writeFile(t, dir, "secret.env", "SECRET=abc\n")
+	mustRunGit(t, dir, "add", "secret.env")
+	mustRunGit(t, dir, "commit", "-m", "add secret")
+
+	err := git.UntrackFiles(dir, []string{" T secret.env"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := mustRunGit(t, dir, "status", "--porcelain")
+	if !strings.Contains(out, "secret.env") {
+		t.Error("expected secret.env to appear as deleted from index")
+	}
+
+	if _, statErr := os.Stat(filepath.Join(dir, "secret.env")); statErr != nil {
+		t.Error("secret.env should still exist on disk after untrack")
+	}
+}
+
+func TestUntrackFilesNotTracked(t *testing.T) {
+	dir := initRepo(t)
+
+	err := git.UntrackFiles(dir, []string{" T nonexistent.txt"})
+	if err == nil {
+		t.Error("expected error when untracking a file that doesn't exist in index")
+	}
+}
