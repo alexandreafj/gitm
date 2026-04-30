@@ -7,7 +7,7 @@
 Run git operations across dozens of repositories in parallel — checkout, pull, commit, stash, reset, track — from one command.
 
 [![CI](https://github.com/alexandreafj/gitm/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandreafj/gitm/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/alexandreafj/gitm?sort=semver)](https://github.com/alexandreafj/gitm/releases/latest)
+[![Release](https://img.shields.io/github/v/release/alexandreafj/gitm?sort=semver&cacheSeconds=300)](https://github.com/alexandreafj/gitm/releases/latest)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/alexandreafj/gitm)](go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alexandreferreira/gitm)](https://goreportcard.com/report/github.com/alexandreferreira/gitm)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#installation)
@@ -155,6 +155,32 @@ make install
 
 # Verify installation
 gitm --help
+```
+
+### Verification
+
+`gitm upgrade` verifies the signature on `checksums.txt` against this repo's release workflow before installing any new binary:
+
+- The release workflow signs `checksums.txt` with [cosign](https://github.com/sigstore/cosign) in keyless mode (OIDC-bound to `release.yml` on a tagged push). The signature, certificate, and Rekor transparency-log proof are bundled into `checksums.txt.bundle` and uploaded with each release.
+- `gitm upgrade` downloads the bundle, verifies it against Sigstore's public-good trust root, and aborts on any failure.
+- Releases that predate signing (older than this feature) fall back to SHA-256 verification with a warning.
+
+To verify a manually-downloaded binary outside of `gitm upgrade`:
+
+```bash
+# Download the binary, checksums, and bundle for your release of choice
+curl -L -O https://github.com/alexandreafj/gitm/releases/download/<tag>/gitm-macos-arm64
+curl -L -O https://github.com/alexandreafj/gitm/releases/download/<tag>/checksums.txt
+curl -L -O https://github.com/alexandreafj/gitm/releases/download/<tag>/checksums.txt.bundle
+
+# Verify the signature on checksums.txt (requires cosign installed)
+cosign verify-blob --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github\.com/alexandreafj/gitm/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  checksums.txt
+
+# Then verify the binary against the (now trusted) checksums file
+sha256sum -c checksums.txt --ignore-missing
 ```
 
 ### Build only (without installing)

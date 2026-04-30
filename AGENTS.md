@@ -25,12 +25,13 @@ mockGit.On("ResetSoft", ...).Return(nil)
 
 ### 2. **Dependencies are locked. Adding new ones requires discussion.**
 
-This project has exactly 5 external dependencies:
+This project has exactly 6 external dependencies:
 - `github.com/spf13/cobra` — CLI framework
 - `modernc.org/sqlite` — SQLite (pure Go, no CGo)
 - `github.com/charmbracelet/bubbletea` — TUI
 - `github.com/fatih/color` — Colored output
 - `golang.org/x/sync` — `errgroup`
+- `github.com/sigstore/sigstore-go` — Signature verification for `gitm upgrade`. Required to honour the "signed binaries" claim. Verifies cosign keyless signatures against the public-good Sigstore TUF root in-process so users don't need a separate cosign install.
 
 Before adding anything else, ask: *Can this be done with stdlib?* If no, get explicit approval.
 
