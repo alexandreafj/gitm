@@ -95,14 +95,22 @@ Every command gets a detailed `Long` explanation with examples. Users won't read
 
 ## Development Workflow
 
-### 1. **Always create a feature branch before starting work.**
+### 1. **Always create a feature branch from `master` before starting work.**
 
-Never commit directly to `master`. Create a branch with a descriptive name:
+Never commit directly to `master`, and never branch off another in-flight feature branch — always start from a clean `master`. Otherwise the unmerged commits from the parent branch will leak into your PR's diff and bloat the review.
+
 ```bash
+# Always do this first
+git checkout master
+git pull --ff-only
+
+# Then branch off with a descriptive name
 git checkout -b feat/add-upgrade-command
 git checkout -b fix/checkout-dirty-repo-crash
 git checkout -b docs/update-readme-for-stash
 ```
+
+Quick self-check before the first commit: `git log --oneline master..HEAD` should be empty (or contain only commits you have explicitly authored on this branch). If it lists commits from another feature branch, you branched off the wrong place — reset to `origin/master` and cherry-pick your work.
 
 ### 2. **Every new command or subcommand must update `README.md`.**
 
