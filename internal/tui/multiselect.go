@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/alexandreferreira/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/db"
 )
 
 // Styles

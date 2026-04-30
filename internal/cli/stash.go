@@ -7,9 +7,9 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/alexandreferreira/gitm/internal/db"
-	"github.com/alexandreferreira/gitm/internal/git"
-	"github.com/alexandreferreira/gitm/internal/runner"
+	"github.com/alexandreafj/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/git"
+	"github.com/alexandreafj/gitm/internal/runner"
 )
 
 func stashCmd() *cobra.Command {

@@ -9,7 +9,7 @@ import (
 	"github.com/fatih/color"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/alexandreferreira/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/db"
 )
 
 // Status represents the outcome of an operation on a single repository.

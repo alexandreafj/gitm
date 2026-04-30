@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alexandreferreira/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/db"
 )
 
 func TestRunCheckoutWithUI_NoRepos(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/alexandreferreira/gitm/internal/config"
+	"github.com/alexandreafj/gitm/internal/config"
 )
 
 func TestLoad(t *testing.T) {

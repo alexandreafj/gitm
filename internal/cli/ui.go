@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/alexandreferreira/gitm/internal/db"
-	"github.com/alexandreferreira/gitm/internal/tui"
+	"github.com/alexandreafj/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/tui"
 )
 
 type ui interface {

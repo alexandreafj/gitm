@@ -21,7 +21,7 @@ const (
 	releaseAPIURL = "https://api.github.com/repos/alexandreafj/gitm/releases/latest"
 	httpTimeout   = 60 * time.Second
 	userAgent     = "gitm-upgrade"
-	maxBundleSize = 1 << 20 // 1 MiB — bundles are typically <10KB
+	maxBundleSize = 32 << 10 // 32 KiB — real bundles are ~8 KB
 )
 
 type ghRelease struct {

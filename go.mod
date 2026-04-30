@@ -1,4 +1,4 @@
-module github.com/alexandreferreira/gitm
+module github.com/alexandreafj/gitm
 
 go 1.26.2
 
