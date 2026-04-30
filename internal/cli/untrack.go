@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
-	"github.com/alexandreferreira/gitm/internal/runner"
 )
 
 func untrackCmd() *cobra.Command {
@@ -84,6 +84,12 @@ func filterTrackedFiles(files []string, pattern string) []string {
 	return matched
 }
 
+type untrackResult struct {
+	alias   string
+	skipped bool
+	err     error
+}
+
 func runUntrackWithUI(ui ui, repoAliases []string, pathFilter string) error {
 	repos, err := resolveRepos(repoAliases)
 	if err != nil {
@@ -109,20 +115,28 @@ func runUntrackWithUI(ui ui, repoAliases []string, pathFilter string) error {
 		}
 	}
 
-	fmt.Printf("\nUntracking files in %d repository(ies)…\n\n", len(chosen))
+	results := make([]untrackResult, 0, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	for _, repo := range chosen {
+		fmt.Printf("\n%s\n", color.CyanString("━━━ %s ━━━", repo.Alias))
+
 		files, filesErr := git.TrackedFiles(repo.Path)
 		if filesErr != nil {
-			return "", "", fmt.Errorf("list tracked files: %w", filesErr)
+			color.Red("  ✗ Cannot list tracked files: %v", filesErr)
+			results = append(results, untrackResult{alias: repo.Alias, err: filesErr})
+			continue
 		}
 		if len(files) == 0 {
-			return "", "no tracked files", nil
+			color.Yellow("  ⚠  No tracked files found — skipping")
+			results = append(results, untrackResult{alias: repo.Alias, skipped: true})
+			continue
 		}
 
 		files = filterTrackedFiles(files, pathFilter)
 		if len(files) == 0 {
-			return "", fmt.Sprintf("no files matching %q", pathFilter), nil
+			color.Yellow("  ⚠  No files matching %q — skipping", pathFilter)
+			results = append(results, untrackResult{alias: repo.Alias, skipped: true})
+			continue
 		}
 
 		title := fmt.Sprintf("Select files to untrack for %s (files stay on disk)", repo.Alias)
@@ -132,15 +146,51 @@ func runUntrackWithUI(ui ui, repoAliases []string, pathFilter string) error {
 
 		selectedFiles, selectErr := ui.FileSelect(files, title)
 		if selectErr != nil {
-			return "", selectErr.Error(), nil
+			if selectErr.Error() == "canceled" || selectErr.Error() == "no files selected" {
+				color.Yellow("  ⚠  Skipped (%s)", selectErr)
+				results = append(results, untrackResult{alias: repo.Alias, skipped: true})
+				continue
+			}
+			color.Red("  ✗ File selection error: %v", selectErr)
+			results = append(results, untrackResult{alias: repo.Alias, err: selectErr})
+			continue
 		}
 
 		if untrackErr := git.UntrackFiles(repo.Path, selectedFiles); untrackErr != nil {
-			return "", "", fmt.Errorf("git rm --cached failed: %w", untrackErr)
+			color.Red("  ✗ git rm --cached failed: %v", untrackErr)
+			results = append(results, untrackResult{alias: repo.Alias, err: untrackErr})
+			continue
 		}
 
-		return fmt.Sprintf("untracked %d file(s)", len(selectedFiles)), "", nil
-	})
+		color.Green("  ✓ Untracked %d file(s)", len(selectedFiles))
+		results = append(results, untrackResult{alias: repo.Alias})
+	}
+
+	fmt.Println()
+	fmt.Println(color.New(color.Bold).Sprint("Summary"))
+	fmt.Println(color.New(color.FgHiBlack).Sprint("───────────────────────"))
+
+	succeeded, failed, skipped := 0, 0, 0
+	for _, r := range results {
+		switch {
+		case r.skipped:
+			skipped++
+			fmt.Printf("  %s  %s\n", color.YellowString("~"), r.alias)
+		case r.err != nil:
+			failed++
+			fmt.Printf("  %s  %s: %v\n", color.RedString("✗"), r.alias, r.err)
+		default:
+			succeeded++
+			fmt.Printf("  %s  %s\n", color.GreenString("✓"), r.alias)
+		}
+	}
+
+	fmt.Println()
+	fmt.Printf("%s  %s  %s\n",
+		color.GreenString("%d untracked", succeeded),
+		color.YellowString("%d skipped", skipped),
+		color.RedString("%d failed", failed),
+	)
 
 	return nil
 }

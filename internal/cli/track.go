@@ -8,7 +8,6 @@ import (
 
 	"github.com/alexandreferreira/gitm/internal/db"
 	"github.com/alexandreferreira/gitm/internal/git"
-	"github.com/alexandreferreira/gitm/internal/runner"
 )
 
 func trackCmd() *cobra.Command {
@@ -37,6 +36,12 @@ multi-select UI.`,
 
 func runTrack(repoAliases []string) error {
 	return runTrackWithUI(liveUI{}, repoAliases)
+}
+
+type trackResult struct {
+	alias   string
+	skipped bool
+	err     error
 }
 
 func runTrackWithUI(ui ui, repoAliases []string) error {
@@ -94,15 +99,21 @@ func runTrackWithUI(ui ui, repoAliases []string) error {
 		}
 	}
 
-	fmt.Printf("\nTracking files in %d repository(ies)…\n\n", len(chosen))
+	results := make([]trackResult, 0, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	for _, repo := range chosen {
+		fmt.Printf("\n%s\n", color.CyanString("━━━ %s ━━━", repo.Alias))
+
 		files, filesErr := git.UntrackedFiles(repo.Path)
 		if filesErr != nil {
-			return "", "", fmt.Errorf("list untracked files: %w", filesErr)
+			color.Red("  ✗ Cannot list untracked files: %v", filesErr)
+			results = append(results, trackResult{alias: repo.Alias, err: filesErr})
+			continue
 		}
 		if len(files) == 0 {
-			return "", "no untracked files", nil
+			color.Yellow("  ⚠  No untracked files found — skipping")
+			results = append(results, trackResult{alias: repo.Alias, skipped: true})
+			continue
 		}
 
 		selectedFiles, selectErr := ui.FileSelect(
@@ -110,15 +121,51 @@ func runTrackWithUI(ui ui, repoAliases []string) error {
 			fmt.Sprintf("Select files to track for %s", repo.Alias),
 		)
 		if selectErr != nil {
-			return "", selectErr.Error(), nil
+			if selectErr.Error() == "canceled" || selectErr.Error() == "no files selected" {
+				color.Yellow("  ⚠  Skipped (%s)", selectErr)
+				results = append(results, trackResult{alias: repo.Alias, skipped: true})
+				continue
+			}
+			color.Red("  ✗ File selection error: %v", selectErr)
+			results = append(results, trackResult{alias: repo.Alias, err: selectErr})
+			continue
 		}
 
 		if stageErr := git.StageFiles(repo.Path, selectedFiles); stageErr != nil {
-			return "", "", fmt.Errorf("git add failed: %w", stageErr)
+			color.Red("  ✗ git add failed: %v", stageErr)
+			results = append(results, trackResult{alias: repo.Alias, err: stageErr})
+			continue
 		}
 
-		return fmt.Sprintf("tracked %d file(s)", len(selectedFiles)), "", nil
-	})
+		color.Green("  ✓ Tracked %d file(s)", len(selectedFiles))
+		results = append(results, trackResult{alias: repo.Alias})
+	}
+
+	fmt.Println()
+	fmt.Println(color.New(color.Bold).Sprint("Summary"))
+	fmt.Println(color.New(color.FgHiBlack).Sprint("───────────────────────"))
+
+	succeeded, failed, skipped := 0, 0, 0
+	for _, r := range results {
+		switch {
+		case r.skipped:
+			skipped++
+			fmt.Printf("  %s  %s\n", color.YellowString("~"), r.alias)
+		case r.err != nil:
+			failed++
+			fmt.Printf("  %s  %s: %v\n", color.RedString("✗"), r.alias, r.err)
+		default:
+			succeeded++
+			fmt.Printf("  %s  %s\n", color.GreenString("✓"), r.alias)
+		}
+	}
+
+	fmt.Println()
+	fmt.Printf("%s  %s  %s\n",
+		color.GreenString("%d tracked", succeeded),
+		color.YellowString("%d skipped", skipped),
+		color.RedString("%d failed", failed),
+	)
 
 	return nil
 }

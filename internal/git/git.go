@@ -216,7 +216,7 @@ func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 }
 
 // TrackedFiles returns all tracked files in the repository as porcelain-style
-// lines with a "T " prefix (e.g. "T  src/main.go") for display in the file picker.
+// lines with a " T " prefix (e.g. " T src/main.go") for display in the file picker.
 func TrackedFiles(path string) ([]string, error) {
 	out, err := run(path, "ls-files")
 	if err != nil {
@@ -235,10 +235,10 @@ func TrackedFiles(path string) ([]string, error) {
 	return files, nil
 }
 
-// UntrackedFiles returns all untracked files (not ignored) as porcelain-style
+// UntrackedFiles returns all untracked, non-ignored files as porcelain-style
 // lines (e.g. "?? scratch.txt") for display in the file picker.
 func UntrackedFiles(path string) ([]string, error) {
-	out, err := run(path, "status", "--porcelain")
+	out, err := run(path, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}
@@ -247,8 +247,9 @@ func UntrackedFiles(path string) ([]string, error) {
 	}
 	var files []string
 	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "??") {
-			files = append(files, l)
+		l = strings.TrimSpace(l)
+		if l != "" {
+			files = append(files, "?? "+l)
 		}
 	}
 	return files, nil
