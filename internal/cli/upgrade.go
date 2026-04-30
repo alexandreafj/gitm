@@ -1,0 +1,272 @@
+package cli
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"runtime"
+	"strings"
+
+	"github.com/fatih/color"
+	"github.com/spf13/cobra"
+)
+
+const (
+	releaseAPIURL = "https://api.github.com/repos/alexandreafj/gitm/releases/latest"
+)
+
+type ghRelease struct {
+	TagName string    `json:"tag_name"`
+	Assets  []ghAsset `json:"assets"`
+}
+
+type ghAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+func assetName(goos, goarch string) (string, error) {
+	switch {
+	case goos == "darwin" && goarch == "amd64":
+		return "gitm-macos-x86_64", nil
+	case goos == "darwin" && goarch == "arm64":
+		return "gitm-macos-arm64", nil
+	case goos == "linux" && goarch == "amd64":
+		return "gitm-linux-amd64", nil
+	case goos == "linux" && goarch == "arm64":
+		return "gitm-linux-arm64", nil
+	case goos == "windows" && goarch == "amd64":
+		return "gitm-windows-amd64.exe", nil
+	default:
+		return "", fmt.Errorf("unsupported platform: %s/%s", goos, goarch)
+	}
+}
+
+func findAssetURL(assets []ghAsset, name string) (string, bool) {
+	for _, a := range assets {
+		if a.Name == name {
+			return a.BrowserDownloadURL, true
+		}
+	}
+	return "", false
+}
+
+func parseChecksums(data string) map[string]string {
+	m := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 2 {
+			m[parts[1]] = parts[0]
+		}
+	}
+	return m
+}
+
+type upgradeClient interface {
+	fetchLatestRelease() (*ghRelease, error)
+	downloadToFile(url, path string) error
+}
+
+type httpUpgradeClient struct {
+	client *http.Client
+}
+
+func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
+	req, err := http.NewRequest("GET", releaseAPIURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch latest release: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var rel ghRelease
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return nil, fmt.Errorf("decode release: %w", err)
+	}
+	return &rel, nil
+}
+
+func (h *httpUpgradeClient) downloadToFile(url, path string) error {
+	resp, err := h.client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %d", resp.StatusCode)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func runUpgrade(currentVersion string, uc upgradeClient) error {
+	bold := color.New(color.Bold)
+	green := color.New(color.FgGreen, color.Bold)
+
+	bold.Print("Checking for updates... ")
+
+	rel, err := uc.fetchLatestRelease()
+	if err != nil {
+		return err
+	}
+
+	if rel.TagName == currentVersion {
+		green.Println("already up to date (" + currentVersion + ")")
+		return nil
+	}
+
+	fmt.Println("found " + rel.TagName)
+
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	binaryURL, ok := findAssetURL(rel.Assets, name)
+	if !ok {
+		return fmt.Errorf("no binary %q in release %s", name, rel.TagName)
+	}
+
+	checksumURL, hasChecksum := findAssetURL(rel.Assets, "checksums.txt")
+
+	tmpFile, err := os.CreateTemp("", "gitm-upgrade-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	fmt.Printf("Downloading %s... ", name)
+	if err := uc.downloadToFile(binaryURL, tmpPath); err != nil {
+		return fmt.Errorf("download binary: %w", err)
+	}
+	fmt.Println("done")
+
+	if hasChecksum {
+		fmt.Print("Verifying checksum... ")
+		csFile, err := os.CreateTemp("", "gitm-checksums-*")
+		if err != nil {
+			return fmt.Errorf("create checksum temp file: %w", err)
+		}
+		csPath := csFile.Name()
+		csFile.Close()
+		defer os.Remove(csPath)
+
+		if err := uc.downloadToFile(checksumURL, csPath); err != nil {
+			return fmt.Errorf("download checksums: %w", err)
+		}
+
+		csData, err := os.ReadFile(csPath)
+		if err != nil {
+			return fmt.Errorf("read checksums: %w", err)
+		}
+
+		checksums := parseChecksums(string(csData))
+		expected, ok := checksums[name]
+		if !ok {
+			return fmt.Errorf("no checksum entry for %s", name)
+		}
+
+		actual, err := fileSHA256(tmpPath)
+		if err != nil {
+			return fmt.Errorf("hash downloaded binary: %w", err)
+		}
+
+		if actual != expected {
+			return fmt.Errorf("checksum mismatch: expected %s, got %s", expected, actual)
+		}
+		green.Println("ok")
+	}
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate current binary: %w", err)
+	}
+
+	backupPath := execPath + ".old"
+	if err := os.Rename(execPath, backupPath); err != nil {
+		return fmt.Errorf("backup current binary: %w", err)
+	}
+
+	if err := copyFile(tmpPath, execPath); err != nil {
+		_ = os.Rename(backupPath, execPath)
+		return fmt.Errorf("install new binary: %w", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(execPath, 0755); err != nil {
+			return fmt.Errorf("set executable permission: %w", err)
+		}
+	}
+
+	_ = os.Remove(backupPath)
+
+	green.Printf("Updated gitm: %s → %s\n", currentVersion, rel.TagName)
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func upgradeCmd(currentVersion string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "upgrade",
+		Short: "Upgrade gitm to the latest release",
+		Long:  "Download and install the latest gitm binary from GitHub releases.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			uc := &httpUpgradeClient{client: http.DefaultClient}
+			return runUpgrade(currentVersion, uc)
+		},
+	}
+}
