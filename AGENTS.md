@@ -93,6 +93,44 @@ Every command gets a detailed `Long` explanation with examples. Users won't read
 
 ---
 
+## Development Workflow
+
+### 1. **Always create a feature branch before starting work.**
+
+Never commit directly to `master`. Create a branch with a descriptive name:
+```bash
+git checkout -b feat/add-upgrade-command
+git checkout -b fix/checkout-dirty-repo-crash
+git checkout -b docs/update-readme-for-stash
+```
+
+### 2. **Every new command or subcommand must update `README.md`.**
+
+When you add or modify a CLI command:
+1. Add it to the **Table of Contents**.
+2. Add a full **Commands Reference** section following the existing format: description, usage, flags table, behaviour notes, examples, and example output.
+3. Update the **Project Structure** tree if new files were added.
+4. Update the **"Adding a new command"** checklist if the process changed.
+
+### 3. **Every new command needs unit tests.**
+
+This is non-negotiable (see Landmine #4). At minimum:
+- Test that the command is registered as a subcommand of root.
+- Test flag parsing and validation.
+- Test the core logic with real git repos (not mocks).
+- Run `make test` and `make lint` before committing.
+
+### 4. **If the command doesn't need DB access, skip initialization.**
+
+Add the command name to the skip list in `root.go`'s `PersistentPreRunE`:
+```go
+if cmd.Name() == "__complete" || cmd.Name() == "help" || cmd.Name() == "upgrade" {
+    return nil
+}
+```
+
+---
+
 ## Rules That Never Change
 
 1. Project structure: `/cmd/gitm`, `/internal/*`, `/pkg/` (sparingly)

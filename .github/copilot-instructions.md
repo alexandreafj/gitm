@@ -1,0 +1,1 @@
+Read and follow all guidelines in [AGENTS.md](../AGENTS.md) at the root of this repository. It contains the project's development workflow, coding standards, testing requirements, and architectural rules.
