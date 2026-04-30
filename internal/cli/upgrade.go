@@ -227,9 +227,10 @@ func installBinary(srcPath, execPath string) error {
 	return nil
 }
 
-func runUpgrade(currentVersion string, uc upgradeClient) error {
+func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier) error {
 	bold := color.New(color.Bold)
 	green := color.New(color.FgGreen, color.Bold)
+	yellow := color.New(color.FgYellow)
 
 	bold.Print("Checking for updates... ")
 
@@ -256,6 +257,7 @@ func runUpgrade(currentVersion string, uc upgradeClient) error {
 	}
 
 	checksumURL, hasChecksum := findAssetURL(rel.Assets, "checksums.txt")
+	bundleURL, hasBundle := findAssetURL(rel.Assets, "checksums.txt.bundle")
 
 	tmpFile, err := os.CreateTemp("", "gitm-upgrade-*")
 	if err != nil {
@@ -272,7 +274,6 @@ func runUpgrade(currentVersion string, uc upgradeClient) error {
 	fmt.Println("done")
 
 	if hasChecksum {
-		fmt.Print("Verifying checksum... ")
 		csFile, err := os.CreateTemp("", "gitm-checksums-*")
 		if err != nil {
 			return fmt.Errorf("create checksum temp file: %w", err)
@@ -290,6 +291,24 @@ func runUpgrade(currentVersion string, uc upgradeClient) error {
 			return fmt.Errorf("read checksums: %w", err)
 		}
 
+		// Signature verification: if the bundle is present, verify the checksums
+		// file's signature BEFORE trusting it for SHA-256 verification.
+		if hasBundle && sv != nil {
+			bold.Print("Verifying signature... ")
+			bundleBytes, err := uc.downloadBytes(bundleURL)
+			if err != nil {
+				return fmt.Errorf("download signature bundle: %w", err)
+			}
+
+			if err := sv.Verify(csData, bundleBytes); err != nil {
+				return fmt.Errorf("signature verification failed: %w", err)
+			}
+			green.Println("ok")
+		} else if sv != nil {
+			yellow.Println("⚠ release predates signing — verifying SHA-256 only")
+		}
+
+		fmt.Print("Verifying checksum... ")
 		checksums := parseChecksums(string(csData))
 		expected, ok := checksums[name]
 		if !ok {
@@ -347,10 +366,18 @@ func upgradeCmd(currentVersion string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade gitm to the latest release",
-		Long:  "Download and install the latest gitm binary from GitHub releases.",
-		Args:  cobra.NoArgs,
+		Long: `Download and install the latest gitm binary from GitHub releases.
+
+The binary's checksums file is verified against a Sigstore signature bundle
+produced by this repository's release workflow. When upgrading from a release
+that predates signing, verification falls back to SHA-256 only with a warning.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUpgrade(currentVersion, newHTTPUpgradeClient())
+			sv, err := newSigstoreVerifier()
+			if err != nil {
+				return fmt.Errorf("init signature verifier: %w", err)
+			}
+			return runUpgrade(currentVersion, newHTTPUpgradeClient(), sv)
 		},
 	}
 }

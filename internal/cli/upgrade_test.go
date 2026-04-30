@@ -160,7 +160,7 @@ func TestRunUpgradeAlreadyUpToDate(t *testing.T) {
 	uc := &fakeUpgradeClient{
 		release: &ghRelease{TagName: "v1.0.0"},
 	}
-	err := runUpgrade("v1.0.0", uc)
+	err := runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -170,7 +170,7 @@ func TestRunUpgradeFetchError(t *testing.T) {
 	uc := &fakeUpgradeClient{
 		err: fmt.Errorf("network error"),
 	}
-	err := runUpgrade("v1.0.0", uc)
+	err := runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -190,7 +190,7 @@ func TestRunUpgradeMissingAsset(t *testing.T) {
 			Assets:  []ghAsset{{Name: "some-other-binary", BrowserDownloadURL: "https://example.com/other"}},
 		},
 	}
-	err = runUpgrade("v1.0.0", uc)
+	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
 	if err == nil {
 		t.Fatal("expected error for missing asset")
 	}
@@ -222,7 +222,7 @@ func TestRunUpgradeChecksumMismatch(t *testing.T) {
 			"https://example.com/checksums": []byte(checksumData),
 		},
 	}
-	err = runUpgrade("v1.0.0", uc)
+	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{})
 	if err == nil {
 		t.Fatal("expected checksum mismatch error")
 	}
@@ -382,5 +382,169 @@ func TestRootVersion(t *testing.T) {
 	cmd := Root("v1.2.3")
 	if cmd.Version != "v1.2.3" {
 		t.Errorf("Root().Version = %q, want %q", cmd.Version, "v1.2.3")
+	}
+}
+
+// fakeSignatureVerifier implements signatureVerifier for testing.
+type fakeSignatureVerifier struct {
+	called bool
+	err    error
+}
+
+func (f *fakeSignatureVerifier) Verify(_, _ []byte) error {
+	f.called = true
+	return f.err
+}
+
+func TestRunUpgradeSignatureVerificationSuccess(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binaryContent := []byte("real binary")
+	h := sha256.Sum256(binaryContent)
+	checksum := hex.EncodeToString(h[:])
+	checksumData := fmt.Sprintf("%s  %s\n", checksum, name)
+
+	uc := &fakeUpgradeClient{
+		release: &ghRelease{
+			TagName: "v2.0.0",
+			Assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+				{Name: "checksums.txt.bundle", BrowserDownloadURL: "https://example.com/bundle"},
+			},
+		},
+		files: map[string][]byte{
+			"https://example.com/binary":    binaryContent,
+			"https://example.com/checksums": []byte(checksumData),
+			"https://example.com/bundle":    []byte("fake-bundle-bytes"),
+		},
+	}
+
+	sv := &fakeSignatureVerifier{}
+
+	// runUpgrade will try to replace the current executable, which will fail in test.
+	// That's fine — we only care that signature verification passed and was called.
+	err = runUpgrade("v1.0.0", uc, sv)
+	if !sv.called {
+		t.Fatalf("expected verifier to be called; err=%v", err)
+	}
+	// The error should be about locating/installing the binary, not signature verification.
+	if err != nil && strings.Contains(err.Error(), "signature") {
+		t.Fatalf("signature verification should have passed, got: %v", err)
+	}
+}
+
+func TestRunUpgradeSignatureVerificationFailure(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binaryContent := []byte("real binary")
+	h := sha256.Sum256(binaryContent)
+	checksum := hex.EncodeToString(h[:])
+	checksumData := fmt.Sprintf("%s  %s\n", checksum, name)
+
+	uc := &fakeUpgradeClient{
+		release: &ghRelease{
+			TagName: "v2.0.0",
+			Assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+				{Name: "checksums.txt.bundle", BrowserDownloadURL: "https://example.com/bundle"},
+			},
+		},
+		files: map[string][]byte{
+			"https://example.com/binary":    binaryContent,
+			"https://example.com/checksums": []byte(checksumData),
+			"https://example.com/bundle":    []byte("bad-bundle"),
+		},
+	}
+
+	sv := &fakeSignatureVerifier{err: fmt.Errorf("invalid signature")}
+
+	err = runUpgrade("v1.0.0", uc, sv)
+	if err == nil {
+		t.Fatal("expected signature verification error")
+	}
+	if !strings.Contains(err.Error(), "signature verification failed") {
+		t.Errorf("expected 'signature verification failed', got: %v", err)
+	}
+}
+
+func TestRunUpgradeBundleMissingFallback(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binaryContent := []byte("real binary")
+	h := sha256.Sum256(binaryContent)
+	checksum := hex.EncodeToString(h[:])
+	checksumData := fmt.Sprintf("%s  %s\n", checksum, name)
+
+	uc := &fakeUpgradeClient{
+		release: &ghRelease{
+			TagName: "v2.0.0",
+			Assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+				// No bundle asset — simulates an older release that predates signing
+			},
+		},
+		files: map[string][]byte{
+			"https://example.com/binary":    binaryContent,
+			"https://example.com/checksums": []byte(checksumData),
+		},
+	}
+
+	sv := &fakeSignatureVerifier{}
+
+	// Should NOT fail — falls back to SHA-256 only with a warning.
+	err = runUpgrade("v1.0.0", uc, sv)
+	if sv.called {
+		t.Error("verifier must not be called when bundle is absent")
+	}
+	// The error, if any, should be about binary install — not signature.
+	if err != nil && strings.Contains(err.Error(), "signature") {
+		t.Fatalf("with missing bundle, should fallback not fail on signature, got: %v", err)
+	}
+}
+
+func TestRunUpgradeNilVerifierSkipsSignature(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binaryContent := []byte("real binary")
+	h := sha256.Sum256(binaryContent)
+	checksum := hex.EncodeToString(h[:])
+	checksumData := fmt.Sprintf("%s  %s\n", checksum, name)
+
+	uc := &fakeUpgradeClient{
+		release: &ghRelease{
+			TagName: "v2.0.0",
+			Assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+				{Name: "checksums.txt.bundle", BrowserDownloadURL: "https://example.com/bundle"},
+			},
+		},
+		files: map[string][]byte{
+			"https://example.com/binary":    binaryContent,
+			"https://example.com/checksums": []byte(checksumData),
+			"https://example.com/bundle":    []byte("bundle-bytes"),
+		},
+	}
+
+	// Pass nil verifier — should skip signature check entirely
+	err = runUpgrade("v1.0.0", uc, nil)
+	// Should not fail on signature — may fail on binary install which is fine
+	if err != nil && strings.Contains(err.Error(), "signature") {
+		t.Fatalf("with nil verifier, should skip signature check, got: %v", err)
 	}
 }
