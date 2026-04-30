@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -558,5 +561,79 @@ func TestRunUpgradeNilVerifierWithBundleErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no verifier is available") {
 		t.Errorf("expected 'no verifier is available' error, got: %v", err)
+	}
+}
+
+// newTestHTTPClient returns an *http.Client that routes all requests through
+// the provided httptest.Server, bypassing DNS and TLS entirely.
+func newTestHTTPClient(srv *httptest.Server) *http.Client {
+	return srv.Client()
+}
+
+// TestHTTPDownloadBytesOversizedRejected verifies that httpUpgradeClient.downloadBytes
+// rejects a response whose body exceeds maxBundleSize, exercising the real
+// io.LimitReader + size-check path that fakeUpgradeClient bypasses.
+func TestHTTPDownloadBytesOversizedRejected(t *testing.T) {
+	oversized := bytes.Repeat([]byte("x"), int(maxBundleSize)+1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(oversized); err != nil {
+			t.Errorf("write oversized payload: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	uc := &httpUpgradeClient{client: newTestHTTPClient(srv)}
+
+	_, err := uc.downloadBytes(srv.URL + "/bundle")
+	if err == nil {
+		t.Fatal("expected error for oversized response, got nil")
+	}
+	if !strings.Contains(err.Error(), "response exceeds maximum allowed size") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestHTTPDownloadBytesExactLimitAccepted verifies that a response whose body
+// is exactly maxBundleSize bytes is accepted without error.
+func TestHTTPDownloadBytesExactLimitAccepted(t *testing.T) {
+	exactPayload := bytes.Repeat([]byte("y"), int(maxBundleSize))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(exactPayload); err != nil {
+			t.Errorf("write exact-limit payload: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	uc := &httpUpgradeClient{client: newTestHTTPClient(srv)}
+
+	got, err := uc.downloadBytes(srv.URL + "/bundle")
+	if err != nil {
+		t.Fatalf("expected success for exact-limit payload, got: %v", err)
+	}
+	if len(got) != int(maxBundleSize) {
+		t.Errorf("expected %d bytes, got %d", maxBundleSize, len(got))
+	}
+}
+
+// TestHTTPDownloadBytesNonOKStatusRejected verifies that a non-200 HTTP status
+// is surfaced as an error rather than silently returning an empty body.
+func TestHTTPDownloadBytesNonOKStatusRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	uc := &httpUpgradeClient{client: newTestHTTPClient(srv)}
+
+	_, err := uc.downloadBytes(srv.URL + "/bundle")
+	if err == nil {
+		t.Fatal("expected error for 404 response, got nil")
+	}
+	if !strings.Contains(err.Error(), "download returned 404") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }

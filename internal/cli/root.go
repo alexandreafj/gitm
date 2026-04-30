@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alexandreferreira/gitm/internal/config"
-	"github.com/alexandreferreira/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/config"
+	"github.com/alexandreafj/gitm/internal/db"
 )
 
 var (

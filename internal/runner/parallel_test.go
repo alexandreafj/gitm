@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexandreferreira/gitm/internal/db"
-	"github.com/alexandreferreira/gitm/internal/runner"
+	"github.com/alexandreafj/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/runner"
 )
 
 // ─── helpers ────────────────────────────────────────────────────────────────

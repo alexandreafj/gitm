@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alexandreferreira/gitm/internal/db"
-	"github.com/alexandreferreira/gitm/internal/git"
+	"github.com/alexandreafj/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/git"
 )
 
 type fakeUI struct {

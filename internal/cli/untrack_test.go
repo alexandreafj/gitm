@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alexandreferreira/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/db"
 )
 
 func TestUntrackCmdStructure(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/alexandreferreira/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/db"
 )
 
 func TestRunReset_InvalidCommits(t *testing.T) {

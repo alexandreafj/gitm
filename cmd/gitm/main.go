@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/alexandreferreira/gitm/internal/cli"
+	"github.com/alexandreafj/gitm/internal/cli"
 )
 
 var version = "dev"
