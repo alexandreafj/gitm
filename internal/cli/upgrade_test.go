@@ -106,6 +106,25 @@ func TestFileSHA256(t *testing.T) {
 	}
 }
 
+func TestFakeUpgradeClientDownloadBytes(t *testing.T) {
+	uc := &fakeUpgradeClient{
+		files: map[string][]byte{
+			"https://example.com/x": []byte("hello"),
+		},
+	}
+	got, err := uc.downloadBytes("https://example.com/x")
+	if err != nil {
+		t.Fatalf("downloadBytes error: %v", err)
+	}
+	if string(got) != "hello" {
+		t.Errorf("got %q, want %q", got, "hello")
+	}
+
+	if _, err := uc.downloadBytes("https://nope.example.com"); err == nil {
+		t.Fatal("expected error for unknown URL, got nil")
+	}
+}
+
 type fakeUpgradeClient struct {
 	release *ghRelease
 	err     error
@@ -125,6 +144,16 @@ func (f *fakeUpgradeClient) downloadToFile(url, path string) error {
 		return fmt.Errorf("not found: %s", url)
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+func (f *fakeUpgradeClient) downloadBytes(url string) ([]byte, error) {
+	data, ok := f.files[url]
+	if !ok {
+		return nil, fmt.Errorf("not found: %s", url)
+	}
+	out := make([]byte, len(data))
+	copy(out, data)
+	return out, nil
 }
 
 func TestRunUpgradeAlreadyUpToDate(t *testing.T) {

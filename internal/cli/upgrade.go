@@ -73,6 +73,7 @@ func parseChecksums(data string) map[string]string {
 type upgradeClient interface {
 	fetchLatestRelease() (*ghRelease, error)
 	downloadToFile(url, path string) error
+	downloadBytes(url string) ([]byte, error)
 }
 
 type httpUpgradeClient struct {
@@ -144,6 +145,25 @@ func (h *httpUpgradeClient) downloadToFile(url, path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func (h *httpUpgradeClient) downloadBytes(url string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download returned %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func fileSHA256(path string) (string, error) {
