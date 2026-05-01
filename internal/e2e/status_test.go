@@ -32,7 +32,7 @@ func TestStatus_DirtyModified(t *testing.T) {
 	e.assertExitCode(r, 0)
 	e.assertStdoutContains(r, "status-dirty")
 	// Should show something indicating dirty (not "clean")
-	if containsAll(r.Stdout, "status-dirty", "clean") && !containsAny(r.Stdout, "modified", "dirty", "1") {
+	if containsAll(r.Stdout, "status-dirty", "clean") && !containsAny(r.Stdout, "modified", "dirty", "changed") {
 		t.Error("dirty repo shown as clean")
 	}
 }

@@ -45,12 +45,10 @@ func TestRepoAdd_DuplicatePath(t *testing.T) {
 	r1 := e.runGitm("repo", "add", repo)
 	e.assertExitCode(r1, 0)
 
-	// Second add should fail
+	// Second add is idempotent: warns and still succeeds
 	r2 := e.runGitm("repo", "add", repo)
-	if r2.ExitCode == 0 {
-		// Check if it's a warning instead of error
-		e.assertContains(r2, "already")
-	}
+	e.assertExitCode(r2, 0)
+	e.assertContains(r2, "already")
 }
 
 func TestRepoAdd_NonGitDirectory(t *testing.T) {
@@ -68,7 +66,8 @@ func TestRepoAdd_NonGitDirectory(t *testing.T) {
 func TestRepoAdd_NonExistentPath(t *testing.T) {
 	e := newTestEnv(t)
 
-	r := e.runGitm("repo", "add", "/does/not/exist/anywhere")
+	nonExistentPath := filepath.Join(t.TempDir(), "does-not-exist")
+	r := e.runGitm("repo", "add", nonExistentPath)
 	if r.ExitCode == 0 {
 		t.Errorf("expected non-zero exit code for non-existent path, got 0")
 	}
@@ -83,20 +82,12 @@ func TestRepoAdd_ConflictingAlias(t *testing.T) {
 	e.assertExitCode(r1, 0)
 
 	r2 := e.runGitm("repo", "add", repo2, "--alias", "shared-alias")
-	// FINDING: gitm may allow duplicate aliases (exits 0 even with same alias).
-	// Document the actual behavior for the report.
+	// Alias conflicts should fail with non-zero exit
 	if r2.ExitCode == 0 {
-		// Check if a warning was shown or if both repos are listed
-		list := e.runGitm("repo", "list")
-		t.Logf("FINDING: duplicate alias 'shared-alias' accepted (exit 0). List output:\n%s", list.Stdout)
-		// Count how many times the alias appears
-		count := strings.Count(list.Stdout, "shared-alias")
-		if count > 1 {
-			t.Errorf("FINDING: duplicate alias 'shared-alias' created %d entries — DB UNIQUE constraint not enforced at CLI level", count)
-		} else if count == 1 {
-			t.Log("FINDING: second add with same alias silently failed or was deduplicated, only 1 entry")
-		}
+		t.Fatalf("expected non-zero exit code for conflicting alias, got 0\nstdout: %s\nstderr: %s",
+			r2.Stdout, r2.Stderr)
 	}
+	e.assertContains(r2, "shared-alias")
 }
 
 func TestRepoAdd_CurrentDirectory(t *testing.T) {
@@ -276,6 +267,7 @@ func TestRepoAdd_AutoDetectWithDepth(t *testing.T) {
 
 	// Depth 1 should NOT find it
 	r1 := e.runGitm("repo", "add", parent, "--auto-detect", "--depth", "1")
+	e.assertExitCode(r1, 0)
 	list1 := e.runGitm("repo", "list")
 	if strings.Contains(list1.Stdout, "deep-repo") {
 		t.Log("Depth 1 found deep-repo — might be expected depending on implementation")
@@ -283,8 +275,7 @@ func TestRepoAdd_AutoDetectWithDepth(t *testing.T) {
 
 	// Depth 2 should find it
 	r2 := e.runGitm("repo", "add", parent, "--auto-detect", "--depth", "2")
-	_ = r1
-	_ = r2
+	e.assertExitCode(r2, 0)
 	list2 := e.runGitm("repo", "list")
 	e.assertStdoutContains(list2, "deep-repo")
 }

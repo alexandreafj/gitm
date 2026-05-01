@@ -61,11 +61,8 @@ func TestUpdate_NonExistentRepo(t *testing.T) {
 	r := e.runGitm("update", "--repo", "ghost-repo")
 	// Should error — alias doesn't match any registered repo
 	if r.ExitCode == 0 {
-		// Even with exit 0, check for error message
-		combined := r.Stdout + r.Stderr
-		if !containsAny(combined, "not found", "error", "no match", "unknown") {
-			t.Error("expected error for non-existent --repo alias, but got clean success")
-		}
+		t.Fatalf("expected non-zero exit for non-existent --repo alias, but got exit=%d stdout=%s stderr=%s",
+			r.ExitCode, r.Stdout, r.Stderr)
 	}
 }
 

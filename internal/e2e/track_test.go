@@ -34,7 +34,7 @@ func TestUntrack_NoMatchingFiles(t *testing.T) {
 
 	// Use a path filter that matches nothing
 	r := e.runGitm("untrack", "--repo", "untrack-none", "--path", "*.nonexistent")
-	// Should exit gracefully
+	// Should exit gracefully with a specific "no matching files" message
 	e.assertExitCode(r, 0)
-	e.assertContains(r, "No")
+	e.assertContains(r, "No files matching")
 }
