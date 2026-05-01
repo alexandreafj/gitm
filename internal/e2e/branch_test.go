@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -59,7 +60,7 @@ func TestBranchCreate_FromSpecificBase(t *testing.T) {
 	e.assertExitCode(r, 0)
 
 	// Should have the develop.txt file (branched from develop)
-	if !e.fileExists(repo + "/develop.txt") {
+	if !e.fileExists(filepath.Join(repo, "develop.txt")) {
 		t.Error("branch was not created from develop — develop.txt missing")
 	}
 }
@@ -88,14 +89,23 @@ func TestBranchCreate_FromNonExistentBase(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("bc-bad-base")
 	e.runGitm("repo", "add", repo, "--alias", "bc-bad-base")
 
+	startingBranch := e.currentBranch(repo)
 	r := e.runGitm("branch", "create", "feat/x", "--from", "nonexistent-branch", "--repo", "bc-bad-base")
-	// Should error or show warning about base branch not found
-	if r.ExitCode == 0 {
-		// Even if exit 0, output should mention failure
-		combined := r.Stdout + r.Stderr
-		if !containsAny(combined, "not found", "error", "failed", "does not exist") {
-			t.Log("WARNING: creating from non-existent base succeeded silently")
-		}
+
+	combined := r.Stdout + r.Stderr
+	// Accept either an explicit command failure or a successful exit that clearly reports
+	// the invalid base branch. Silent success is incorrect.
+	if r.ExitCode == 0 && !containsAny(combined, "not found", "error", "failed", "does not exist") {
+		t.Fatalf("expected branch create from non-existent base to fail or report the missing base branch; exit=%d stdout=%q stderr=%q",
+			r.ExitCode, r.Stdout, r.Stderr)
+	}
+
+	if e.branchExists(repo, "feat/x") {
+		t.Fatal("branch feat/x should not be created when the base branch does not exist")
+	}
+
+	if branch := e.currentBranch(repo); branch != startingBranch {
+		t.Fatalf("expected to remain on %s after failing to create from a non-existent base, got %s", startingBranch, branch)
 	}
 }
 
@@ -108,9 +118,9 @@ func TestBranchCreate_DirtyRepo(t *testing.T) {
 	e.writeFile(repo, "README.md", "# dirty\n")
 
 	r := e.runGitm("branch", "create", "feat/dirty-test", "--repo", "bc-dirty")
-	// Document actual behavior: does it skip, stash, or proceed?
-	t.Logf("Branch create on dirty repo: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	// Branch create on dirty repos should skip with a warning about uncommitted changes
+	e.assertExitCode(r, 0)
+	e.assertContains(r, "uncommitted changes")
 }
 
 func TestBranchRename_WithRepo(t *testing.T) {
@@ -196,7 +206,10 @@ func TestBranchRename_NonExistentBranch(t *testing.T) {
 	e.runGitm("repo", "add", repo, "--alias", "br-ghost")
 
 	r := e.runGitm("branch", "rename", "nonexistent-branch", "new", "--repo", "br-ghost")
-	// Should skip or error — branch doesn't exist
-	t.Logf("Rename non-existent: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	// Renaming a branch that does not exist should fail
+	if r.ExitCode == 0 {
+		t.Fatalf("expected non-zero exit code when renaming a non-existent branch; stdout=%s stderr=%s",
+			r.Stdout, r.Stderr)
+	}
+	e.assertContains(r, "no registered repositories have a branch named")
 }

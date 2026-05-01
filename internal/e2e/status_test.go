@@ -136,7 +136,7 @@ func TestStatus_MultipleRepos(t *testing.T) {
 
 func containsAll(s string, substrs ...string) bool {
 	for _, sub := range substrs {
-		if !contains(s, sub) {
+		if !strings.Contains(s, sub) {
 			return false
 		}
 	}
@@ -145,20 +145,7 @@ func containsAll(s string, substrs ...string) bool {
 
 func containsAny(s string, substrs ...string) bool {
 	for _, sub := range substrs {
-		if contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
+		if strings.Contains(s, sub) {
 			return true
 		}
 	}

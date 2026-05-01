@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -144,12 +145,8 @@ func TestCheckout_RemoteOnlyBranch(t *testing.T) {
 
 	branch := e.currentBranch(repo)
 	if branch != "feat/remote-only" {
-		// FINDING: gitm claims to check remote branches but may require a fetch first
-		// or the implementation doesn't handle remote-only branches as documented.
-		t.Logf("FINDING: checkout of remote-only branch did not work. Current branch: %s", branch)
-		t.Log("README states: 'Checks branch locally then remote' — but actual behavior differs.")
-		t.Log("gitm may need an explicit fetch before checking remote branches.")
-		t.Logf("Output: stdout=%s stderr=%s", r.Stdout, r.Stderr)
+		t.Fatalf("expected checkout of remote-only branch to switch to %q, got %q\nstdout: %s\nstderr: %s",
+			"feat/remote-only", branch, r.Stdout, r.Stderr)
 	}
 }
 
@@ -179,7 +176,7 @@ func TestCheckout_PullsAfterSwitch(t *testing.T) {
 	e.assertExitCode(r, 0)
 
 	// Should have the latest file from the other clone
-	if !e.fileExists(repo + "/second.txt") {
+	if !e.fileExists(filepath.Join(repo, "second.txt")) {
 		t.Error("checkout did not pull latest — second.txt missing")
 	}
 }

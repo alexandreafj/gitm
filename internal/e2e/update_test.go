@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -35,7 +36,7 @@ func TestUpdate_RemoteAhead(t *testing.T) {
 	e.assertExitCode(r, 0)
 
 	// Should have the new file
-	if !e.fileExists(repo + "/new-from-remote.txt") {
+	if !e.fileExists(filepath.Join(repo, "new-from-remote.txt")) {
 		t.Error("update did not pull — new-from-remote.txt missing")
 	}
 }
@@ -105,8 +106,9 @@ func TestUpdate_DivergedBranch(t *testing.T) {
 	e.mustGit(repo, "commit", "-m", "local commit")
 
 	r := e.runGitm("update", "--repo", "up-diverged")
-	// --ff-only should fail on diverged branches
-	// Either exit != 0, or output mentions failure
-	t.Logf("Diverged update: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	// --ff-only should fail on diverged branches.
+	if r.ExitCode == 0 {
+		t.Fatalf("expected diverged branch update to fail, but got exit=%d stdout=%s stderr=%s",
+			r.ExitCode, r.Stdout, r.Stderr)
+	}
 }

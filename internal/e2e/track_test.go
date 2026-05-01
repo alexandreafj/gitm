@@ -19,23 +19,12 @@ func TestTrack_NoUntrackedFiles(t *testing.T) {
 	r := e.runGitm("track", "--repo", "track-none")
 	// Should exit gracefully with a "no untracked" message
 	e.assertExitCode(r, 0)
-	e.assertContains(r, "No")
+	e.assertContains(r, "No untracked files found")
 }
 
 func TestTrack_HasUntrackedFiles(t *testing.T) {
-	e := newTestEnv(t)
-	repo, _ := e.initRepoWithRemote("track-has")
-	e.runGitm("repo", "add", repo, "--alias", "track-has")
-
-	// Create untracked files
-	e.writeFile(repo, "newfile.txt", "new\n")
-	e.writeFile(repo, "another.txt", "another\n")
-
-	// This will try to open TUI — since we're not in a terminal, it may fail or
-	// show files and immediately return. Document the behavior.
-	r := e.runGitm("track", "--repo", "track-has")
-	t.Logf("Track with untracked files: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	// Track file picker requires TTY interaction — cannot test non-interactively.
+	t.Skip("track file picker requires TTY interaction")
 }
 
 func TestUntrack_NoMatchingFiles(t *testing.T) {
@@ -46,6 +35,6 @@ func TestUntrack_NoMatchingFiles(t *testing.T) {
 	// Use a path filter that matches nothing
 	r := e.runGitm("untrack", "--repo", "untrack-none", "--path", "*.nonexistent")
 	// Should exit gracefully
-	t.Logf("Untrack no match: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	e.assertExitCode(r, 0)
+	e.assertContains(r, "No")
 }

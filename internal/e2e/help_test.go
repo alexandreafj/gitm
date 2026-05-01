@@ -82,14 +82,13 @@ func TestUpgrade_SkipsDBInit(t *testing.T) {
 	e := newTestEnv(t)
 
 	// Upgrade should work even without any DB initialization
-	// (it's in the skip list for PersistentPreRunE)
-	r := e.runGitm("upgrade")
-	// It will try to check GitHub releases — may fail due to network
-	// but should NOT fail due to DB issues
+	// (it's in the skip list for PersistentPreRunE).
+	// Use --help to validate without making network requests.
+	r := e.runGitm("upgrade", "--help")
+	e.assertExitCode(r, 0)
+
 	combined := r.Stdout + r.Stderr
 	if strings.Contains(combined, "database") || strings.Contains(combined, "gitm.db") {
 		t.Error("upgrade should not require database initialization")
 	}
-	t.Logf("Upgrade output: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
 }

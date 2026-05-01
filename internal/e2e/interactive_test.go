@@ -18,27 +18,13 @@ func TestCommit_NoDirtyRepos(t *testing.T) {
 	r := e.runGitm("commit", "--repo", "commit-clean")
 	e.assertExitCode(r, 0)
 	// Should indicate no dirty repos
-	e.assertContains(r, "No")
+	e.assertContains(r, "No dirty repositories found")
 }
 
 func TestCommit_ProtectedDefaultBranch(t *testing.T) {
-	e := newTestEnv(t)
-	repo, _ := e.initRepoWithRemote("commit-protected")
-	e.runGitm("repo", "add", repo, "--alias", "commit-protected")
-
-	// Stay on main (default branch) and make it dirty
-	e.writeFile(repo, "dirty.txt", "dirty\n")
-
-	// With --repo, this bypasses repo selection but file selection is TUI
-	// The protection should prevent proceeding
-	r := e.runGitm("commit", "--repo", "commit-protected")
-	t.Logf("Commit on protected branch: exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
-	// Should mention "protected" or "default branch"
-	combined := r.Stdout + r.Stderr
-	if !containsAny(combined, "protected", "default", "No") {
-		t.Log("Note: commit on default branch did not explicitly mention protection")
-	}
+	// Commit on a protected default branch requires TTY interaction for confirmation;
+	// behavior is non-deterministic in non-TTY environments.
+	t.Skip("commit protection behavior is non-deterministic in non-TTY environments")
 }
 
 // ==========================================================================
@@ -71,9 +57,8 @@ func TestStashList_NoStashes(t *testing.T) {
 
 	r := e.runGitm("stash", "list")
 	e.assertExitCode(r, 0)
-	// Should indicate no stashes or empty table
-	t.Logf("Stash list (no stashes): exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	// Should indicate no stashes
+	e.assertContains(r, "No repositories have stash entries")
 }
 
 func TestStashList_WithStashes(t *testing.T) {
@@ -98,15 +83,7 @@ func TestStashList_WithStashes(t *testing.T) {
 // ==========================================================================
 
 // TestReset_Behavior documents what reset does when invoked non-interactively.
-// Since there's no --repo flag, we can only observe exit behavior.
+// Since there's no --repo flag and reset requires TTY for repo selection, we skip.
 func TestReset_NoReposToReset(t *testing.T) {
-	e := newTestEnv(t)
-	// Register a repo with only 1 commit (can't reset further)
-	repo, _ := e.initRepoWithRemote("reset-one")
-	e.runGitm("repo", "add", repo, "--alias", "reset-one")
-
-	// Reset needs TUI interaction — this will likely fail in non-terminal
-	r := e.runGitm("reset")
-	t.Logf("Reset (non-interactive): exit=%d stdout=%s stderr=%s",
-		r.ExitCode, r.Stdout, r.Stderr)
+	t.Skip("reset requires TTY for repo selection — cannot test non-interactively")
 }

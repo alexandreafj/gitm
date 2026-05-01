@@ -25,7 +25,10 @@ func TestMain(m *testing.M) {
 	}
 	gitmBinary = binary
 
-	os.Exit(m.Run())
+	code := m.Run()
+	// Clean up the temp directory that holds the built binary.
+	os.RemoveAll(filepath.Dir(binary))
+	os.Exit(code)
 }
 
 // buildGitm compiles the gitm binary into a temp directory and returns its path.
@@ -65,7 +68,6 @@ func buildGitm() (string, error) {
 type testEnv struct {
 	t       *testing.T
 	homeDir string
-	dataDir string // ~/.gitm/ equivalent
 }
 
 // newTestEnv creates an isolated environment for a single test.
@@ -80,7 +82,6 @@ func newTestEnv(t *testing.T) *testEnv {
 	return &testEnv{
 		t:       t,
 		homeDir: home,
-		dataDir: dataDir,
 	}
 }
 
@@ -107,11 +108,22 @@ func (e *testEnv) runGitmInDir(dir string, args ...string) result {
 
 	cmd := exec.Command(gitmBinary, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+
+	env := append(os.Environ(),
 		"HOME="+e.homeDir,
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_SYSTEM="+os.DevNull,
 	)
+	if runtime.GOOS == "windows" {
+		volume := filepath.VolumeName(e.homeDir)
+		homePath := strings.TrimPrefix(e.homeDir, volume)
+		env = append(env,
+			"USERPROFILE="+e.homeDir,
+			"HOMEDRIVE="+volume,
+			"HOMEPATH="+homePath,
+		)
+	}
+	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -197,8 +209,8 @@ func (e *testEnv) mustGit(dir string, args ...string) string {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_SYSTEM="+os.DevNull,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
