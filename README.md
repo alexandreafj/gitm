@@ -77,59 +77,59 @@ When working across many repositories, daily git operations become repetitive:
 
 ## Installation
 
-### Download pre-built binary
-
-Pre-built binaries for all major platforms are available on the [GitHub Releases](https://github.com/alexandreafj/gitm/releases) page.
-
-#### macOS (Apple Silicon)
+### Homebrew (macOS / Linux)
 
 ```bash
+brew tap alexandreafj/gitm
+brew install gitm
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add gitm https://github.com/alexandreafj/scoop-gitm
+scoop install gitm
+```
+
+### Shell script (macOS / Linux)
+
+Auto-detects your OS and architecture, downloads the binary, verifies the SHA-256 checksum, and installs to `/usr/local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh | sh
+```
+
+To install a specific version or to a custom directory:
+
+```bash
+VERSION=v1.0.12 INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh | sh
+```
+
+### Self-update
+
+Once installed, gitm can update itself with signature verification:
+
+```bash
+gitm upgrade
+```
+
+### Download pre-built binary
+
+Pre-built binaries for all major platforms are also available on the [GitHub Releases](https://github.com/alexandreafj/gitm/releases) page.
+
+| Platform | Binary |
+|---|---|
+| macOS (Apple Silicon) | `gitm-macos-arm64` |
+| macOS (Intel) | `gitm-macos-x86_64` |
+| Linux (x86_64) | `gitm-linux-amd64` |
+| Linux (ARM64) | `gitm-linux-arm64` |
+| Windows (x86_64) | `gitm-windows-amd64.exe` |
+
+```bash
+# Example: macOS Apple Silicon
 curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-macos-arm64 -o gitm
 chmod +x gitm
 sudo mv gitm /usr/local/bin/
-```
-
-#### macOS (Intel)
-
-```bash
-curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-macos-x86_64 -o gitm
-chmod +x gitm
-sudo mv gitm /usr/local/bin/
-```
-
-#### Linux (x86_64)
-
-```bash
-curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-linux-amd64 -o gitm
-chmod +x gitm
-sudo mv gitm /usr/local/bin/
-```
-
-#### Linux (ARM64)
-
-```bash
-curl -L https://github.com/alexandreafj/gitm/releases/latest/download/gitm-linux-arm64 -o gitm
-chmod +x gitm
-sudo mv gitm /usr/local/bin/
-```
-
-#### Windows (x86_64) — PowerShell
-
-```powershell
-Invoke-WebRequest -Uri https://github.com/alexandreafj/gitm/releases/latest/download/gitm-windows-amd64.exe -OutFile gitm.exe
-Move-Item gitm.exe C:\Users\<your-user>\AppData\Local\Microsoft\WindowsApps\
-```
-
-#### Verify checksum (optional)
-
-Each release includes a `checksums.txt` file. To verify your download:
-
-```bash
-# Download the checksums file
-curl -L https://github.com/alexandreafj/gitm/releases/latest/download/checksums.txt -o checksums.txt
-
-# Verify (Linux/macOS)
-sha256sum -c checksums.txt --ignore-missing
 ```
 
 #### Verify installation
