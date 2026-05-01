@@ -126,15 +126,25 @@ is useful when repos are nested inside grouping folders (e.g. project/v1, projec
 				_, err = database.AddRepository(name, displayAlias, abs, defaultBranch)
 				if err != nil {
 					if strings.Contains(err.Error(), "UNIQUE constraint") {
-						// Check alias collision first.
-						aliasOwner, aliasErr := database.GetRepository(displayAlias)
-						if aliasErr == nil && aliasOwner.Path != abs {
-							color.Red("  ✗ alias %q is already used by %s", displayAlias, aliasOwner.Path)
-							fmt.Printf("     Use --alias to give this repo a unique name, e.g.:\n")
-							fmt.Printf("       gitm repo add %s --alias <your-alias>\n", abs)
-						} else if existing, pathErr := database.GetRepositoryByPath(abs); pathErr == nil {
+						// Check if this is a path duplicate (idempotent re-add).
+						if existing, pathErr := database.GetRepositoryByPath(abs); pathErr == nil {
 							// Path already registered under a (possibly different) alias.
 							color.Yellow("  ⚠ %s: already registered as %q", abs, existing.Alias)
+						} else if aliasOwner, aliasErr := database.GetRepository(displayAlias); aliasErr == nil {
+							// Alias collision: the alias is taken by a different repo.
+							// Resolve the stored path to handle symlink differences.
+							ownerPath := aliasOwner.Path
+							if resolved, evalErr := filepath.EvalSymlinks(ownerPath); evalErr == nil {
+								ownerPath = resolved
+							}
+							if ownerPath != abs {
+								color.Red("  ✗ alias %q is already used by %s", displayAlias, aliasOwner.Path)
+								fmt.Printf("     Use --alias to give this repo a unique name, e.g.:\n")
+								fmt.Printf("       gitm repo add %s --alias <your-alias>\n", abs)
+								failed++
+							} else {
+								color.Yellow("  ⚠ %s: already registered", displayAlias)
+							}
 						} else {
 							color.Yellow("  ⚠ %s: already registered", displayAlias)
 						}

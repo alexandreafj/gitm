@@ -337,3 +337,115 @@ func TestRunMessagePreservation(t *testing.T) {
 		t.Errorf("Message = %q, want %q", results[0].Message, expectedMsg)
 	}
 }
+
+// ─── TestHasErrors ──────────────────────────────────────────────────────────
+
+func TestHasErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []runner.Result
+		want    bool
+	}{
+		{
+			name:    "nil results",
+			results: nil,
+			want:    false,
+		},
+		{
+			name:    "empty results",
+			results: []runner.Result{},
+			want:    false,
+		},
+		{
+			name: "all success",
+			results: []runner.Result{
+				{Status: runner.StatusSuccess},
+				{Status: runner.StatusSuccess},
+			},
+			want: false,
+		},
+		{
+			name: "one error",
+			results: []runner.Result{
+				{Status: runner.StatusSuccess},
+				{Status: runner.StatusError, Err: fmt.Errorf("boom")},
+			},
+			want: true,
+		},
+		{
+			name: "skipped only",
+			results: []runner.Result{
+				{Status: runner.StatusSkipped},
+			},
+			want: false,
+		},
+		{
+			name: "mixed with error",
+			results: []runner.Result{
+				{Status: runner.StatusSuccess},
+				{Status: runner.StatusSkipped},
+				{Status: runner.StatusError, Err: fmt.Errorf("fail")},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runner.HasErrors(tt.results)
+			if got != tt.want {
+				t.Errorf("HasErrors() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// ─── TestErrorCount ─────────────────────────────────────────────────────────
+
+func TestErrorCount(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []runner.Result
+		want    int
+	}{
+		{
+			name:    "no results",
+			results: nil,
+			want:    0,
+		},
+		{
+			name: "no errors",
+			results: []runner.Result{
+				{Status: runner.StatusSuccess},
+				{Status: runner.StatusSkipped},
+			},
+			want: 0,
+		},
+		{
+			name: "one error",
+			results: []runner.Result{
+				{Status: runner.StatusSuccess},
+				{Status: runner.StatusError},
+			},
+			want: 1,
+		},
+		{
+			name: "all errors",
+			results: []runner.Result{
+				{Status: runner.StatusError},
+				{Status: runner.StatusError},
+				{Status: runner.StatusError},
+			},
+			want: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runner.ErrorCount(tt.results)
+			if got != tt.want {
+				t.Errorf("ErrorCount() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

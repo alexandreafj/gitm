@@ -135,6 +135,24 @@ func TestRunUpdate_RepoFlag_EmptySlice(t *testing.T) {
 	}
 }
 
+func TestRunUpdate_ReturnsErrorOnFailure(t *testing.T) {
+	// Tests Finding #4: runUpdate should return a non-nil error when repos fail.
+	database = setupTestDB(t)
+
+	// Register a repo with a non-existent path — git operations will fail.
+	if _, err := database.AddRepository("broken", "broken", "/nonexistent/path/broken", "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	err := runUpdate(nil)
+	if err == nil {
+		t.Fatal("expected error when repo git operations fail, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to update") {
+		t.Errorf("error = %q, want to contain \"failed to update\"", err.Error())
+	}
+}
+
 func pushRemoteChange(t *testing.T, origin, filename string) {
 	t.Helper()
 	clone := cloneRepo(t, origin)

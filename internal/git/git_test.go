@@ -413,3 +413,63 @@ func TestForcePush(t *testing.T) {
 		t.Errorf("expected rewritten commit on remote, got: %q", log[0])
 	}
 }
+
+// ─── FetchBranch ────────────────────────────────────────────────────────────
+
+func TestFetchBranch(t *testing.T) {
+	// Create a bare origin and a working clone.
+	bareDir := t.TempDir()
+	mustRunGit(t, bareDir, "init", "--bare", "--initial-branch=main")
+
+	workDir := initRepo(t)
+	mustRunGit(t, workDir, "remote", "add", "origin", bareDir)
+	mustRunGit(t, workDir, "push", "--set-upstream", "origin", "main")
+
+	// Create a feature branch on origin via a second clone.
+	clone2 := t.TempDir()
+	mustRunGit(t, clone2, "clone", bareDir, ".")
+	mustRunGit(t, clone2, "config", "user.email", "test@example.com")
+	mustRunGit(t, clone2, "config", "user.name", "Test User")
+	mustRunGit(t, clone2, "checkout", "-b", "feature/remote-only")
+	writeFile(t, clone2, "remote.txt", "from remote")
+	mustRunGit(t, clone2, "add", ".")
+	mustRunGit(t, clone2, "commit", "-m", "remote commit")
+	mustRunGit(t, clone2, "push", "--set-upstream", "origin", "feature/remote-only")
+
+	// workDir does not know about feature/remote-only yet.
+	if git.BranchExists(workDir, "feature/remote-only") {
+		t.Fatal("branch should NOT exist locally before fetch")
+	}
+
+	// FetchBranch should succeed and bring the ref.
+	if err := git.FetchBranch(workDir, "feature/remote-only"); err != nil {
+		t.Fatalf("FetchBranch: %v", err)
+	}
+
+	// After fetch, git checkout should be able to create a tracking branch.
+	if err := git.Checkout(workDir, "feature/remote-only"); err != nil {
+		t.Fatalf("Checkout after FetchBranch: %v", err)
+	}
+
+	branch, err := git.CurrentBranch(workDir)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if branch != "feature/remote-only" {
+		t.Errorf("branch = %q, want %q", branch, "feature/remote-only")
+	}
+}
+
+func TestFetchBranch_NonExistentBranch(t *testing.T) {
+	bareDir := t.TempDir()
+	mustRunGit(t, bareDir, "init", "--bare", "--initial-branch=main")
+
+	workDir := initRepo(t)
+	mustRunGit(t, workDir, "remote", "add", "origin", bareDir)
+	mustRunGit(t, workDir, "push", "--set-upstream", "origin", "main")
+
+	err := git.FetchBranch(workDir, "does-not-exist")
+	if err == nil {
+		t.Fatal("expected error fetching non-existent branch, got nil")
+	}
+}

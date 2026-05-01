@@ -146,3 +146,24 @@ func printSummary(results []Result) {
 
 	fmt.Printf("\n%s %s\n", bold.Sprint("Done:"), strings.Join(parts, ", "))
 }
+
+// HasErrors returns true if any result in the slice has StatusError.
+func HasErrors(results []Result) bool {
+	for _, r := range results {
+		if r.Status == StatusError {
+			return true
+		}
+	}
+	return false
+}
+
+// ErrorCount returns the number of results with StatusError.
+func ErrorCount(results []Result) int {
+	n := 0
+	for _, r := range results {
+		if r.Status == StatusError {
+			n++
+		}
+	}
+	return n
+}

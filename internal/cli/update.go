@@ -53,7 +53,7 @@ func runUpdate(repoAliases []string) error {
 
 	fmt.Printf("Pulling current branch for %d repositories…\n\n", len(repos))
 
-	runner.Run(repos, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
 		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status: %w", err)
@@ -76,6 +76,9 @@ func runUpdate(repoAliases []string) error {
 		return msg, "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to update", runner.ErrorCount(results))
+	}
 	return nil
 }
 
