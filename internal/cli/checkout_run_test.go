@@ -241,3 +241,55 @@ func TestRunCheckoutWithUI_RepoFlag_EmptySlice(t *testing.T) {
 		t.Fatalf("repo1 head = %q, want main", head)
 	}
 }
+
+func TestRunCheckoutBranch_RemoteOnly(t *testing.T) {
+	// Tests Finding #1: checkout a branch that only exists on the remote.
+	// The fix fetches the branch before running git checkout so git can
+	// create a local tracking branch.
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Create a branch on origin via a second clone.
+	clone2Dir := cloneRepo(t, originDir)
+	mustRunGit(t, clone2Dir, "config", "user.email", "test@example.com")
+	mustRunGit(t, clone2Dir, "config", "user.name", "Test User")
+	mustRunGit(t, clone2Dir, "checkout", "-b", "feature/remote-only")
+	writeFile(t, clone2Dir, "remote.txt", "from remote\n")
+	mustRunGit(t, clone2Dir, "add", ".")
+	mustRunGit(t, clone2Dir, "commit", "-m", "remote commit")
+	mustRunGit(t, clone2Dir, "push", "--set-upstream", "origin", "feature/remote-only")
+
+	// The branch only exists on origin, not locally in our working repo.
+	if err := runCheckoutBranch([]*db.Repository{repo}, "feature/remote-only"); err != nil {
+		t.Fatalf("runCheckoutBranch: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "feature/remote-only" {
+		t.Fatalf("head = %q, want %q", head, "feature/remote-only")
+	}
+}
+
+func TestRunCheckoutDefault_ReturnsErrorOnFailure(t *testing.T) {
+	// Tests Finding #4: checkout returns non-zero when repos fail.
+	database = setupTestDB(t)
+
+	// Create a repo that points to a non-existent path.
+	repo := &db.Repository{
+		ID:            1,
+		Alias:         "broken",
+		Path:          "/nonexistent/path",
+		DefaultBranch: "main",
+	}
+
+	err := runCheckoutDefault([]*db.Repository{repo})
+	if err == nil {
+		t.Fatal("expected error when repo fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to checkout") {
+		t.Errorf("error = %q, want to contain \"failed to checkout\"", err.Error())
+	}
+}

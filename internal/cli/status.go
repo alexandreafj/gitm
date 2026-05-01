@@ -99,7 +99,7 @@ func runStatus(cmd *cobra.Command, args []string, fetchRemote bool) error {
 					statuses[i] = s
 					return
 				}
-				s.dirty = fmt.Sprintf("%d modified", len(files))
+				s.dirty = fmt.Sprintf("%d changed", len(files))
 			} else {
 				s.dirty = "clean"
 			}

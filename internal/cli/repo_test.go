@@ -614,3 +614,58 @@ func TestRepoAddNormalizesSymlinkedPaths(t *testing.T) {
 		t.Fatalf("expected 1 repo (no duplicate), got %d", len(repos))
 	}
 }
+
+// ─── TestRepoAddAliasConflictReturnsError ───────────────────────────────────
+
+// TestRepoAddAliasConflictReturnsError verifies that adding a repo with an
+// alias that is already taken by a different repo returns a non-nil error
+// (exit code != 0). Regression test for Finding #3.
+func TestRepoAddAliasConflictReturnsError(t *testing.T) {
+	setupTestDB(t)
+
+	// Create two separate git repos.
+	repo1Dir := initRepo(t)
+	repo2Dir := initRepo(t)
+
+	// Register repo1 with alias "my-service".
+	cmd1 := repoAddCmd()
+	if err := cmd1.Flags().Set("alias", "my-service"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	if err := cmd1.RunE(cmd1, []string{repo1Dir}); err != nil {
+		t.Fatalf("add repo1: %v", err)
+	}
+
+	// Try to register repo2 with the SAME alias — should fail.
+	cmd2 := repoAddCmd()
+	if err := cmd2.Flags().Set("alias", "my-service"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	err := cmd2.RunE(cmd2, []string{repo2Dir})
+	if err == nil {
+		t.Fatal("expected error when adding repo with duplicate alias, got nil")
+	}
+	if !strings.Contains(err.Error(), "could not be added") {
+		t.Errorf("error = %q, want to contain \"could not be added\"", err.Error())
+	}
+}
+
+// TestRepoAddSamePathIdempotent verifies that re-adding the same repo path
+// does NOT return an error (idempotent behavior).
+func TestRepoAddSamePathIdempotent(t *testing.T) {
+	setupTestDB(t)
+
+	repoDir := initRepo(t)
+
+	// First add.
+	cmd1 := repoAddCmd()
+	if err := cmd1.RunE(cmd1, []string{repoDir}); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+
+	// Second add of same path — should succeed (no error).
+	cmd2 := repoAddCmd()
+	if err := cmd2.RunE(cmd2, []string{repoDir}); err != nil {
+		t.Fatalf("second add of same path should be idempotent, got: %v", err)
+	}
+}

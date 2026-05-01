@@ -93,7 +93,7 @@ func runCheckoutWithUI(ui ui, args []string, repoAliases []string) error {
 func runCheckoutDefault(repos []*db.Repository) error {
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
-	runner.Run(repos, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
 		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status failed: %w", err)
@@ -122,6 +122,9 @@ func runCheckoutDefault(repos []*db.Repository) error {
 		return fmt.Sprintf("on %s — %s", repo.DefaultBranch, summarisePull(out)), "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to checkout", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -130,10 +133,13 @@ func runCheckoutDefault(repos []*db.Repository) error {
 func runCheckoutBranch(repos []*db.Repository, branch string) error {
 	fmt.Printf("Checking out branch %q in %d repositories…\n\n", branch, len(repos))
 
-	runner.Run(repos, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
 		return checkoutBranchInRepo(repo, branch)
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to checkout", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -154,10 +160,13 @@ func runCheckoutInteractive(repos []*db.Repository, ui ui) error {
 
 	fmt.Printf("\nChecking out branch %q in %d repositories…\n\n", branch, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		return checkoutBranchInRepo(repo, branch)
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to checkout", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -190,6 +199,14 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 
 	if !localExists && !remoteExists {
 		return "", fmt.Sprintf("branch %q not found (local or remote)", branch), nil
+	}
+
+	// If the branch only exists on the remote, fetch it first so git checkout
+	// can create a local tracking branch from the remote ref.
+	if !localExists && remoteExists {
+		if fetchErr := git.FetchBranch(repo.Path, branch); fetchErr != nil {
+			return "", "", fmt.Errorf("fetch remote branch %q: %w", branch, fetchErr)
+		}
 	}
 
 	if checkoutErr := git.Checkout(repo.Path, branch); checkoutErr != nil {
