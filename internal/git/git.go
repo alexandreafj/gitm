@@ -258,8 +258,10 @@ func RemoteBranchExists(path, branch string) bool {
 
 // FetchBranch fetches a single branch from origin so that git checkout can
 // create a local tracking branch from the remote ref.
+// The -- separator ensures the branch name is always treated as a refspec
+// and never misinterpreted as a flag (e.g. if it starts with -).
 func FetchBranch(path, branch string) error {
-	_, err := run(path, "fetch", "origin", branch)
+	_, err := run(path, "fetch", "origin", "--", branch)
 	return err
 }
 
