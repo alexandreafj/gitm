@@ -97,8 +97,8 @@ func TestStashList_WithStashes(t *testing.T) {
 // We document expectations but cannot fully automate.
 // ==========================================================================
 
-// TestReset_Behaviour documents what reset does when invoked non-interactively.
-// Since there's no --repo flag, we can only observe exit behaviour.
+// TestReset_Behavior documents what reset does when invoked non-interactively.
+// Since there's no --repo flag, we can only observe exit behavior.
 func TestReset_NoReposToReset(t *testing.T) {
 	e := newTestEnv(t)
 	// Register a repo with only 1 commit (can't reset further)

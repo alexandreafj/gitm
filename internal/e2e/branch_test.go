@@ -108,7 +108,7 @@ func TestBranchCreate_DirtyRepo(t *testing.T) {
 	e.writeFile(repo, "README.md", "# dirty\n")
 
 	r := e.runGitm("branch", "create", "feat/dirty-test", "--repo", "bc-dirty")
-	// Document actual behaviour: does it skip, stash, or proceed?
+	// Document actual behavior: does it skip, stash, or proceed?
 	t.Logf("Branch create on dirty repo: exit=%d stdout=%s stderr=%s",
 		r.ExitCode, r.Stdout, r.Stderr)
 }

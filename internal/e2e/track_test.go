@@ -32,7 +32,7 @@ func TestTrack_HasUntrackedFiles(t *testing.T) {
 	e.writeFile(repo, "another.txt", "another\n")
 
 	// This will try to open TUI — since we're not in a terminal, it may fail or
-	// show files and immediately return. Document the behaviour.
+	// show files and immediately return. Document the behavior.
 	r := e.runGitm("track", "--repo", "track-has")
 	t.Logf("Track with untracked files: exit=%d stdout=%s stderr=%s",
 		r.ExitCode, r.Stdout, r.Stderr)

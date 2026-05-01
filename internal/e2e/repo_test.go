@@ -222,9 +222,15 @@ func TestRepoAdd_AutoDetect(t *testing.T) {
 	repo2 := filepath.Join(parent, "project-b")
 	nonGit := filepath.Join(parent, "not-a-repo")
 
-	os.MkdirAll(repo1, 0o755)
-	os.MkdirAll(repo2, 0o755)
-	os.MkdirAll(nonGit, 0o755)
+	if err := os.MkdirAll(repo1, 0o755); err != nil {
+		t.Fatalf("MkdirAll repo1: %v", err)
+	}
+	if err := os.MkdirAll(repo2, 0o755); err != nil {
+		t.Fatalf("MkdirAll repo2: %v", err)
+	}
+	if err := os.MkdirAll(nonGit, 0o755); err != nil {
+		t.Fatalf("MkdirAll nonGit: %v", err)
+	}
 
 	e.mustGit(repo1, "init", "-b", "main")
 	e.mustGit(repo1, "config", "user.email", "t@t.dev")
@@ -256,7 +262,9 @@ func TestRepoAdd_AutoDetectWithDepth(t *testing.T) {
 	// Create nested structure: parent/sub/deep-repo
 	parent := t.TempDir()
 	deepRepo := filepath.Join(parent, "sub", "deep-repo")
-	os.MkdirAll(deepRepo, 0o755)
+	if err := os.MkdirAll(deepRepo, 0o755); err != nil {
+		t.Fatalf("MkdirAll deepRepo: %v", err)
+	}
 
 	e.mustGit(deepRepo, "init", "-b", "main")
 	e.mustGit(deepRepo, "config", "user.email", "t@t.dev")
@@ -308,7 +316,9 @@ func TestRepoAdd_AutoDetectSkipsRegistered(t *testing.T) {
 	e := newTestEnv(t)
 	parent := t.TempDir()
 	repo1 := filepath.Join(parent, "already-there")
-	os.MkdirAll(repo1, 0o755)
+	if err := os.MkdirAll(repo1, 0o755); err != nil {
+		t.Fatalf("MkdirAll repo1: %v", err)
+	}
 	e.mustGit(repo1, "init", "-b", "main")
 	e.mustGit(repo1, "config", "user.email", "t@t.dev")
 	e.mustGit(repo1, "config", "user.name", "T")

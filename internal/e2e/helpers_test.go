@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,7 +52,7 @@ func buildGitm() (string, error) {
 	cmd.Dir = projectRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("go build: %v\n%s", err, out)
+		return "", fmt.Errorf("go build: %w\n%s", err, out)
 	}
 	return binary, nil
 }
@@ -119,7 +120,8 @@ func (e *testEnv) runGitmInDir(dir string, args ...string) result {
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
 			e.t.Fatalf("failed to run gitm %v: %v", args, err)
@@ -228,28 +230,6 @@ func (e *testEnv) fileExists(path string) bool {
 func (e *testEnv) currentBranch(dir string) string {
 	e.t.Helper()
 	return e.mustGit(dir, "rev-parse", "--abbrev-ref", "HEAD")
-}
-
-// gitLog returns the last N commit messages (one-line format).
-func (e *testEnv) gitLog(dir string, n int) string {
-	e.t.Helper()
-	return e.mustGit(dir, "log", fmt.Sprintf("-%d", n), "--oneline")
-}
-
-// isDirty returns whether the repo has uncommitted tracked changes.
-func (e *testEnv) isDirty(dir string) bool {
-	e.t.Helper()
-	out := e.mustGit(dir, "status", "--porcelain")
-	// Filter out untracked files (lines starting with ??)
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "??") {
-			return true
-		}
-	}
-	return false
 }
 
 // branchExists checks if a branch exists locally in the repo.
