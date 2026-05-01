@@ -710,8 +710,8 @@ gitm discard [flags]
 | File status | Git command(s) | Effect |
 |---|---|---|
 | Modified tracked (` M`, `M `, `MM`) | `git reset HEAD -- <file>` + `git checkout -- <file>` | Reverts to last committed version |
-| Staged new file (`A `) | `git reset HEAD -- <file>` + `git clean -f -- <file>` | Unstages and removes the file |
-| Untracked (`??`) | `git clean -f -- <file>` | Removes the file |
+| Staged new file (`A `) | `git reset HEAD -- <file>` + `git clean -fd -- <file>` | Unstages and removes the file |
+| Untracked file/dir (`??`) | `git clean -fd -- <file>` | Removes the file or directory |
 
 **Behaviour:**
 

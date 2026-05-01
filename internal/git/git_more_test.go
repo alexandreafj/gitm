@@ -655,3 +655,38 @@ func TestDiscardFiles_Empty(t *testing.T) {
 		t.Fatalf("DiscardFiles(empty): %v", err)
 	}
 }
+
+// TestDiscardFiles_UntrackedDirectory verifies that untracked directories
+// (reported as "?? dir/" by git status --porcelain) are removed.
+// This requires the -d flag on git clean.
+func TestDiscardFiles_UntrackedDirectory(t *testing.T) {
+	dir := initRepo(t)
+
+	// Create an untracked directory with files inside.
+	subdir := filepath.Join(dir, "newdir")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writeFile(t, subdir, "a.txt", "file a\n")
+	writeFile(t, subdir, "b.txt", "file b\n")
+
+	// Also create a tracked modification that should survive.
+	writeFile(t, dir, "README.md", "modified\n")
+
+	// git status --porcelain would report "?? newdir/"
+	err := git.DiscardFiles(dir, []string{"?? newdir/"})
+	if err != nil {
+		t.Fatalf("DiscardFiles: %v", err)
+	}
+
+	// newdir/ should be completely removed.
+	if _, statErr := os.Stat(subdir); !os.IsNotExist(statErr) {
+		t.Error("newdir/ should have been removed (untracked directory)")
+	}
+
+	// README.md modification should survive.
+	content := readFileContent(t, dir, "README.md")
+	if content != "modified\n" {
+		t.Errorf("README.md = %q, want %q (should survive)", content, "modified\n")
+	}
+}

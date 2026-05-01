@@ -155,10 +155,14 @@ func DiscardChanges(path string) error {
 // "?? bar.txt", "A  new.go"). The function groups files by status and runs
 // the appropriate git command for each group:
 //
-//   - Staged new files (A): git reset HEAD -- <files>, then git clean -f -- <files>
+//   - Staged new files (A): git reset HEAD -- <files>, then git clean -fd -- <files>
 //   - Tracked modifications/deletions (M, D, etc.): git reset HEAD -- <files>,
 //     then git checkout -- <files> (reset first to unstage any staged changes)
-//   - Untracked files (??): git clean -f -- <files>
+//   - Untracked files/directories (??): git clean -fd -- <files>
+//
+// The -d flag is required because git status --porcelain collapses untracked
+// directories into a single "?? dir/" entry, and git clean without -d refuses
+// to remove directories.
 //
 // This is irreversible.
 func DiscardFiles(path string, porcelainFiles []string) error {
@@ -198,7 +202,7 @@ func DiscardFiles(path string, porcelainFiles []string) error {
 		if _, err := run(path, resetArgs...); err != nil {
 			return fmt.Errorf("reset staged files: %w", err)
 		}
-		cleanArgs := append([]string{"clean", "-f", "--"}, staged...)
+		cleanArgs := append([]string{"clean", "-fd", "--"}, staged...)
 		if _, err := run(path, cleanArgs...); err != nil {
 			return fmt.Errorf("clean staged files: %w", err)
 		}
@@ -218,9 +222,9 @@ func DiscardFiles(path string, porcelainFiles []string) error {
 		}
 	}
 
-	// Remove untracked files.
+	// Remove untracked files and directories.
 	if len(untracked) > 0 {
-		cleanArgs := append([]string{"clean", "-f", "--"}, untracked...)
+		cleanArgs := append([]string{"clean", "-fd", "--"}, untracked...)
 		if _, err := run(path, cleanArgs...); err != nil {
 			return fmt.Errorf("clean untracked files: %w", err)
 		}

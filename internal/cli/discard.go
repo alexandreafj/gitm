@@ -25,9 +25,9 @@ For each selected repository you choose exactly which files to discard.
 No files are pre-selected — you must explicitly pick every file you want gone.
 
 Depending on the file status, the appropriate git command is used:
-  Modified tracked files  → git checkout -- <file>
-  Staged new files        → git reset HEAD -- <file> + git clean -f -- <file>
-  Untracked files         → git clean -f -- <file>
+  Modified tracked files  → git reset HEAD -- <file> + git checkout -- <file>
+  Staged new files        → git reset HEAD -- <file> + git clean -fd -- <file>
+  Untracked files/dirs    → git clean -fd -- <file>
 
 Use --repo / -r to target specific repositories by alias, bypassing the
 interactive multi-select UI entirely. Non-dirty repos are silently skipped.
