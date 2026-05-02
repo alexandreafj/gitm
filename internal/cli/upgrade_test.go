@@ -358,12 +358,133 @@ func TestCopyFileSourceNotFound(t *testing.T) {
 }
 
 func TestUpgradeCmd(t *testing.T) {
-	cmd := upgradeCmd("v1.0.0")
+	cmd := newUpgradeCmd("v1.0.0", "darwin", installChannelManual)
 	if cmd.Use != "upgrade" {
 		t.Errorf("Use = %q, want %q", cmd.Use, "upgrade")
 	}
 	if cmd.Short == "" {
 		t.Error("Short is empty")
+	}
+	if cmd.Hidden {
+		t.Error("upgrade command should be visible for manual installs")
+	}
+}
+
+func TestDetectInstallChannel(t *testing.T) {
+	tests := []struct {
+		name     string
+		execPath string
+		want     installChannel
+	}{
+		{name: "homebrew cask", execPath: "/opt/homebrew/Caskroom/gitm/1.0.0/gitm", want: installChannelHomebrew},
+		{name: "scoop apps", execPath: `C:\Users\alex\scoop\apps\gitm\current\gitm.exe`, want: installChannelScoop},
+		{name: "scoop shim", execPath: `C:\Users\alex\scoop\shims\gitm.exe`, want: installChannelScoop},
+		{name: "manual", execPath: "/usr/local/bin/gitm", want: installChannelManual},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectInstallChannel(tt.execPath)
+			if got != tt.want {
+				t.Errorf("detectInstallChannel(%q) = %q, want %q", tt.execPath, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldHideUpgradeCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		channel installChannel
+		want    bool
+	}{
+		{name: "homebrew", channel: installChannelHomebrew, want: true},
+		{name: "scoop", channel: installChannelScoop, want: true},
+		{name: "manual", channel: installChannelManual, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldHideUpgradeCommand(tt.channel)
+			if got != tt.want {
+				t.Errorf("shouldHideUpgradeCommand(%q) = %v, want %v", tt.channel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpgradeBlockedReason(t *testing.T) {
+	tests := []struct {
+		name    string
+		goos    string
+		channel installChannel
+		want    string
+	}{
+		{name: "homebrew", goos: "darwin", channel: installChannelHomebrew, want: "brew upgrade --cask gitm"},
+		{name: "scoop", goos: "windows", channel: installChannelScoop, want: "scoop update gitm"},
+		{name: "windows manual", goos: "windows", channel: installChannelManual, want: "not supported on Windows"},
+		{name: "linux manual", goos: "linux", channel: installChannelManual, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := upgradeBlockedReason(tt.goos, tt.channel)
+			if tt.want == "" {
+				if got != "" {
+					t.Errorf("upgradeBlockedReason(%q, %q) = %q, want empty string", tt.goos, tt.channel, got)
+				}
+				return
+			}
+
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("upgradeBlockedReason(%q, %q) = %q, expected to contain %q", tt.goos, tt.channel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpgradeCmdHiddenForPackageManagers(t *testing.T) {
+	tests := []struct {
+		name    string
+		channel installChannel
+	}{
+		{name: "homebrew", channel: installChannelHomebrew},
+		{name: "scoop", channel: installChannelScoop},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newUpgradeCmd("v1.0.0", "darwin", tt.channel)
+			if !cmd.Hidden {
+				t.Errorf("upgrade command should be hidden for %q installs", tt.channel)
+			}
+		})
+	}
+}
+
+func TestUpgradeCmdBlockedRunReturnsActionableMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		goos    string
+		channel installChannel
+		want    string
+	}{
+		{name: "homebrew", goos: "darwin", channel: installChannelHomebrew, want: "brew upgrade --cask gitm"},
+		{name: "scoop", goos: "windows", channel: installChannelScoop, want: "scoop update gitm"},
+		{name: "windows manual", goos: "windows", channel: installChannelManual, want: "not supported on Windows"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newUpgradeCmd("v1.0.0", tt.goos, tt.channel)
+			err := cmd.RunE(cmd, nil)
+			if err == nil {
+				t.Fatal("expected blocked upgrade to return an error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, expected to contain %q", err.Error(), tt.want)
+			}
+		})
 	}
 }
 

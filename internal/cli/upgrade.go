@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,62 @@ type ghRelease struct {
 type ghAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type installChannel string
+
+const (
+	installChannelManual   installChannel = "manual"
+	installChannelHomebrew installChannel = "homebrew"
+	installChannelScoop    installChannel = "scoop"
+)
+
+func resolveExecutablePath() (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+
+	resolvedPath, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return execPath, nil
+	}
+
+	return resolvedPath, nil
+}
+
+func detectInstallChannel(execPath string) installChannel {
+	normalizedPath := strings.ToLower(strings.ReplaceAll(execPath, "\\", "/"))
+
+	if strings.Contains(normalizedPath, "/caskroom/gitm/") {
+		return installChannelHomebrew
+	}
+
+	if strings.Contains(normalizedPath, "/scoop/apps/gitm/") || strings.Contains(normalizedPath, "/scoop/shims/gitm") {
+		return installChannelScoop
+	}
+
+	return installChannelManual
+}
+
+func shouldHideUpgradeCommand(channel installChannel) bool {
+	return channel == installChannelHomebrew || channel == installChannelScoop
+}
+
+func upgradeBlockedReason(goos string, channel installChannel) string {
+	if channel == installChannelHomebrew {
+		return "gitm installed via Homebrew is managed by Homebrew; run `brew upgrade --cask gitm`"
+	}
+
+	if channel == installChannelScoop {
+		return "gitm installed via Scoop is managed by Scoop; run `scoop update gitm`"
+	}
+
+	if goos == "windows" {
+		return "self-upgrade is not supported on Windows yet; use `scoop update gitm` if installed via Scoop, or reinstall from the latest GitHub release"
+	}
+
+	return ""
 }
 
 func assetName(goos, goarch string) (string, error) {
@@ -388,6 +445,16 @@ func copyFile(src, dst string) error {
 }
 
 func upgradeCmd(currentVersion string) *cobra.Command {
+	channel := installChannelManual
+	execPath, err := resolveExecutablePath()
+	if err == nil {
+		channel = detectInstallChannel(execPath)
+	}
+
+	return newUpgradeCmd(currentVersion, runtime.GOOS, channel)
+}
+
+func newUpgradeCmd(currentVersion, goos string, channel installChannel) *cobra.Command {
 	return &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade gitm to the latest release",
@@ -395,7 +462,10 @@ func upgradeCmd(currentVersion string) *cobra.Command {
 
 The binary's checksums file is verified against a Sigstore signature bundle
 produced by this repository's release workflow. When upgrading from a release
-that predates signing, verification falls back to SHA-256 only with a warning.`,
+that predates signing, verification falls back to SHA-256 only with a warning.
+
+For Homebrew and Scoop installs, use your package manager to update gitm.
+Self-upgrade is currently disabled on Windows.`,
 		Example: `  # Upgrade to the latest release
   gitm upgrade
 
@@ -405,8 +475,13 @@ that predates signing, verification falls back to SHA-256 only with a warning.`,
   #   Verifying signature... ok
   #   Verifying checksum... ok
   #   Updated gitm: v1.1.0 → v1.2.0`,
-		Args: cobra.NoArgs,
+		Hidden: shouldHideUpgradeCommand(channel),
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if reason := upgradeBlockedReason(goos, channel); reason != "" {
+				return errors.New(reason)
+			}
+
 			sv, err := newSigstoreVerifier()
 			if err != nil {
 				return fmt.Errorf("init signature verifier: %w", err)
