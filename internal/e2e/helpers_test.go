@@ -17,7 +17,6 @@ import (
 var gitmBinary string
 
 func TestMain(m *testing.M) {
-	// Build the binary once for all e2e tests.
 	binary, err := buildGitm()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to build gitm: %v\n", err)
@@ -60,9 +59,7 @@ func buildGitm() (string, error) {
 	return binary, nil
 }
 
-// --------------------------------------------------------------------------
 // Test environment helpers
-// --------------------------------------------------------------------------
 
 // testEnv represents an isolated test environment with its own HOME dir.
 type testEnv struct {
@@ -85,9 +82,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Running gitm
-// --------------------------------------------------------------------------
 
 // result holds the output of a gitm invocation.
 type result struct {
@@ -147,9 +142,7 @@ func (e *testEnv) runGitmInDir(dir string, args ...string) result {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Git repo setup helpers
-// --------------------------------------------------------------------------
 
 // initRepo creates a new git repository in a temp directory with an initial commit.
 // Returns the repo path.
@@ -173,14 +166,12 @@ func (e *testEnv) initRepo(name string) string {
 // Returns (repoDir, bareOriginDir).
 func (e *testEnv) initRepoWithRemote(name string) (string, string) {
 	e.t.Helper()
-	// Create bare remote
 	origin := filepath.Join(e.t.TempDir(), name+"-origin.git")
 	if err := os.MkdirAll(origin, 0o755); err != nil {
 		e.t.Fatalf("MkdirAll: %v", err)
 	}
 	e.mustGit(origin, "init", "--bare", "--initial-branch=main")
 
-	// Create working repo
 	repo := e.initRepo(name)
 	e.mustGit(repo, "remote", "add", "origin", origin)
 	e.mustGit(repo, "push", "--set-upstream", "origin", "main")
@@ -252,9 +243,7 @@ func (e *testEnv) branchExists(dir, branch string) bool {
 	return cmd.Run() == nil
 }
 
-// --------------------------------------------------------------------------
 // Assertion helpers
-// --------------------------------------------------------------------------
 
 // assertExitCode checks the exit code of a result.
 func (e *testEnv) assertExitCode(r result, expected int) {

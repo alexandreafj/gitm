@@ -143,7 +143,6 @@ func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
 		return nil
 	}
 
-	// ── Phase 1: gather pre-flight info for every repo ──────────────────────
 	resetRef := buildResetRef(numCommits)
 	infos, skipped := gatherResetInfo(allRepos, numCommits, resetRef)
 
@@ -155,10 +154,8 @@ func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
 		return nil
 	}
 
-	// ── Phase 2: print preview ───────────────────────────────────────────────
 	printResetPreview(infos, mode, numCommits)
 
-	// ── Phase 3: interactive selection ──────────────────────────────────────
 	repos := make([]*db.Repository, len(infos))
 	for i, info := range infos {
 		repos[i] = info.repo
@@ -179,7 +176,6 @@ func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
 		infoByPath[infos[i].repo.Path] = &infos[i]
 	}
 
-	// ── Phase 4: run the reset ───────────────────────────────────────────────
 	modeName := resetModeName(mode)
 	fmt.Printf("\nApplying %s reset (%s) to %d repository(ies)…\n\n",
 		color.CyanString(modeName), resetRef, len(chosen))
@@ -207,7 +203,6 @@ func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
 		return msg, "", nil
 	})
 
-	// ── Phase 5: offer force-push for repos with pushed commits ─────────────
 	var pushCandidates []*db.Repository
 	for _, r := range results {
 		if r.Status != runner.StatusSuccess {

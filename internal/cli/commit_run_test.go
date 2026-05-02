@@ -256,7 +256,6 @@ func TestRunCommit_RepoFlag_SkipsNonDirtyRepoSilently(t *testing.T) {
 	}
 
 	ui := fakeUI{commitMsg: "should not be called"}
-	// Should not error — clean repos are silently skipped.
 	if err := runCommitWithUI(ui, true, []string{"repo1"}); err != nil {
 		t.Fatalf("runCommitWithUI: %v", err)
 	}
@@ -279,7 +278,6 @@ func TestRunCommit_RepoFlag_AllDirtyProtected(t *testing.T) {
 	}
 
 	ui := fakeUI{commitMsg: "should not be called"}
-	// Should not error — protected repos are skipped gracefully.
 	if err := runCommitWithUI(ui, true, []string{"repo1"}); err != nil {
 		t.Fatalf("runCommitWithUI: %v", err)
 	}

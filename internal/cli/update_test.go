@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// TestUpdateCmdExists verifies the update command is created.
 func TestUpdateCmdExists(t *testing.T) {
 	cmd := updateCmd()
 	if cmd == nil {
@@ -12,7 +11,6 @@ func TestUpdateCmdExists(t *testing.T) {
 	}
 }
 
-// TestUpdateCmdHasUse verifies the command has the correct Use field.
 func TestUpdateCmdHasUse(t *testing.T) {
 	cmd := updateCmd()
 	if cmd.Use != "update" {
@@ -20,7 +18,6 @@ func TestUpdateCmdHasUse(t *testing.T) {
 	}
 }
 
-// TestUpdateCmdHasShort verifies the command has a short description.
 func TestUpdateCmdHasShort(t *testing.T) {
 	cmd := updateCmd()
 	if cmd.Short == "" {
@@ -28,7 +25,6 @@ func TestUpdateCmdHasShort(t *testing.T) {
 	}
 }
 
-// TestUpdateCmdIsRunnable verifies the command has a RunE function.
 func TestUpdateCmdIsRunnable(t *testing.T) {
 	cmd := updateCmd()
 	if cmd.RunE == nil {
@@ -36,7 +32,6 @@ func TestUpdateCmdIsRunnable(t *testing.T) {
 	}
 }
 
-// TestUpdateCmdHasRepoFlag verifies the --repo flag is registered with shorthand -r.
 func TestUpdateCmdHasRepoFlag(t *testing.T) {
 	cmd := updateCmd()
 	f := cmd.Flags().Lookup("repo")

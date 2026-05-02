@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// TestCheckoutCmdExists verifies the checkout command is created.
 func TestCheckoutCmdExists(t *testing.T) {
 	cmd := checkoutCmd()
 	if cmd == nil {
@@ -12,7 +11,6 @@ func TestCheckoutCmdExists(t *testing.T) {
 	}
 }
 
-// TestCheckoutCmdHasUse verifies the command has the correct Use field.
 func TestCheckoutCmdHasUse(t *testing.T) {
 	cmd := checkoutCmd()
 	if cmd.Use == "" {
@@ -20,7 +18,6 @@ func TestCheckoutCmdHasUse(t *testing.T) {
 	}
 }
 
-// TestCheckoutCmdHasShort verifies the command has a short description.
 func TestCheckoutCmdHasShort(t *testing.T) {
 	cmd := checkoutCmd()
 	if cmd.Short == "" {
@@ -28,7 +25,6 @@ func TestCheckoutCmdHasShort(t *testing.T) {
 	}
 }
 
-// TestCheckoutCmdIsRunnable verifies the command is runnable.
 func TestCheckoutCmdIsRunnable(t *testing.T) {
 	cmd := checkoutCmd()
 	if cmd.RunE == nil {
@@ -36,7 +32,6 @@ func TestCheckoutCmdIsRunnable(t *testing.T) {
 	}
 }
 
-// TestCheckoutCmdHasRepoFlag verifies the --repo flag exists with -r shorthand.
 func TestCheckoutCmdHasRepoFlag(t *testing.T) {
 	cmd := checkoutCmd()
 	f := cmd.Flags().Lookup("repo")

@@ -503,12 +503,9 @@ func TestUntrackFilesNotTracked(t *testing.T) {
 	}
 }
 
-// ─── DiscardFiles ───────────────────────────────────────────────────────────
-
 func TestDiscardFiles_TrackedOnly(t *testing.T) {
 	dir := initRepo(t)
 
-	// Create a tracked file, commit it, then modify it.
 	writeFile(t, dir, "tracked.txt", "original\n")
 	mustRunGit(t, dir, "add", "tracked.txt")
 	mustRunGit(t, dir, "commit", "-m", "add tracked.txt")
@@ -537,7 +534,6 @@ func TestDiscardFiles_TrackedOnly(t *testing.T) {
 func TestDiscardFiles_UntrackedOnly(t *testing.T) {
 	dir := initRepo(t)
 
-	// Create an untracked file and a tracked modification.
 	writeFile(t, dir, "untracked.txt", "new file\n")
 	writeFile(t, dir, "README.md", "modified readme\n")
 
@@ -599,7 +595,6 @@ func TestDiscardFiles_Mixed(t *testing.T) {
 func TestDiscardFiles_StagedNewFile(t *testing.T) {
 	dir := initRepo(t)
 
-	// Create and stage a new file.
 	writeFile(t, dir, "staged.txt", "staged content\n")
 	mustRunGit(t, dir, "add", "staged.txt")
 
@@ -656,13 +651,9 @@ func TestDiscardFiles_Empty(t *testing.T) {
 	}
 }
 
-// TestDiscardFiles_UntrackedDirectory verifies that untracked directories
-// (reported as "?? dir/" by git status --porcelain) are removed.
-// This requires the -d flag on git clean.
 func TestDiscardFiles_UntrackedDirectory(t *testing.T) {
 	dir := initRepo(t)
 
-	// Create an untracked directory with files inside.
 	subdir := filepath.Join(dir, "newdir")
 	if err := os.MkdirAll(subdir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)

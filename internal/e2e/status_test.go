@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// ==========================================================================
-// Phase 2: Status (gitm status)
-// ==========================================================================
-
 func TestStatus_CleanRepo(t *testing.T) {
 	e := newTestEnv(t)
 	repo, _ := e.initRepoWithRemote("status-clean")
@@ -31,7 +27,6 @@ func TestStatus_DirtyModified(t *testing.T) {
 	r := e.runGitm("status")
 	e.assertExitCode(r, 0)
 	e.assertStdoutContains(r, "status-dirty")
-	// Should show something indicating dirty (not "clean")
 	if containsAll(r.Stdout, "status-dirty", "clean") && !containsAny(r.Stdout, "modified", "dirty", "changed") {
 		t.Error("dirty repo shown as clean")
 	}
@@ -65,7 +60,6 @@ func TestStatus_AheadOfRemote(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("status-ahead")
 	e.runGitm("repo", "add", repo, "--alias", "status-ahead")
 
-	// Make a local commit without pushing
 	e.writeFile(repo, "new.txt", "ahead\n")
 	e.mustGit(repo, "add", ".")
 	e.mustGit(repo, "commit", "-m", "unpushed commit")
@@ -130,9 +124,7 @@ func TestStatus_MultipleRepos(t *testing.T) {
 	e.assertStdoutContains(r, "multi-status-2")
 }
 
-// --------------------------------------------------------------------------
 // Helpers for this file
-// --------------------------------------------------------------------------
 
 func containsAll(s string, substrs ...string) bool {
 	for _, sub := range substrs {

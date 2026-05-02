@@ -638,7 +638,6 @@ func TestRunUpgradeBundleMissingFallback(t *testing.T) {
 	sv := &fakeSignatureVerifier{}
 	opts := &upgradeOpts{execPath: testExecPath(t)}
 
-	// Should NOT fail — falls back to SHA-256 only with a warning.
 	err = runUpgrade("v1.0.0", uc, sv, opts)
 	if err != nil {
 		t.Fatalf("expected successful fallback upgrade, got: %v", err)
@@ -691,9 +690,6 @@ func newTestHTTPClient(srv *httptest.Server) *http.Client {
 	return srv.Client()
 }
 
-// TestHTTPDownloadBytesOversizedRejected verifies that httpUpgradeClient.downloadBytes
-// rejects a response whose body exceeds maxBundleSize, exercising the real
-// io.LimitReader + size-check path that fakeUpgradeClient bypasses.
 func TestHTTPDownloadBytesOversizedRejected(t *testing.T) {
 	oversized := bytes.Repeat([]byte("x"), int(maxBundleSize)+1)
 
@@ -716,8 +712,6 @@ func TestHTTPDownloadBytesOversizedRejected(t *testing.T) {
 	}
 }
 
-// TestHTTPDownloadBytesExactLimitAccepted verifies that a response whose body
-// is exactly maxBundleSize bytes is accepted without error.
 func TestHTTPDownloadBytesExactLimitAccepted(t *testing.T) {
 	exactPayload := bytes.Repeat([]byte("y"), int(maxBundleSize))
 
@@ -740,8 +734,6 @@ func TestHTTPDownloadBytesExactLimitAccepted(t *testing.T) {
 	}
 }
 
-// TestHTTPDownloadBytesNonOKStatusRejected verifies that a non-200 HTTP status
-// is surfaced as an error rather than silently returning an empty body.
 func TestHTTPDownloadBytesNonOKStatusRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)

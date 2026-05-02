@@ -54,7 +54,6 @@ func TestRunDiscard_DirtyRepos(t *testing.T) {
 	}
 }
 
-// TestRunDiscard_FileSelection verifies that only selected files are discarded.
 func TestRunDiscard_FileSelection(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir := initRepo(t)
@@ -63,7 +62,6 @@ func TestRunDiscard_FileSelection(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	// Create 3 dirty files: 1 tracked modification + 2 untracked.
 	writeFile(t, repoDir, "README.md", "modified readme\n") // tracked
 	writeFile(t, repoDir, "new1.txt", "new file 1\n")       // untracked
 	writeFile(t, repoDir, "new2.txt", "new file 2\n")       // untracked (survivor)
@@ -100,7 +98,6 @@ func TestRunDiscard_FileSelection(t *testing.T) {
 	}
 }
 
-// TestRunDiscard_RepoFlag verifies --repo bypasses MultiSelect.
 func TestRunDiscard_RepoFlag(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir := initRepo(t)
@@ -121,7 +118,6 @@ func TestRunDiscard_RepoFlag(t *testing.T) {
 	}
 }
 
-// TestRunDiscard_RepoFlagUnknownAlias verifies --repo with unknown alias returns error.
 func TestRunDiscard_RepoFlagUnknownAlias(t *testing.T) {
 	database = setupTestDB(t)
 
@@ -131,7 +127,6 @@ func TestRunDiscard_RepoFlagUnknownAlias(t *testing.T) {
 	}
 }
 
-// TestRunDiscard_CancelFileSelect verifies that canceling file selection skips the repo.
 func TestRunDiscard_CancelFileSelect(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir := initRepo(t)
@@ -145,7 +140,6 @@ func TestRunDiscard_CancelFileSelect(t *testing.T) {
 		fileErr: errCanceled,
 	}
 
-	// Should NOT return error — canceling is graceful.
 	if err := runDiscardWithUI(ui, nil); err != nil {
 		t.Fatalf("runDiscard: %v", err)
 	}
@@ -156,7 +150,6 @@ func TestRunDiscard_CancelFileSelect(t *testing.T) {
 	}
 }
 
-// TestRunDiscard_NoFilesSelected verifies that selecting no files skips the repo.
 func TestRunDiscard_NoFilesSelected(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir := initRepo(t)
@@ -180,7 +173,6 @@ func TestRunDiscard_NoFilesSelected(t *testing.T) {
 	}
 }
 
-// TestRunDiscard_MultipleRepos verifies discard works across multiple repos.
 func TestRunDiscard_MultipleRepos(t *testing.T) {
 	database = setupTestDB(t)
 

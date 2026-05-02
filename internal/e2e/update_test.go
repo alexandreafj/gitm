@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// ==========================================================================
-// Phase 5: Update (gitm update)
-// ==========================================================================
-
 func TestUpdate_AlreadyUpToDate(t *testing.T) {
 	e := newTestEnv(t)
 	repo, _ := e.initRepoWithRemote("up-current")
@@ -16,7 +12,6 @@ func TestUpdate_AlreadyUpToDate(t *testing.T) {
 
 	r := e.runGitm("update", "--repo", "up-current")
 	e.assertExitCode(r, 0)
-	// Should indicate already up-to-date or show success
 	e.assertContains(r, "up-current")
 }
 
@@ -35,7 +30,6 @@ func TestUpdate_RemoteAhead(t *testing.T) {
 	r := e.runGitm("update", "--repo", "up-behind")
 	e.assertExitCode(r, 0)
 
-	// Should have the new file
 	if !e.fileExists(filepath.Join(repo, "new-from-remote.txt")) {
 		t.Error("update did not pull — new-from-remote.txt missing")
 	}
@@ -46,12 +40,10 @@ func TestUpdate_DirtyRepo_Skips(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("up-dirty")
 	e.runGitm("repo", "add", repo, "--alias", "up-dirty")
 
-	// Make dirty
 	e.writeFile(repo, "README.md", "# dirty\n")
 
 	r := e.runGitm("update", "--repo", "up-dirty")
 	e.assertExitCode(r, 0)
-	// Should skip/warn about dirty
 	e.assertContains(r, "up-dirty")
 }
 
@@ -59,7 +51,6 @@ func TestUpdate_NonExistentRepo(t *testing.T) {
 	e := newTestEnv(t)
 
 	r := e.runGitm("update", "--repo", "ghost-repo")
-	// Should error — alias doesn't match any registered repo
 	if r.ExitCode == 0 {
 		t.Fatalf("expected non-zero exit for non-existent --repo alias, but got exit=%d stdout=%s stderr=%s",
 			r.ExitCode, r.Stdout, r.Stderr)
@@ -78,7 +69,6 @@ func TestUpdate_DoesNotSwitchBranch(t *testing.T) {
 	r := e.runGitm("update", "--repo", "up-nosw")
 	e.assertExitCode(r, 0)
 
-	// Should still be on feat/stay-here
 	branch := e.currentBranch(repo)
 	if branch != "feat/stay-here" {
 		t.Errorf("update should not switch branches, but now on %s", branch)
@@ -97,7 +87,6 @@ func TestUpdate_DivergedBranch(t *testing.T) {
 	e.mustGit(other, "commit", "-m", "remote commit")
 	e.mustGit(other, "push")
 
-	// Make a local commit (local ahead too — diverged)
 	e.writeFile(repo, "local.txt", "local\n")
 	e.mustGit(repo, "add", ".")
 	e.mustGit(repo, "commit", "-m", "local commit")

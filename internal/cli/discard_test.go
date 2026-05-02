@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// TestDiscardCmdExists verifies the discard command is created.
 func TestDiscardCmdExists(t *testing.T) {
 	cmd := discardCmd()
 	if cmd == nil {
@@ -12,7 +11,6 @@ func TestDiscardCmdExists(t *testing.T) {
 	}
 }
 
-// TestDiscardCmdHasUse verifies the command has the correct Use field.
 func TestDiscardCmdHasUse(t *testing.T) {
 	cmd := discardCmd()
 	if cmd.Use != "discard" {
@@ -20,7 +18,6 @@ func TestDiscardCmdHasUse(t *testing.T) {
 	}
 }
 
-// TestDiscardCmdHasShort verifies the command has a short description.
 func TestDiscardCmdHasShort(t *testing.T) {
 	cmd := discardCmd()
 	if cmd.Short == "" {
@@ -28,7 +25,6 @@ func TestDiscardCmdHasShort(t *testing.T) {
 	}
 }
 
-// TestDiscardCmdHasLong verifies the command has detailed help text.
 func TestDiscardCmdHasLong(t *testing.T) {
 	cmd := discardCmd()
 	if cmd.Long == "" {
@@ -36,7 +32,6 @@ func TestDiscardCmdHasLong(t *testing.T) {
 	}
 }
 
-// TestDiscardCmdIsRunnable verifies the command has a RunE function.
 func TestDiscardCmdIsRunnable(t *testing.T) {
 	cmd := discardCmd()
 	if cmd.RunE == nil {
@@ -44,7 +39,6 @@ func TestDiscardCmdIsRunnable(t *testing.T) {
 	}
 }
 
-// TestDiscardCmdHasRepoFlag verifies the --repo / -r flag exists.
 func TestDiscardCmdHasRepoFlag(t *testing.T) {
 	cmd := discardCmd()
 	f := cmd.Flags().Lookup("repo")
@@ -56,7 +50,6 @@ func TestDiscardCmdHasRepoFlag(t *testing.T) {
 	}
 }
 
-// TestDiscardCmdHasExample verifies the command has example text.
 func TestDiscardCmdHasExample(t *testing.T) {
 	cmd := discardCmd()
 	if cmd.Example == "" {

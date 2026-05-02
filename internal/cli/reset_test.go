@@ -7,8 +7,6 @@ import (
 	"github.com/alexandreafj/gitm/internal/db"
 )
 
-// ─── determineResetMode ──────────────────────────────────────────────────────
-
 func TestDetermineResetMode(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -69,8 +67,6 @@ func TestDetermineResetMode(t *testing.T) {
 	}
 }
 
-// ─── resetModeName ───────────────────────────────────────────────────────────
-
 func TestResetModeName(t *testing.T) {
 	tests := []struct {
 		mode resetMode
@@ -87,8 +83,6 @@ func TestResetModeName(t *testing.T) {
 		}
 	}
 }
-
-// ─── resetModeDescription ────────────────────────────────────────────────────
 
 func TestResetModeDescription(t *testing.T) {
 	tests := []struct {
@@ -109,8 +103,6 @@ func TestResetModeDescription(t *testing.T) {
 	}
 }
 
-// ─── buildResetRef ───────────────────────────────────────────────────────────
-
 func TestBuildResetRef(t *testing.T) {
 	tests := []struct {
 		n    int
@@ -127,8 +119,6 @@ func TestBuildResetRef(t *testing.T) {
 		}
 	}
 }
-
-// ─── buildResetResultMessage ─────────────────────────────────────────────────
 
 func TestBuildResetResultMessage(t *testing.T) {
 	info := &repoResetInfo{
@@ -186,8 +176,6 @@ func TestBuildResetResultMessage(t *testing.T) {
 		}
 	})
 }
-
-// ─── gatherResetInfo ─────────────────────────────────────────────────────────
 
 func TestGatherResetInfoSkipsReposWithTooFewCommits(t *testing.T) {
 	// We inject a repo with a path that does not exist — git will fail,

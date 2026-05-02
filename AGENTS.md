@@ -92,6 +92,13 @@ Bad:   Update files
 
 Every command gets a detailed `Long` explanation with examples. Users won't read code; the help text is their only guide.
 
+### 10. **Comments must be minimal and non-decorative.**
+
+Do not add decorative section banners (`====`, `----`, `───`) or phase headers in Go files.
+
+Only keep comments that add non-obvious context (safety rationale, tricky edge cases, external constraints).
+If a comment just repeats what the code/test name already says, remove it.
+
 ---
 
 ## Development Workflow

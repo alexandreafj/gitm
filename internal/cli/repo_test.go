@@ -9,9 +9,6 @@ import (
 	"github.com/alexandreafj/gitm/internal/db"
 )
 
-// ─── TestPrintRepoTable ─────────────────────────────────────────────────────
-
-// TestPrintRepoTableHandlesEmpty verifies that printRepoTable doesn't panic with empty list.
 func TestPrintRepoTableHandlesEmpty(t *testing.T) {
 	// This test ensures the function doesn't crash with an empty repository list.
 	// We can't easily test the actual output without capturing stdout.
@@ -25,7 +22,6 @@ func TestPrintRepoTableHandlesEmpty(t *testing.T) {
 	printRepoTable(repos)
 }
 
-// TestPrintRepoTableHandlesMultipleRepos verifies the function handles multiple repos.
 func TestPrintRepoTableHandlesMultipleRepos(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -62,14 +58,9 @@ func TestRepoAddCmdAliasValidation(t *testing.T) {
 	}
 }
 
-// ─── TestRepoAddAutoDetect ──────────────────────────────────────────────────
-
-// TestRepoAddAutoDetect verifies that --auto-detect scans immediate children,
-// registers git repos, and skips plain directories.
 func TestRepoAddAutoDetect(t *testing.T) {
 	d := setupTestDB(t)
 
-	// Build a parent directory with:
 	//   parent/
 	//     repo-a/   ← real git repo
 	//     repo-b/   ← real git repo
@@ -113,7 +104,6 @@ func TestRepoAddAutoDetect(t *testing.T) {
 		t.Fatalf("expected 2 registered repos, got %d", len(repos))
 	}
 
-	// Verify both repo-a and repo-b were registered by alias (directory name).
 	aliases := map[string]bool{}
 	for _, r := range repos {
 		aliases[r.Alias] = true
@@ -125,8 +115,6 @@ func TestRepoAddAutoDetect(t *testing.T) {
 	}
 }
 
-// TestRepoAddAutoDetectSkipsAlreadyRegistered verifies that repos already in
-// the database are reported as skipped (⚠) and do not cause a hard failure.
 func TestRepoAddAutoDetectSkipsAlreadyRegistered(t *testing.T) {
 	d := setupTestDB(t)
 
@@ -156,7 +144,6 @@ func TestRepoAddAutoDetectSkipsAlreadyRegistered(t *testing.T) {
 	if err := cmd.Flags().Set("auto-detect", "true"); err != nil {
 		t.Fatalf("set flag: %v", err)
 	}
-	// Should succeed (not return an error) even though repo-a is a duplicate.
 	if err := cmd.RunE(cmd, []string{parent}); err != nil {
 		t.Fatalf("RunE: %v", err)
 	}
@@ -165,14 +152,11 @@ func TestRepoAddAutoDetectSkipsAlreadyRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
-	// Both repos should be registered (repo-a was already there, repo-b is new).
 	if len(repos) != 2 {
 		t.Fatalf("expected 2 registered repos, got %d", len(repos))
 	}
 }
 
-// TestRepoAddAutoDetectRejectsAlias verifies that combining --auto-detect with
-// --alias returns an error, since a single alias cannot apply to many repos.
 func TestRepoAddAutoDetectRejectsAlias(t *testing.T) {
 	cmd := repoAddCmd()
 	if err := cmd.Flags().Set("auto-detect", "true"); err != nil {
@@ -186,8 +170,6 @@ func TestRepoAddAutoDetectRejectsAlias(t *testing.T) {
 	}
 }
 
-// TestRepoAddAutoDetectRejectsMultiplePaths verifies that --auto-detect with
-// more than one path argument returns an error.
 func TestRepoAddAutoDetectRejectsMultiplePaths(t *testing.T) {
 	cmd := repoAddCmd()
 	if err := cmd.Flags().Set("auto-detect", "true"); err != nil {
@@ -198,10 +180,7 @@ func TestRepoAddAutoDetectRejectsMultiplePaths(t *testing.T) {
 	}
 }
 
-// TestRepoAddAutoDetectNotADirectory verifies that passing a file path (not a
-// directory) to --auto-detect returns a descriptive error.
 func TestRepoAddAutoDetectNotADirectory(t *testing.T) {
-	// Create a real file to pass as the "parent" path.
 	tmp := t.TempDir()
 	filePath := filepath.Join(tmp, "not-a-dir.txt")
 	if err := os.WriteFile(filePath, []byte("hello"), 0644); err != nil {
@@ -219,8 +198,6 @@ func TestRepoAddAutoDetectNotADirectory(t *testing.T) {
 	}
 }
 
-// TestRepoAddAutoDetectSkipsHiddenDirs verifies that hidden directories
-// (names starting with ".") are not scanned.
 func TestRepoAddAutoDetectSkipsHiddenDirs(t *testing.T) {
 	d := setupTestDB(t)
 
@@ -255,8 +232,6 @@ func TestRepoAddAutoDetectSkipsHiddenDirs(t *testing.T) {
 	}
 }
 
-// TestRepoAddDepthRejectsWithoutAutoDetect verifies that --depth without
-// --auto-detect returns an error.
 func TestRepoAddDepthRejectsWithoutAutoDetect(t *testing.T) {
 	setupTestDB(t)
 
@@ -277,7 +252,6 @@ func TestRepoAddDepthRejectsWithoutAutoDetect(t *testing.T) {
 	}
 }
 
-// TestRepoAddDepthRejectsZero verifies that --depth=0 returns an error.
 func TestRepoAddDepthRejectsZero(t *testing.T) {
 	setupTestDB(t)
 
@@ -301,9 +275,6 @@ func TestRepoAddDepthRejectsZero(t *testing.T) {
 	}
 }
 
-// ─── TestDiscoverRepos ──────────────────────────────────────────────────────
-
-// TestDiscoverReposEmptyDir verifies that an empty directory returns no repos.
 func TestDiscoverReposEmptyDir(t *testing.T) {
 	parent := t.TempDir()
 	repos, err := discoverRepos(parent, 1)
@@ -315,8 +286,6 @@ func TestDiscoverReposEmptyDir(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposFindsGitRepos verifies that discoverRepos returns only git
-// repo paths and ignores plain directories.
 func TestDiscoverReposFindsGitRepos(t *testing.T) {
 	parent := t.TempDir()
 
@@ -349,8 +318,6 @@ func TestDiscoverReposFindsGitRepos(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposNonExistentPath verifies that a non-existent path returns
-// a descriptive error.
 func TestDiscoverReposNonExistentPath(t *testing.T) {
 	_, err := discoverRepos("/this/path/does/not/exist/at/all", 1)
 	if err == nil {
@@ -358,8 +325,6 @@ func TestDiscoverReposNonExistentPath(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposFileNotDir verifies that passing a file (not a directory)
-// returns a descriptive error.
 func TestDiscoverReposFileNotDir(t *testing.T) {
 	tmp := t.TempDir()
 	f := filepath.Join(tmp, "file.txt")
@@ -372,10 +337,7 @@ func TestDiscoverReposFileNotDir(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposFollowsSymlinks verifies that symlinked directories
-// pointing to git repos are discovered (not skipped).
 func TestDiscoverReposFollowsSymlinks(t *testing.T) {
-	// Create the real repo outside the parent directory.
 	realRepo := t.TempDir()
 	mustRunGit(t, realRepo, "init", "-b", "main")
 	mustRunGit(t, realRepo, "config", "user.email", "test@example.com")
@@ -385,7 +347,6 @@ func TestDiscoverReposFollowsSymlinks(t *testing.T) {
 	mustRunGit(t, realRepo, "add", ".")
 	mustRunGit(t, realRepo, "commit", "-m", "init")
 
-	// Create a parent directory with a symlink to the real repo.
 	parent := t.TempDir()
 	link := filepath.Join(parent, "linked-repo")
 	if err := os.Symlink(realRepo, link); err != nil {
@@ -401,8 +362,6 @@ func TestDiscoverReposFollowsSymlinks(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposDepthTwo verifies that discoverRepos with maxDepth=2
-// finds repos nested one level deeper than immediate children.
 func TestDiscoverReposDepthTwo(t *testing.T) {
 	parent := t.TempDir()
 
@@ -436,8 +395,6 @@ func TestDiscoverReposDepthTwo(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposDoesNotDescendIntoGitRepos verifies that once a git repo
-// is found, its subdirectories are not scanned (the repo is a leaf node).
 func TestDiscoverReposDoesNotDescendIntoGitRepos(t *testing.T) {
 	parent := t.TempDir()
 
@@ -472,8 +429,6 @@ func TestDiscoverReposDoesNotDescendIntoGitRepos(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposSkipsHiddenDirsAtAllDepths verifies that hidden directories
-// are skipped at every depth level, not just the first.
 func TestDiscoverReposSkipsHiddenDirsAtAllDepths(t *testing.T) {
 	parent := t.TempDir()
 
@@ -506,8 +461,6 @@ func TestDiscoverReposSkipsHiddenDirsAtAllDepths(t *testing.T) {
 	}
 }
 
-// TestDiscoverReposDepthOneIgnoresNestedRepos verifies that depth=1 (default)
-// does not find repos at depth 2, preserving backwards compatibility.
 func TestDiscoverReposDepthOneIgnoresNestedRepos(t *testing.T) {
 	parent := t.TempDir()
 
@@ -535,8 +488,6 @@ func TestDiscoverReposDepthOneIgnoresNestedRepos(t *testing.T) {
 	}
 }
 
-// TestRepoAddAutoDetectWithDepth verifies that the full repo add command
-// with --auto-detect --depth 2 discovers and registers nested repos.
 func TestRepoAddAutoDetectWithDepth(t *testing.T) {
 	d := setupTestDB(t)
 
@@ -579,28 +530,22 @@ func TestRepoAddAutoDetectWithDepth(t *testing.T) {
 	}
 }
 
-// TestRepoAddNormalizesSymlinkedPaths verifies that adding the same repo via
-// two different paths (real path and symlink) does not create a duplicate.
 func TestRepoAddNormalizesSymlinkedPaths(t *testing.T) {
 	d := setupTestDB(t)
 
-	// Create a real repo.
 	realRepo := initRepo(t)
 
-	// Create a symlink to it.
 	tmp := t.TempDir()
 	link := filepath.Join(tmp, "linked")
 	if err := os.Symlink(realRepo, link); err != nil {
 		t.Skipf("cannot create symlink (OS restriction): %v", err)
 	}
 
-	// Add via the real path first.
 	cmd1 := repoAddCmd()
 	if err := cmd1.RunE(cmd1, []string{realRepo}); err != nil {
 		t.Fatalf("add real path: %v", err)
 	}
 
-	// Add via the symlink — should NOT create a duplicate.
 	cmd2 := repoAddCmd()
 	if err := cmd2.RunE(cmd2, []string{link}); err != nil {
 		t.Fatalf("add symlink path: %v", err)
@@ -615,19 +560,12 @@ func TestRepoAddNormalizesSymlinkedPaths(t *testing.T) {
 	}
 }
 
-// ─── TestRepoAddAliasConflictReturnsError ───────────────────────────────────
-
-// TestRepoAddAliasConflictReturnsError verifies that adding a repo with an
-// alias that is already taken by a different repo returns a non-nil error
-// (exit code != 0). Regression test for Finding #3.
 func TestRepoAddAliasConflictReturnsError(t *testing.T) {
 	setupTestDB(t)
 
-	// Create two separate git repos.
 	repo1Dir := initRepo(t)
 	repo2Dir := initRepo(t)
 
-	// Register repo1 with alias "my-service".
 	cmd1 := repoAddCmd()
 	if err := cmd1.Flags().Set("alias", "my-service"); err != nil {
 		t.Fatalf("set flag: %v", err)
@@ -636,7 +574,6 @@ func TestRepoAddAliasConflictReturnsError(t *testing.T) {
 		t.Fatalf("add repo1: %v", err)
 	}
 
-	// Try to register repo2 with the SAME alias — should fail.
 	cmd2 := repoAddCmd()
 	if err := cmd2.Flags().Set("alias", "my-service"); err != nil {
 		t.Fatalf("set flag: %v", err)
@@ -650,20 +587,16 @@ func TestRepoAddAliasConflictReturnsError(t *testing.T) {
 	}
 }
 
-// TestRepoAddSamePathIdempotent verifies that re-adding the same repo path
-// does NOT return an error (idempotent behavior).
 func TestRepoAddSamePathIdempotent(t *testing.T) {
 	setupTestDB(t)
 
 	repoDir := initRepo(t)
 
-	// First add.
 	cmd1 := repoAddCmd()
 	if err := cmd1.RunE(cmd1, []string{repoDir}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
 
-	// Second add of same path — should succeed (no error).
 	cmd2 := repoAddCmd()
 	if err := cmd2.RunE(cmd2, []string{repoDir}); err != nil {
 		t.Fatalf("second add of same path should be idempotent, got: %v", err)
