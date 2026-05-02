@@ -77,11 +77,11 @@ When working across many repositories, daily git operations become repetitive:
 
 ## Installation
 
-### Homebrew (macOS)
+### Homebrew Cask (macOS)
 
 ```bash
 brew tap alexandreafj/gitm
-brew install gitm
+brew install --cask gitm
 ```
 
 ### Scoop (Windows)
