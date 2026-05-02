@@ -10,8 +10,6 @@ import (
 	"github.com/alexandreafj/gitm/internal/git"
 )
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 // initRepo creates a temporary, fully-initialized git repo with an initial
 // commit so that HEAD exists and all operations are valid.
 func initRepo(t *testing.T) string {
@@ -134,15 +132,11 @@ func unstagedModifiedFiles(t *testing.T, dir string) []string {
 	return files
 }
 
-// ─── ResetSoft ──────────────────────────────────────────────────────────────
-
 func TestResetSoft(t *testing.T) {
 	dir := initRepo(t)
 
-	// Make a commit on top of the initial one.
 	makeCommit(t, dir, "feature.go", "package main\n", "add feature")
 
-	// Verify we have 2 commits.
 	log, err := git.CommitLog(dir, 5)
 	if err != nil {
 		t.Fatalf("CommitLog: %v", err)
@@ -176,8 +170,6 @@ func TestResetSoft(t *testing.T) {
 	}
 }
 
-// ─── ResetMixed ─────────────────────────────────────────────────────────────
-
 func TestResetMixed(t *testing.T) {
 	dir := initRepo(t)
 
@@ -209,8 +201,6 @@ func TestResetMixed(t *testing.T) {
 	}
 }
 
-// ─── ResetHard ──────────────────────────────────────────────────────────────
-
 func TestResetHard(t *testing.T) {
 	dir := initRepo(t)
 
@@ -238,8 +228,6 @@ func TestResetHard(t *testing.T) {
 	}
 }
 
-// ─── ResetHard multi-commit ─────────────────────────────────────────────────
-
 func TestResetHardMultipleCommits(t *testing.T) {
 	dir := initRepo(t)
 
@@ -257,8 +245,6 @@ func TestResetHardMultipleCommits(t *testing.T) {
 		}
 	}
 }
-
-// ─── CommitLog ──────────────────────────────────────────────────────────────
 
 func TestCommitLog(t *testing.T) {
 	dir := initRepo(t)
@@ -332,8 +318,6 @@ func TestCommitLog(t *testing.T) {
 	})
 }
 
-// ─── ResetSoft preserves content through multiple commits ────────────────────
-
 func TestResetSoftMultipleCommits(t *testing.T) {
 	dir := initRepo(t)
 
@@ -344,7 +328,6 @@ func TestResetSoftMultipleCommits(t *testing.T) {
 		t.Fatalf("ResetSoft HEAD~2: %v", err)
 	}
 
-	// Both files should be staged.
 	staged := stagedFiles(t, dir)
 	stagedSet := make(map[string]bool)
 	for _, f := range staged {
@@ -359,16 +342,10 @@ func TestResetSoftMultipleCommits(t *testing.T) {
 	}
 }
 
-// ─── ForcePush (local bare remote) ──────────────────────────────────────────
-
-// TestForcePush sets up a local bare repository as "origin" to exercise the
-// ForcePush code path without requiring network access.
 func TestForcePush(t *testing.T) {
-	// Create a bare repo to act as origin.
 	bareDir := t.TempDir()
 	mustRunGit(t, bareDir, "init", "--bare", "--initial-branch=main")
 
-	// Create a working repo and push an initial commit.
 	workDir := initRepo(t)
 	mustRunGit(t, workDir, "config", "user.email", "test@example.com")
 	mustRunGit(t, workDir, "config", "user.name", "Test User")
@@ -382,7 +359,6 @@ func TestForcePush(t *testing.T) {
 
 	mustRunGit(t, workDir, "push", "--set-upstream", "origin", branch)
 
-	// Make a new local commit then push it.
 	makeCommit(t, workDir, "pushed.go", "pushed\n", "pushed commit")
 	mustRunGit(t, workDir, "push", "origin", branch)
 
@@ -399,7 +375,6 @@ func TestForcePush(t *testing.T) {
 		t.Fatalf("ForcePush: %v", pushErr)
 	}
 
-	// Verify origin now has the rewritten commit by cloning the bare repo.
 	cloneDir := t.TempDir()
 	mustRunGit(t, cloneDir, "clone", bareDir, ".")
 	log, logErr := git.CommitLog(cloneDir, 1)
@@ -414,10 +389,7 @@ func TestForcePush(t *testing.T) {
 	}
 }
 
-// ─── FetchBranch ────────────────────────────────────────────────────────────
-
 func TestFetchBranch(t *testing.T) {
-	// Create a bare origin and a working clone.
 	bareDir := t.TempDir()
 	mustRunGit(t, bareDir, "init", "--bare", "--initial-branch=main")
 
@@ -425,7 +397,6 @@ func TestFetchBranch(t *testing.T) {
 	mustRunGit(t, workDir, "remote", "add", "origin", bareDir)
 	mustRunGit(t, workDir, "push", "--set-upstream", "origin", "main")
 
-	// Create a feature branch on origin via a second clone.
 	clone2 := t.TempDir()
 	mustRunGit(t, clone2, "clone", bareDir, ".")
 	mustRunGit(t, clone2, "config", "user.email", "test@example.com")

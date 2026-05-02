@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// TestBranchCmdExists verifies the branch command is created.
 func TestBranchCmdExists(t *testing.T) {
 	cmd := branchCmd()
 	if cmd == nil {
@@ -12,14 +11,12 @@ func TestBranchCmdExists(t *testing.T) {
 	}
 }
 
-// TestBranchCmdHasSubcommands verifies branch has subcommands.
 func TestBranchCmdHasSubcommands(t *testing.T) {
 	cmd := branchCmd()
 	if len(cmd.Commands()) == 0 {
 		t.Error("branch command has no subcommands")
 	}
 
-	// Verify specific subcommands exist
 	expectedSubcommands := []string{"create", "rename"}
 	actual := make(map[string]bool)
 	for _, sc := range cmd.Commands() {
@@ -33,7 +30,6 @@ func TestBranchCmdHasSubcommands(t *testing.T) {
 	}
 }
 
-// TestBranchCreateCmdExists verifies the create subcommand exists.
 func TestBranchCreateCmdExists(t *testing.T) {
 	cmd := branchCreateCmd()
 	if cmd == nil {
@@ -45,7 +41,6 @@ func TestBranchCreateCmdExists(t *testing.T) {
 	}
 }
 
-// TestBranchCreateCmdFlags verifies all expected flags are registered on branch create.
 func TestBranchCreateCmdFlags(t *testing.T) {
 	cmd := branchCreateCmd()
 
@@ -70,7 +65,6 @@ func TestBranchCreateCmdFlags(t *testing.T) {
 	}
 }
 
-// TestBranchRenameCmdExists verifies the rename subcommand exists.
 func TestBranchRenameCmdExists(t *testing.T) {
 	cmd := branchRenameCmd()
 	if cmd == nil {
@@ -82,7 +76,6 @@ func TestBranchRenameCmdExists(t *testing.T) {
 	}
 }
 
-// TestBranchRenameCmdFlags verifies all expected flags are registered on branch rename.
 func TestBranchRenameCmdFlags(t *testing.T) {
 	cmd := branchRenameCmd()
 

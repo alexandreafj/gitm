@@ -5,20 +5,14 @@ import (
 	"testing"
 )
 
-// ==========================================================================
-// Phase 12: Help & Version (gitm --help, --version, unknown commands)
-// ==========================================================================
-
 func TestVersion(t *testing.T) {
 	e := newTestEnv(t)
 
 	r := e.runGitm("--version")
 	e.assertExitCode(r, 0)
-	// Should contain "gitm version"
 	if !strings.Contains(r.Stdout, "gitm version") {
 		t.Errorf("expected 'gitm version' in output, got: %s", r.Stdout)
 	}
-	// Our test build uses "e2e-test" as version
 	e.assertStdoutContains(r, "e2e-test")
 }
 
@@ -28,7 +22,6 @@ func TestHelp_RootCommand(t *testing.T) {
 	r := e.runGitm("--help")
 	e.assertExitCode(r, 0)
 
-	// Should list all main commands
 	expectedCommands := []string{
 		"branch", "checkout", "commit", "discard",
 		"repo", "reset", "stash", "status",
@@ -66,24 +59,19 @@ func TestUnknownCommand(t *testing.T) {
 	e := newTestEnv(t)
 
 	r := e.runGitm("foobar-unknown")
-	// Should exit non-zero with error about unknown command
 	if r.ExitCode == 0 {
 		t.Error("expected non-zero exit code for unknown command")
 	}
 	e.assertContains(r, "unknown")
 }
 
-// ==========================================================================
-// Phase 13: Upgrade (gitm upgrade)
 // Only test that it runs without crashing. Don't actually upgrade.
-// ==========================================================================
 
 func TestUpgrade_SkipsDBInit(t *testing.T) {
 	e := newTestEnv(t)
 
 	// Upgrade should work even without any DB initialization
 	// (it's in the skip list for PersistentPreRunE).
-	// Use --help to validate without making network requests.
 	r := e.runGitm("upgrade", "--help")
 	e.assertExitCode(r, 0)
 

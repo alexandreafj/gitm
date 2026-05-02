@@ -10,8 +10,6 @@ import (
 	"github.com/alexandreafj/gitm/internal/runner"
 )
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 // newTestRepo creates a test repository with a given alias.
 func newTestRepo(alias string) *db.Repository {
 	return &db.Repository{
@@ -22,8 +20,6 @@ func newTestRepo(alias string) *db.Repository {
 		DefaultBranch: "main",
 	}
 }
-
-// ─── TestRunSuccess ─────────────────────────────────────────────────────────
 
 func TestRunSuccess(t *testing.T) {
 	repos := []*db.Repository{
@@ -39,7 +35,6 @@ func TestRunSuccess(t *testing.T) {
 
 	results := runner.Run(repos, op)
 
-	// Verify all repos completed successfully
 	if len(results) != 3 {
 		t.Errorf("expected 3 results, got %d", len(results))
 	}
@@ -62,8 +57,6 @@ func TestRunSuccess(t *testing.T) {
 	}
 }
 
-// ─── TestRunWithError ───────────────────────────────────────────────────────
-
 func TestRunWithError(t *testing.T) {
 	repos := []*db.Repository{
 		newTestRepo("repo1"),
@@ -80,7 +73,6 @@ func TestRunWithError(t *testing.T) {
 
 	results := runner.Run(repos, op)
 
-	// Verify error was captured
 	errorFound := false
 	for i, r := range results {
 		if r.Repo.Alias == "repo2_error" {
@@ -103,8 +95,6 @@ func TestRunWithError(t *testing.T) {
 	}
 }
 
-// ─── TestRunSkipped ─────────────────────────────────────────────────────────
-
 func TestRunSkipped(t *testing.T) {
 	repos := []*db.Repository{
 		newTestRepo("repo1"),
@@ -121,7 +111,6 @@ func TestRunSkipped(t *testing.T) {
 
 	results := runner.Run(repos, op)
 
-	// Verify skip was captured
 	skipFound := false
 	for i, r := range results {
 		if r.Repo.Alias == "repo2_skip" {
@@ -143,8 +132,6 @@ func TestRunSkipped(t *testing.T) {
 		t.Error("expected to find skipped result for repo2_skip")
 	}
 }
-
-// ─── TestRunParallelExecution ───────────────────────────────────────────────
 
 func TestRunParallelExecution(t *testing.T) {
 	repos := []*db.Repository{
@@ -181,16 +168,12 @@ func TestRunParallelExecution(t *testing.T) {
 
 	_ = runner.Run(repos, op)
 
-	// With parallelism, maxConcurrent should be > 1
 	if maxConcur < 2 {
 		t.Errorf("expected parallel execution (maxConcur > 1), got %d", maxConcur)
 	}
 }
 
-// ─── TestRunMaxConcurrency ──────────────────────────────────────────────────
-
 func TestRunMaxConcurrency(t *testing.T) {
-	// Create more repos than the concurrency limit (10)
 	repos := make([]*db.Repository, 20)
 	for i := 0; i < 20; i++ {
 		repos[i] = newTestRepo(fmt.Sprintf("repo%d", i))
@@ -222,14 +205,11 @@ func TestRunMaxConcurrency(t *testing.T) {
 
 	_ = runner.Run(repos, op)
 
-	// Max concurrency should be <= 10 (the hardcoded limit)
 	// We allow a small margin for timing issues
 	if maxConcur > 12 {
 		t.Errorf("expected max concurrency <= 10, got %d", maxConcur)
 	}
 }
-
-// ─── TestRunEmptyRepos ──────────────────────────────────────────────────────
 
 func TestRunEmptyRepos(t *testing.T) {
 	repos := []*db.Repository{}
@@ -251,8 +231,6 @@ func TestRunEmptyRepos(t *testing.T) {
 	}
 }
 
-// ─── TestRunResultOrder ─────────────────────────────────────────────────────
-
 func TestRunResultOrder(t *testing.T) {
 	repos := []*db.Repository{
 		newTestRepo("first"),
@@ -266,7 +244,6 @@ func TestRunResultOrder(t *testing.T) {
 
 	results := runner.Run(repos, op)
 
-	// Results should be in the same order as input repos
 	expectedAliases := []string{"first", "second", "third"}
 	for i, alias := range expectedAliases {
 		if results[i].Repo.Alias != alias {
@@ -274,8 +251,6 @@ func TestRunResultOrder(t *testing.T) {
 		}
 	}
 }
-
-// ─── TestRunMixedStatuses ───────────────────────────────────────────────────
 
 func TestRunMixedStatuses(t *testing.T) {
 	repos := []*db.Repository{
@@ -315,8 +290,6 @@ func TestRunMixedStatuses(t *testing.T) {
 	}
 }
 
-// ─── TestRunMessagePreservation ─────────────────────────────────────────────
-
 func TestRunMessagePreservation(t *testing.T) {
 	repos := []*db.Repository{
 		newTestRepo("repo1"),
@@ -337,8 +310,6 @@ func TestRunMessagePreservation(t *testing.T) {
 		t.Errorf("Message = %q, want %q", results[0].Message, expectedMsg)
 	}
 }
-
-// ─── TestHasErrors ──────────────────────────────────────────────────────────
 
 func TestHasErrors(t *testing.T) {
 	tests := []struct {
@@ -399,8 +370,6 @@ func TestHasErrors(t *testing.T) {
 		})
 	}
 }
-
-// ─── TestErrorCount ─────────────────────────────────────────────────────────
 
 func TestErrorCount(t *testing.T) {
 	tests := []struct {

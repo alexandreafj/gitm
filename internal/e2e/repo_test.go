@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// ==========================================================================
-// Phase 1: Repo Management (gitm repo add/list/remove/rename)
-// ==========================================================================
-
 func TestRepoAdd_ValidRepo(t *testing.T) {
 	e := newTestEnv(t)
 	repo := e.initRepo("myrepo")
@@ -19,7 +15,6 @@ func TestRepoAdd_ValidRepo(t *testing.T) {
 	e.assertExitCode(r, 0)
 	e.assertContains(r, "myrepo")
 
-	// Verify it's listed
 	list := e.runGitm("repo", "list")
 	e.assertExitCode(list, 0)
 	e.assertStdoutContains(list, "myrepo")
@@ -41,11 +36,9 @@ func TestRepoAdd_DuplicatePath(t *testing.T) {
 	e := newTestEnv(t)
 	repo := e.initRepo("dup")
 
-	// First add should succeed
 	r1 := e.runGitm("repo", "add", repo)
 	e.assertExitCode(r1, 0)
 
-	// Second add is idempotent: warns and still succeeds
 	r2 := e.runGitm("repo", "add", repo)
 	e.assertExitCode(r2, 0)
 	e.assertContains(r2, "already")
@@ -56,7 +49,6 @@ func TestRepoAdd_NonGitDirectory(t *testing.T) {
 	dir := t.TempDir() // Just a directory, not a git repo
 
 	r := e.runGitm("repo", "add", dir)
-	// Should error — not a git repo
 	if r.ExitCode == 0 {
 		t.Errorf("expected non-zero exit code for non-git dir, got 0\nstdout: %s\nstderr: %s",
 			r.Stdout, r.Stderr)
@@ -97,7 +89,6 @@ func TestRepoAdd_CurrentDirectory(t *testing.T) {
 	r := e.runGitmInDir(repo, "repo", "add", ".")
 	e.assertExitCode(r, 0)
 
-	// Verify the absolute path is stored, not "."
 	list := e.runGitm("repo", "list")
 	e.assertNotContains(list, " . ")
 }
@@ -132,11 +123,9 @@ func TestRepoRemove_Valid(t *testing.T) {
 	r := e.runGitm("repo", "remove", "to-remove")
 	e.assertExitCode(r, 0)
 
-	// Verify gone from list
 	list := e.runGitm("repo", "list")
 	e.assertNotContains(list, "to-remove")
 
-	// Verify files still exist on disk
 	if !e.fileExists(filepath.Join(repo, "README.md")) {
 		t.Error("repo files were deleted from disk — remove should only affect DB")
 	}
@@ -173,7 +162,6 @@ func TestRepoRename_Valid(t *testing.T) {
 
 	list := e.runGitm("repo", "list")
 	e.assertStdoutContains(list, "after-rename")
-	// Check the alias column changed — the path may still contain the old dir name
 	// so we check the ALIAS column specifically by looking for the alias field alignment
 	if strings.Contains(list.Stdout, "before-rename") {
 		// The alias "before-rename" should no longer appear as an alias
@@ -207,7 +195,6 @@ func TestRepoRename_NonExistentSource(t *testing.T) {
 
 func TestRepoAdd_AutoDetect(t *testing.T) {
 	e := newTestEnv(t)
-	// Create a parent dir with multiple git repos
 	parent := t.TempDir()
 	repo1 := filepath.Join(parent, "project-a")
 	repo2 := filepath.Join(parent, "project-b")
@@ -250,7 +237,6 @@ func TestRepoAdd_AutoDetect(t *testing.T) {
 
 func TestRepoAdd_AutoDetectWithDepth(t *testing.T) {
 	e := newTestEnv(t)
-	// Create nested structure: parent/sub/deep-repo
 	parent := t.TempDir()
 	deepRepo := filepath.Join(parent, "sub", "deep-repo")
 	if err := os.MkdirAll(deepRepo, 0o755); err != nil {
@@ -265,7 +251,6 @@ func TestRepoAdd_AutoDetectWithDepth(t *testing.T) {
 	e.mustGit(deepRepo, "add", ".")
 	e.mustGit(deepRepo, "commit", "-m", "init")
 
-	// Depth 1 should NOT find it
 	r1 := e.runGitm("repo", "add", parent, "--auto-detect", "--depth", "1")
 	e.assertExitCode(r1, 0)
 	list1 := e.runGitm("repo", "list")
@@ -273,7 +258,6 @@ func TestRepoAdd_AutoDetectWithDepth(t *testing.T) {
 		t.Log("Depth 1 found deep-repo — might be expected depending on implementation")
 	}
 
-	// Depth 2 should find it
 	r2 := e.runGitm("repo", "add", parent, "--auto-detect", "--depth", "2")
 	e.assertExitCode(r2, 0)
 	list2 := e.runGitm("repo", "list")
@@ -318,12 +302,9 @@ func TestRepoAdd_AutoDetectSkipsRegistered(t *testing.T) {
 	e.mustGit(repo1, "add", ".")
 	e.mustGit(repo1, "commit", "-m", "init")
 
-	// Register it first
 	e.runGitm("repo", "add", repo1)
 
-	// Auto-detect should show warning but not fail
 	r := e.runGitm("repo", "add", parent, "--auto-detect")
 	e.assertExitCode(r, 0)
-	// Should mention it's already registered (warning)
 	e.assertContains(r, "already")
 }

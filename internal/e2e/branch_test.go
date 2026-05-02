@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// ==========================================================================
-// Phase 3: Branch Operations (gitm branch create/rename)
-// ==========================================================================
-
 func TestBranchCreate_WithRepo(t *testing.T) {
 	e := newTestEnv(t)
 	repo, _ := e.initRepoWithRemote("bc-repo")
@@ -17,7 +13,6 @@ func TestBranchCreate_WithRepo(t *testing.T) {
 	r := e.runGitm("branch", "create", "feat/test-branch", "--repo", "bc-repo")
 	e.assertExitCode(r, 0)
 
-	// Verify branch was created and we're on it
 	branch := e.currentBranch(repo)
 	if branch != "feat/test-branch" {
 		t.Errorf("expected to be on feat/test-branch, got %s", branch)
@@ -34,7 +29,6 @@ func TestBranchCreate_WithAll(t *testing.T) {
 	r := e.runGitm("branch", "create", "feat/all-branch", "--all")
 	e.assertExitCode(r, 0)
 
-	// Both repos should have the branch
 	if !e.branchExists(repo1, "feat/all-branch") {
 		t.Error("branch not created in repo1")
 	}
@@ -48,7 +42,6 @@ func TestBranchCreate_FromSpecificBase(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("bc-from")
 	e.runGitm("repo", "add", repo, "--alias", "bc-from")
 
-	// Create a develop branch first
 	e.mustGit(repo, "checkout", "-b", "develop")
 	e.writeFile(repo, "develop.txt", "develop content\n")
 	e.mustGit(repo, "add", ".")
@@ -59,7 +52,6 @@ func TestBranchCreate_FromSpecificBase(t *testing.T) {
 	r := e.runGitm("branch", "create", "feat/from-develop", "--from", "develop", "--repo", "bc-from")
 	e.assertExitCode(r, 0)
 
-	// Should have the develop.txt file (branched from develop)
 	if !e.fileExists(filepath.Join(repo, "develop.txt")) {
 		t.Error("branch was not created from develop — develop.txt missing")
 	}
@@ -70,7 +62,6 @@ func TestBranchCreate_ExistingBranch(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("bc-existing")
 	e.runGitm("repo", "add", repo, "--alias", "bc-existing")
 
-	// Create the branch first
 	e.mustGit(repo, "checkout", "-b", "feat/already-exists")
 	e.mustGit(repo, "checkout", "main")
 
@@ -114,7 +105,6 @@ func TestBranchCreate_DirtyRepo(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("bc-dirty")
 	e.runGitm("repo", "add", repo, "--alias", "bc-dirty")
 
-	// Make repo dirty
 	e.writeFile(repo, "README.md", "# dirty\n")
 
 	r := e.runGitm("branch", "create", "feat/dirty-test", "--repo", "bc-dirty")
@@ -128,7 +118,6 @@ func TestBranchRename_WithRepo(t *testing.T) {
 	repo, _ := e.initRepoWithRemote("br-repo")
 	e.runGitm("repo", "add", repo, "--alias", "br-repo")
 
-	// Create a branch to rename
 	e.mustGit(repo, "checkout", "-b", "old-name")
 	e.mustGit(repo, "push", "--set-upstream", "origin", "old-name")
 
@@ -151,7 +140,6 @@ func TestBranchRename_WithAll(t *testing.T) {
 	e.runGitm("repo", "add", repo1, "--alias", "br-all-1")
 	e.runGitm("repo", "add", repo2, "--alias", "br-all-2")
 
-	// Create the same branch in both repos
 	e.mustGit(repo1, "checkout", "-b", "shared-old")
 	e.mustGit(repo1, "push", "--set-upstream", "origin", "shared-old")
 	e.mustGit(repo2, "checkout", "-b", "shared-old")

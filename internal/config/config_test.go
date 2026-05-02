@@ -33,7 +33,6 @@ func TestLoadCreatesDirIfMissing(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	// Verify the directory exists
 	info, err := os.Stat(cfg.DataDir)
 	if err != nil {
 		t.Fatalf("DataDir does not exist: %v", err)
@@ -50,7 +49,6 @@ func TestLoadDBPathFormat(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	// Verify DBPath contains the correct filename
 	if !filepath.IsAbs(cfg.DBPath) {
 		t.Errorf("DBPath is not absolute: %q", cfg.DBPath)
 	}
@@ -67,7 +65,6 @@ func TestLoadDBPathInDataDir(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	// Verify DBPath is inside DataDir
 	expectedPath := filepath.Join(cfg.DataDir, config.DBName)
 	if cfg.DBPath != expectedPath {
 		t.Errorf("DBPath = %q, want %q", cfg.DBPath, expectedPath)

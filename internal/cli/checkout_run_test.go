@@ -184,7 +184,6 @@ func TestRunCheckoutWithUI_RepoFlag_SpecificBranch(t *testing.T) {
 		t.Fatalf("AddRepository repo2: %v", err)
 	}
 
-	// Create feature branch in both repos but we'll only checkout repo1.
 	mustRunGit(t, dir1, "checkout", "-b", "feature/targeted")
 	mustRunGit(t, dir1, "push", "--set-upstream", "origin", "feature/targeted")
 	mustRunGit(t, dir1, "checkout", "main")
@@ -243,9 +242,6 @@ func TestRunCheckoutWithUI_RepoFlag_EmptySlice(t *testing.T) {
 }
 
 func TestRunCheckoutBranch_RemoteOnly(t *testing.T) {
-	// Tests Finding #1: checkout a branch that only exists on the remote.
-	// The fix fetches the branch before running git checkout so git can
-	// create a local tracking branch.
 	database = setupTestDB(t)
 	dir, originDir, _ := initRepoWithRemote(t)
 	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
@@ -253,7 +249,6 @@ func TestRunCheckoutBranch_RemoteOnly(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	// Create a branch on origin via a second clone.
 	clone2Dir := cloneRepo(t, originDir)
 	mustRunGit(t, clone2Dir, "config", "user.email", "test@example.com")
 	mustRunGit(t, clone2Dir, "config", "user.name", "Test User")
@@ -274,10 +269,8 @@ func TestRunCheckoutBranch_RemoteOnly(t *testing.T) {
 }
 
 func TestRunCheckoutDefault_ReturnsErrorOnFailure(t *testing.T) {
-	// Tests Finding #4: checkout returns non-zero when repos fail.
 	database = setupTestDB(t)
 
-	// Create a repo that points to a non-existent path.
 	repo := &db.Repository{
 		ID:            1,
 		Alias:         "broken",

@@ -144,12 +144,10 @@ func TestConvertLegacyBundle_Success(t *testing.T) {
 		t.Fatalf("convertLegacyBundle: %v", err)
 	}
 
-	// Verify the resulting bundle has the expected structure.
 	if b == nil {
 		t.Fatal("expected non-nil bundle")
 	}
 
-	// Check media type.
 	version, err := b.Version()
 	if err != nil {
 		t.Fatalf("bundle.Version: %v", err)
@@ -158,7 +156,6 @@ func TestConvertLegacyBundle_Success(t *testing.T) {
 		t.Errorf("expected bundle version v0.1, got %s", version)
 	}
 
-	// Check that verification content (cert) is present.
 	vc, err := b.VerificationContent()
 	if err != nil {
 		t.Fatalf("VerificationContent: %v", err)
@@ -167,7 +164,6 @@ func TestConvertLegacyBundle_Success(t *testing.T) {
 		t.Fatal("expected non-nil verification content")
 	}
 
-	// Check tlog entries.
 	entries, err := b.TlogEntries()
 	if err != nil {
 		t.Fatalf("TlogEntries: %v", err)
@@ -176,7 +172,6 @@ func TestConvertLegacyBundle_Success(t *testing.T) {
 		t.Fatalf("expected 1 tlog entry, got %d", len(entries))
 	}
 
-	// Check that HasInclusionPromise is true (required for v0.1).
 	if !b.HasInclusionPromise() {
 		t.Error("expected HasInclusionPromise() = true for v0.1 bundle")
 	}
@@ -281,10 +276,6 @@ func TestConvertLegacyBundle_ErrorCases(t *testing.T) {
 	}
 }
 
-// TestSigstoreVerifierLegacyBundleNoLongerFailsOnParse verifies that the
-// "unknown field base64Signature" parse error no longer occurs. The verifier
-// will still fail (at trust root fetch or identity verification) but the
-// error message should NOT contain "unknown field".
 func TestSigstoreVerifierLegacyBundleNoLongerFailsOnParse(t *testing.T) {
 	artifact := []byte("checksums content for regression test\n")
 	bundleJSON := buildTestLegacyBundle(t, artifact)

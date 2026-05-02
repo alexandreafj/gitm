@@ -34,8 +34,6 @@ Subcommands:
 	return cmd
 }
 
-// ── push ──────────────────────────────────────────────────────────────────────
-
 func runStashPush(cmd *cobra.Command, args []string) error {
 	return runStashPushWithUI(liveUI{})
 }
@@ -88,8 +86,6 @@ func runStashPushWithUI(ui ui) error {
 	return nil
 }
 
-// ── apply ─────────────────────────────────────────────────────────────────────
-
 func stashApplyCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "apply",
@@ -102,8 +98,6 @@ func stashApplyCmd() *cobra.Command {
 func runStashApply(cmd *cobra.Command, args []string) error {
 	return runStashApplyOrPopWithUI(liveUI{}, false)
 }
-
-// ── pop ───────────────────────────────────────────────────────────────────────
 
 func stashPopCmd() *cobra.Command {
 	return &cobra.Command{
@@ -172,8 +166,6 @@ func runStashApplyOrPopWithUI(ui ui, pop bool) error {
 
 	return nil
 }
-
-// ── list ──────────────────────────────────────────────────────────────────────
 
 func stashListCmd() *cobra.Command {
 	return &cobra.Command{

@@ -9,8 +9,6 @@ import (
 	"github.com/alexandreafj/gitm/internal/db"
 )
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 // initDB creates a temporary SQLite database for testing.
 func initDB(t *testing.T) (*db.DB, string) {
 	t.Helper()
@@ -26,8 +24,6 @@ func initDB(t *testing.T) (*db.DB, string) {
 	})
 	return d, dbPath
 }
-
-// ─── TestOpen ───────────────────────────────────────────────────────────────
 
 func TestOpen(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -77,8 +73,6 @@ func TestOpenIdempotent(t *testing.T) {
 	}
 	d2.Close()
 }
-
-// ─── TestAddRepository ───────────────────────────────────────────────────────
 
 func TestAddRepository(t *testing.T) {
 	d, _ := initDB(t)
@@ -150,8 +144,6 @@ func TestAddRepositoryDuplicatePath(t *testing.T) {
 	}
 }
 
-// ─── TestGetRepository ───────────────────────────────────────────────────────
-
 func TestGetRepository(t *testing.T) {
 	d, _ := initDB(t)
 
@@ -185,8 +177,6 @@ func TestGetRepositoryNotFound(t *testing.T) {
 	}
 }
 
-// ─── TestGetRepositoryByPath ────────────────────────────────────────────────
-
 func TestGetRepositoryByPath(t *testing.T) {
 	d, _ := initDB(t)
 
@@ -213,8 +203,6 @@ func TestGetRepositoryByPathNotFound(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
-
-// ─── TestListRepositories ───────────────────────────────────────────────────
 
 func TestListRepositoriesEmpty(t *testing.T) {
 	d, _ := initDB(t)
@@ -271,7 +259,6 @@ func TestListRepositoriesOrdering(t *testing.T) {
 		t.Fatalf("ListRepositories failed: %v", err)
 	}
 
-	// Should be ordered by alias
 	expected := []string{"apple", "banana", "zebra"}
 	for i, exp := range expected {
 		if repos[i].Alias != exp {
@@ -279,8 +266,6 @@ func TestListRepositoriesOrdering(t *testing.T) {
 		}
 	}
 }
-
-// ─── TestRemoveRepository ───────────────────────────────────────────────────
 
 func TestRemoveRepository(t *testing.T) {
 	d, _ := initDB(t)
@@ -294,7 +279,6 @@ func TestRemoveRepository(t *testing.T) {
 		t.Fatalf("RemoveRepository failed: %v", err)
 	}
 
-	// Verify it's gone
 	_, err = d.GetRepository("my-repo")
 	if !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("expected repo to be removed, but found it or got unexpected error: %v", err)
@@ -310,8 +294,6 @@ func TestRemoveRepositoryNotFound(t *testing.T) {
 	}
 }
 
-// ─── TestRenameRepository ───────────────────────────────────────────────────
-
 func TestRenameRepository(t *testing.T) {
 	d, _ := initDB(t)
 
@@ -324,13 +306,11 @@ func TestRenameRepository(t *testing.T) {
 		t.Fatalf("RenameRepository failed: %v", err)
 	}
 
-	// Verify the old alias is gone
 	_, err = d.GetRepository("old-alias")
 	if !errors.Is(err, db.ErrNotFound) {
 		t.Errorf("expected old alias to not exist, got %v", err)
 	}
 
-	// Verify the new alias works
 	repo, err := d.GetRepository("new-alias")
 	if err != nil {
 		t.Errorf("expected to find repo with new alias, got %v", err)
@@ -349,8 +329,6 @@ func TestRenameRepositoryNotFound(t *testing.T) {
 	}
 }
 
-// ─── TestUpdateDefaultBranch ────────────────────────────────────────────────
-
 func TestUpdateDefaultBranch(t *testing.T) {
 	d, _ := initDB(t)
 
@@ -363,7 +341,6 @@ func TestUpdateDefaultBranch(t *testing.T) {
 		t.Fatalf("UpdateDefaultBranch failed: %v", err)
 	}
 
-	// Verify the change
 	repo, err := d.GetRepository("my-repo")
 	if err != nil {
 		t.Fatalf("GetRepository failed: %v", err)
@@ -372,8 +349,6 @@ func TestUpdateDefaultBranch(t *testing.T) {
 		t.Errorf("DefaultBranch = %q, want %q", repo.DefaultBranch, "master")
 	}
 }
-
-// ─── TestClose ───────────────────────────────────────────────────────────────
 
 func TestClose(t *testing.T) {
 	tmpDir := t.TempDir()

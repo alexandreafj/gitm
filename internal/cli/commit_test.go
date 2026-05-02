@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// TestCommitCmdExists verifies the commit command is created.
 func TestCommitCmdExists(t *testing.T) {
 	cmd := commitCmd()
 	if cmd == nil {
@@ -12,7 +11,6 @@ func TestCommitCmdExists(t *testing.T) {
 	}
 }
 
-// TestCommitCmdHasUse verifies the command has the correct Use field.
 func TestCommitCmdHasUse(t *testing.T) {
 	cmd := commitCmd()
 	if cmd.Use != "commit" {
@@ -20,7 +18,6 @@ func TestCommitCmdHasUse(t *testing.T) {
 	}
 }
 
-// TestCommitCmdHasShort verifies the command has a short description.
 func TestCommitCmdHasShort(t *testing.T) {
 	cmd := commitCmd()
 	if cmd.Short == "" {
@@ -28,7 +25,6 @@ func TestCommitCmdHasShort(t *testing.T) {
 	}
 }
 
-// TestCommitCmdHasLong verifies the command has detailed help text.
 func TestCommitCmdHasLong(t *testing.T) {
 	cmd := commitCmd()
 	if cmd.Long == "" {
@@ -36,7 +32,6 @@ func TestCommitCmdHasLong(t *testing.T) {
 	}
 }
 
-// TestCommitCmdIsRunnable verifies the command has a RunE function.
 func TestCommitCmdIsRunnable(t *testing.T) {
 	cmd := commitCmd()
 	if cmd.RunE == nil {
@@ -44,7 +39,6 @@ func TestCommitCmdIsRunnable(t *testing.T) {
 	}
 }
 
-// TestCommitCmdFlags verifies all expected flags are registered on commit.
 func TestCommitCmdFlags(t *testing.T) {
 	cmd := commitCmd()
 
