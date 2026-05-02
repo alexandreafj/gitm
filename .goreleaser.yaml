@@ -95,7 +95,7 @@ release:
   header: |
     ## Installation
 
-    ### Homebrew (macOS / Linux)
+    ### Homebrew (macOS)
     ```bash
     brew tap alexandreafj/gitm
     brew install gitm

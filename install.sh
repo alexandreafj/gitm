@@ -66,8 +66,8 @@ if command -v sha256sum >/dev/null 2>&1; then
 elif command -v shasum >/dev/null 2>&1; then
   ACTUAL=$(shasum -a 256 "${TMP_DIR}/gitm" | awk '{print $1}')
 else
-  echo "Warning: neither sha256sum nor shasum found — skipping checksum verification"
-  ACTUAL="$EXPECTED"
+  echo "Error: neither sha256sum nor shasum is installed; cannot verify checksum"
+  exit 1
 fi
 
 if [ "$ACTUAL" != "$EXPECTED" ]; then
@@ -81,6 +81,20 @@ echo "Checksum verified."
 
 # ── Install ──────────────────────────────────────────────────────────────────
 chmod +x "${TMP_DIR}/gitm"
+
+if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+  echo "Error: INSTALL_DIR exists but is not a directory: ${INSTALL_DIR}"
+  exit 1
+fi
+
+if [ ! -d "$INSTALL_DIR" ]; then
+  if mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+    :
+  else
+    echo "Creating ${INSTALL_DIR} (requires sudo)..."
+    sudo mkdir -p "$INSTALL_DIR"
+  fi
+fi
 
 if [ -w "$INSTALL_DIR" ]; then
   mv "${TMP_DIR}/gitm" "${INSTALL_DIR}/gitm"

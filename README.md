@@ -77,7 +77,7 @@ When working across many repositories, daily git operations become repetitive:
 
 ## Installation
 
-### Homebrew (macOS / Linux)
+### Homebrew (macOS)
 
 ```bash
 brew tap alexandreafj/gitm
@@ -102,7 +102,7 @@ curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh
 To install a specific version or to a custom directory:
 
 ```bash
-VERSION=v1.0.12 INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh | VERSION=v1.0.12 INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 ### Self-update
