@@ -22,7 +22,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
 - **Parallel by default** — 10 concurrent git ops, live-streamed output.
 - **Safe** — never force-resets your work; dirty repos are skipped, not clobbered.
 - **Interactive TUI** — multi-select repos and files with bubbletea.
-- **Self-updating** — `gitm upgrade` pulls signed binaries from GitHub Releases.
+- **Self-updating (manual installs)** — `gitm upgrade` pulls signed binaries from GitHub Releases on macOS/Linux manual installs.
 - **Zero config** — single SQLite file at `~/.gitm/gitm.db`, no daemons.
 
 ---
@@ -77,11 +77,11 @@ When working across many repositories, daily git operations become repetitive:
 
 ## Installation
 
-### Homebrew (macOS)
+### Homebrew Cask (macOS)
 
 ```bash
 brew tap alexandreafj/gitm
-brew install gitm
+brew install --cask gitm
 ```
 
 ### Scoop (Windows)
@@ -107,10 +107,17 @@ curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh
 
 ### Self-update
 
-Once installed, gitm can update itself with signature verification:
+For manual macOS/Linux installs, gitm can update itself with signature verification:
 
 ```bash
 gitm upgrade
+```
+
+If installed via a package manager, use the package manager upgrade flow instead:
+
+```bash
+brew upgrade --cask gitm   # Homebrew (macOS)
+scoop update gitm          # Scoop (Windows)
 ```
 
 ### Download pre-built binary
@@ -159,7 +166,7 @@ gitm --help
 
 ### Verification
 
-`gitm upgrade` verifies the signature on `checksums.txt` against this repo's release workflow before installing any new binary:
+On manual macOS/Linux installs, `gitm upgrade` verifies the signature on `checksums.txt` against this repo's release workflow before installing any new binary:
 
 - The release workflow signs `checksums.txt` with [cosign](https://github.com/sigstore/cosign) in keyless mode (OIDC-bound to `release.yml` on a tagged push). The signature, certificate, and Rekor transparency-log proof are bundled into `checksums.txt.bundle` and uploaded with each release.
 - `gitm upgrade` downloads the bundle, verifies it against Sigstore's public-good trust root, and aborts on any failure.
@@ -1262,10 +1269,17 @@ gitm untrack --repo api-gateway --path "*.log"
 
 ### `gitm upgrade`
 
-Self-update gitm to the latest release from GitHub. Downloads the correct binary for your platform, verifies the checksum, and replaces the current binary — no manual download needed.
+Self-update gitm to the latest release from GitHub for manual macOS/Linux installs. Downloads the correct binary for your platform, verifies the checksum, and replaces the current binary — no manual download needed.
 
 ```
 gitm upgrade
+```
+
+If you installed `gitm` with a package manager, use:
+
+```bash
+brew upgrade --cask gitm   # Homebrew (macOS)
+scoop update gitm          # Scoop (Windows)
 ```
 
 **What it does:**
@@ -1314,6 +1328,8 @@ gitm --version
 ```
 
 > **Note:** This command does not require database access — it works even if `~/.gitm/gitm.db` doesn't exist yet.
+>
+> **Note:** `gitm upgrade` is disabled for package-managed installs (Homebrew/Scoop) and disabled on Windows.
 
 ---
 

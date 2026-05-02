@@ -95,10 +95,10 @@ release:
   header: |
     ## Installation
 
-    ### Homebrew (macOS)
+    ### Homebrew Cask (macOS)
     ```bash
     brew tap alexandreafj/gitm
-    brew install gitm
+    brew install --cask gitm
     ```
 
     ### Scoop (Windows)
