@@ -1,0 +1,136 @@
+version: 2
+
+builds:
+  - id: gitm
+    main: ./cmd/gitm
+    binary: gitm
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Tag }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  # Archives for Homebrew Casks and Scoop (tar.gz on Unix, zip on Windows)
+  - id: archives
+    ids:
+      - gitm
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+  # Raw binaries for `gitm upgrade` backward compatibility
+  - id: raw-binaries
+    ids:
+      - gitm
+    formats:
+      - binary
+    name_template: >-
+      gitm-{{ if eq .Os "darwin" }}macos{{ else }}{{ .Os }}{{ end }}-{{ if and (eq .Os "darwin") (eq .Arch "amd64") }}x86_64{{ else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    signature: "${artifact}.bundle"
+    args:
+      - sign-blob
+      - "--yes"
+      - "--new-bundle-format"
+      - "--bundle=${signature}"
+      - "${artifact}"
+
+homebrew_casks:
+  - name: gitm
+    repository:
+      owner: alexandreafj
+      name: homebrew-gitm
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    ids:
+      - archives
+    binaries:
+      - gitm
+    homepage: https://github.com/alexandreafj/gitm
+    description: "Multi-repository git manager — run git operations across dozens of repositories in parallel"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/gitm"]
+          end
+
+scoops:
+  - name: gitm
+    repository:
+      owner: alexandreafj
+      name: scoop-gitm
+      token: "{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}"
+    ids:
+      - archives
+    homepage: https://github.com/alexandreafj/gitm
+    description: "Multi-repository git manager — run git operations across dozens of repositories in parallel"
+    license: MIT
+
+release:
+  github:
+    owner: alexandreafj
+    name: gitm
+  header: |
+    ## Installation
+
+    ### Homebrew (macOS)
+    ```bash
+    brew tap alexandreafj/gitm
+    brew install gitm
+    ```
+
+    ### Scoop (Windows)
+    ```powershell
+    scoop bucket add gitm https://github.com/alexandreafj/scoop-gitm
+    scoop install gitm
+    ```
+
+    ### Shell script (macOS / Linux)
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/alexandreafj/gitm/master/install.sh | sh
+    ```
+
+    ### Manual download
+    Download the appropriate binary for your platform below.
+
+    ### Checksums & Signature
+    `checksums.txt` is signed via cosign keyless. Verify locally:
+    ```bash
+    cosign verify-blob --bundle checksums.txt.bundle \
+      --certificate-identity-regexp '^https://github\.com/alexandreafj/gitm/\.github/workflows/release\.yml@refs/tags/v.*$' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+      checksums.txt
+    ```
+  draft: false
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"

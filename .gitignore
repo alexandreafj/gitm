@@ -37,3 +37,6 @@ bin/
 # Local development
 *.local
 .DS_Store
+
+# GoReleaser
+dist/
