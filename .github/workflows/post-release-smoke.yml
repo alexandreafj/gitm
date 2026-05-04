@@ -65,7 +65,9 @@ jobs:
             set -e
             apt-get update
             apt-get install -y --no-install-recommends ca-certificates curl
-            curl -fsSL "https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh" | VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh
+
+            curl -fsSL "https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh" -o /tmp/install.sh
+            VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh
 
             version="$(/usr/local/bin/gitm --version)"
             echo "$version"
@@ -217,7 +219,7 @@ jobs:
           {
             echo "## Post-release smoke test report"
             echo
-            echo "Target tag: \\`${{ needs.resolve-release.outputs.tag }}\\`"
+            echo "Target tag: ${{ needs.resolve-release.outputs.tag }}"
             echo
             echo "| Check | Result |"
             echo "|---|---|"
