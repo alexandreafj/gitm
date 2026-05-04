@@ -53,18 +53,35 @@ jobs:
       matrix:
         image: ["ubuntu:24.04", "debian:bookworm-slim"]
     steps:
-      - name: Verify release has assets
+      - name: Wait for release assets
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          asset_count=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
-          echo "Release $RELEASE_TAG has $asset_count asset(s)"
-          if [ "$asset_count" -eq 0 ]; then
-            echo "::error::Release $RELEASE_TAG has no downloadable assets. GoReleaser may have failed (e.g. invalid semver tag). Skipping install test."
-            exit 1
-          fi
+
+          # GoReleaser runs in parallel and may not have uploaded assets yet
+          # when the release.published event fires. Poll until assets appear.
+          max_attempts=10
+          delay=30
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            asset_count=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
+            echo "Attempt $attempt/$max_attempts: release $RELEASE_TAG has $asset_count asset(s)"
+
+            if [ "$asset_count" -gt 0 ]; then
+              echo "Assets available, proceeding with install test"
+              exit 0
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "::error::Release $RELEASE_TAG still has no assets after $(((max_attempts - 1) * delay))s. GoReleaser may have failed (e.g. invalid semver tag)."
+              exit 1
+            fi
+
+            echo "Waiting ${delay}s for GoReleaser to finish uploading assets..."
+            sleep "$delay"
+          done
 
       - name: Install and validate in Docker image
         env:
@@ -250,6 +267,11 @@ jobs:
           if ($upgradeOutputText -notmatch "scoop update gitm") {
             throw "Expected upgrade output to suggest scoop update gitm"
           }
+
+          # pwsh 7.3+ uses $LASTEXITCODE as the process exit code when invoked
+          # with -command. Reset it so the step doesn't fail from the expected
+          # non-zero exit of gitm upgrade above.
+          exit 0
 
   report:
     name: Smoke Report
