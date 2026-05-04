@@ -75,7 +75,7 @@ jobs:
             fi
 
             if [ "$attempt" -eq "$max_attempts" ]; then
-              echo "::error::Release $RELEASE_TAG still has no assets after $((max_attempts * delay))s. GoReleaser may have failed (e.g. invalid semver tag)."
+              echo "::error::Release $RELEASE_TAG still has no assets after $(((max_attempts - 1) * delay))s. GoReleaser may have failed (e.g. invalid semver tag)."
               exit 1
             fi
 
