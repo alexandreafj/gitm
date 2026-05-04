@@ -1,0 +1,229 @@
+name: Post-Release Smoke
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to validate (for example v1.2.3).
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-release:
+    name: Resolve Release Tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Resolve target release tag
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.release_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            tag="$RELEASE_TAG"
+          else
+            tag="$INPUT_TAG"
+          fi
+
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Failed to resolve release tag"
+            exit 1
+          fi
+
+          echo "Using release tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  linux-install-sh-docker:
+    name: install.sh on ${{ matrix.image }}
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:24.04", "debian:bookworm-slim"]
+    steps:
+      - name: Install and validate in Docker image
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          docker pull "${{ matrix.image }}"
+
+          docker run --rm -e RELEASE_TAG="$RELEASE_TAG" -e REPO="$REPO" "${{ matrix.image }}" /bin/sh -lc '
+            set -e
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl
+
+            curl -fsSL "https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh" -o /tmp/install.sh
+            VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh
+
+            version="$(/usr/local/bin/gitm --version)"
+            echo "$version"
+            echo "$version" | grep -F "$RELEASE_TAG" >/dev/null
+
+            /usr/local/bin/gitm --help >/tmp/gitm-help.txt
+            test -s /tmp/gitm-help.txt
+          '
+
+  macos-homebrew-cask:
+    name: Homebrew Cask (macOS)
+    needs: resolve-release
+    runs-on: macos-latest
+    steps:
+      - name: Install from Homebrew cask and verify version
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          for attempt in 1 2 3 4 5; do
+            echo "Attempt $attempt/5"
+            brew tap alexandreafj/gitm
+
+            if brew list --cask gitm >/dev/null 2>&1; then
+              brew upgrade --cask gitm || brew reinstall --cask gitm
+            else
+              brew install --cask gitm
+            fi
+
+            version="$(gitm --version)"
+            echo "$version"
+            if echo "$version" | grep -Fq "$RELEASE_TAG"; then
+              break
+            fi
+
+            if [ "$attempt" -eq 5 ]; then
+              echo "Homebrew cask did not provide expected tag $RELEASE_TAG"
+              exit 1
+            fi
+
+            brew uninstall --cask --force gitm >/dev/null 2>&1 || true
+            brew update >/dev/null || true
+            sleep 60
+          done
+
+      - name: Validate command behavior
+        run: |
+          set -euo pipefail
+
+          gitm --help >/tmp/gitm-help.txt
+          test -s /tmp/gitm-help.txt
+
+          set +e
+          upgrade_output="$(gitm upgrade 2>&1)"
+          upgrade_status=$?
+          set -e
+
+          echo "$upgrade_output"
+          if [ "$upgrade_status" -eq 0 ]; then
+            echo "Expected gitm upgrade to be blocked for Homebrew installs"
+            exit 1
+          fi
+          echo "$upgrade_output" | grep -F "brew upgrade --cask gitm" >/dev/null
+
+  windows-scoop:
+    name: Scoop (Windows)
+    needs: resolve-release
+    runs-on: windows-latest
+    steps:
+      - name: Install Scoop if needed
+        shell: pwsh
+        run: |
+          if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
+            Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+            Invoke-RestMethod -Uri get.scoop.sh | Invoke-Expression
+          }
+          scoop --version
+
+      - name: Install from Scoop and verify version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+        run: |
+          $expectedTag = $env:RELEASE_TAG
+          $maxAttempts = 5
+
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Host "Attempt $attempt/$maxAttempts"
+
+            if ((scoop list 2>$null | Select-String -Pattern '^gitm\s')) {
+              scoop uninstall gitm
+            }
+
+            if ((scoop bucket list | Select-String -Pattern '^gitm\s')) {
+              scoop bucket rm gitm
+            }
+
+            scoop bucket add gitm https://github.com/alexandreafj/scoop-gitm
+            scoop install gitm
+
+            $versionOutput = gitm --version
+            Write-Host $versionOutput
+            if ($versionOutput -match [regex]::Escape($expectedTag)) {
+              break
+            }
+
+            if ($attempt -eq $maxAttempts) {
+              throw "Scoop install did not provide expected tag $expectedTag"
+            }
+
+            scoop update
+            Start-Sleep -Seconds 60
+          }
+
+      - name: Validate command behavior
+        shell: pwsh
+        run: |
+          $helpOutput = (gitm --help | Out-String)
+          if ([string]::IsNullOrWhiteSpace($helpOutput)) {
+            throw "gitm --help returned empty output"
+          }
+
+          $upgradeOutput = (& gitm upgrade 2>&1)
+          $upgradeStatus = $LASTEXITCODE
+          $upgradeOutputText = ($upgradeOutput | Out-String)
+          Write-Host $upgradeOutputText
+
+          if ($upgradeStatus -eq 0) {
+            throw "Expected gitm upgrade to be blocked for Scoop installs"
+          }
+
+          if ($upgradeOutputText -notmatch "scoop update gitm") {
+            throw "Expected upgrade output to suggest scoop update gitm"
+          }
+
+  report:
+    name: Smoke Report
+    if: always()
+    needs:
+      - resolve-release
+      - linux-install-sh-docker
+      - macos-homebrew-cask
+      - windows-scoop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish summary
+        run: |
+          {
+            echo "## Post-release smoke test report"
+            echo
+            echo "Target tag: ${{ needs.resolve-release.outputs.tag }}"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| install.sh in Docker | ${{ needs.linux-install-sh-docker.result }} |"
+            echo "| Homebrew cask (macOS) | ${{ needs.macos-homebrew-cask.result }} |"
+            echo "| Scoop (Windows) | ${{ needs.windows-scoop.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
