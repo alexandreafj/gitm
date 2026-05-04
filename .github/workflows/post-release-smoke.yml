@@ -26,7 +26,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           INPUT_TAG: ${{ github.event.inputs.release_tag }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -44,16 +43,12 @@ jobs:
           echo "Using release tag: $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  linux-install-sh-docker:
-    name: install.sh on ${{ matrix.image }}
+  wait-for-assets:
+    name: Wait for Release Assets
     needs: resolve-release
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        image: ["ubuntu:24.04", "debian:bookworm-slim"]
     steps:
-      - name: Wait for release assets
+      - name: Poll until release assets are available
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,7 +65,7 @@ jobs:
             echo "Attempt $attempt/$max_attempts: release $RELEASE_TAG has $asset_count asset(s)"
 
             if [ "$asset_count" -gt 0 ]; then
-              echo "Assets available, proceeding with install test"
+              echo "Assets available, proceeding with smoke tests"
               exit 0
             fi
 
@@ -83,51 +78,77 @@ jobs:
             sleep "$delay"
           done
 
+  linux-install-sh-docker:
+    name: install.sh on ${{ matrix.image }}
+    needs: [resolve-release, wait-for-assets]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:24.04", "debian:bookworm-slim"]
+    outputs:
+      version_ubuntu: ${{ steps.validate.outputs.version_ubuntu }}
+      version_debian: ${{ steps.validate.outputs.version_debian }}
+    steps:
       - name: Install and validate in Docker image
+        id: validate
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
           REPO: ${{ github.repository }}
+          IMAGE: ${{ matrix.image }}
         run: |
           set -euo pipefail
-          docker pull "${{ matrix.image }}"
+          docker pull "$IMAGE"
 
-          docker run --rm -e RELEASE_TAG="$RELEASE_TAG" -e REPO="$REPO" "${{ matrix.image }}" /bin/sh -lc '
+          version=$(docker run --rm -e RELEASE_TAG="$RELEASE_TAG" -e REPO="$REPO" "$IMAGE" /bin/sh -lc '
             set -e
-            apt-get update
-            apt-get install -y --no-install-recommends ca-certificates curl
+            apt-get update >/dev/null 2>&1
+            apt-get install -y --no-install-recommends ca-certificates curl >/dev/null 2>&1
 
             tag_script_url="https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh"
             fallback_script_url="https://raw.githubusercontent.com/${REPO}/master/install.sh"
 
-            if curl -fsSL "$tag_script_url" -o /tmp/install.sh; then
-              echo "Using install.sh from release tag: $RELEASE_TAG"
+            if curl -fsSL "$tag_script_url" -o /tmp/install.sh 2>/dev/null; then
+              echo "Using install.sh from release tag: $RELEASE_TAG" >&2
             else
-              echo "Could not fetch install.sh from $RELEASE_TAG, falling back to master"
+              echo "Could not fetch install.sh from $RELEASE_TAG, falling back to master" >&2
               curl -fsSL "$fallback_script_url" -o /tmp/install.sh
             fi
 
-            VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh
+            VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh >&2
 
-            version="$(/usr/local/bin/gitm --version)"
-            echo "$version"
-            if ! echo "$version" | grep -Fq "$RELEASE_TAG"; then
-              echo "Warning: installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
-              if ! echo "$version" | grep -q "^gitm version v"; then
-                echo "Error: gitm --version did not produce valid output"
-                exit 1
-              fi
-            fi
+            /usr/local/bin/gitm --version
 
-            /usr/local/bin/gitm --help >/tmp/gitm-help.txt
-            test -s /tmp/gitm-help.txt
-          '
+            /usr/local/bin/gitm --help >/dev/null
+          ')
+
+          echo "Installed: $version"
+
+          if ! echo "$version" | grep -q "^gitm version v"; then
+            echo "Error: gitm --version did not produce valid output"
+            exit 1
+          fi
+
+          if ! echo "$version" | grep -Fq "$RELEASE_TAG"; then
+            echo "::warning::Installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
+          fi
+
+          # Output version keyed by image name for the report
+          if [[ "$IMAGE" == ubuntu* ]]; then
+            echo "version_ubuntu=$version" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_debian=$version" >> "$GITHUB_OUTPUT"
+          fi
 
   macos-homebrew-cask:
     name: Homebrew Cask (macOS)
-    needs: resolve-release
+    needs: [resolve-release, wait-for-assets]
     runs-on: macos-latest
+    outputs:
+      version: ${{ steps.install.outputs.version }}
     steps:
       - name: Install from Homebrew cask and verify version
+        id: install
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
         run: |
@@ -150,7 +171,7 @@ jobs:
             fi
 
             if echo "$version" | grep -q "^gitm version v"; then
-              echo "Warning: installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
+              echo "::warning::Installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
               break
             fi
 
@@ -163,6 +184,8 @@ jobs:
             brew update >/dev/null || true
             sleep 60
           done
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Validate command behavior
         run: |
@@ -185,8 +208,10 @@ jobs:
 
   windows-scoop:
     name: Scoop (Windows)
-    needs: resolve-release
+    needs: [resolve-release, wait-for-assets]
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.install.outputs.version }}
     steps:
       - name: Install Scoop if needed
         shell: pwsh
@@ -200,6 +225,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $scoopShims -Encoding utf8
 
       - name: Install from Scoop and verify version
+        id: install
         shell: pwsh
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
@@ -228,7 +254,7 @@ jobs:
             }
 
             if ($versionOutput -match "^gitm version v") {
-              Write-Host "Warning: installed version ($versionOutput) does not exactly match release tag ($expectedTag)"
+              Write-Host "::warning::Installed version ($versionOutput) does not exactly match release tag ($expectedTag)"
               break
             }
 
@@ -239,6 +265,8 @@ jobs:
             scoop update
             Start-Sleep -Seconds 60
           }
+
+          "version=$versionOutput" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Validate command behavior
         shell: pwsh
@@ -278,21 +306,50 @@ jobs:
     if: always()
     needs:
       - resolve-release
+      - wait-for-assets
       - linux-install-sh-docker
       - macos-homebrew-cask
       - windows-scoop
     runs-on: ubuntu-latest
     steps:
       - name: Publish summary
+        env:
+          TAG: ${{ needs.resolve-release.outputs.tag }}
+          LINUX_RESULT: ${{ needs.linux-install-sh-docker.result }}
+          MACOS_RESULT: ${{ needs.macos-homebrew-cask.result }}
+          WINDOWS_RESULT: ${{ needs.windows-scoop.result }}
+          ASSETS_RESULT: ${{ needs.wait-for-assets.result }}
+          MACOS_VERSION: ${{ needs.macos-homebrew-cask.outputs.version }}
+          WINDOWS_VERSION: ${{ needs.windows-scoop.outputs.version }}
+          LINUX_UBUNTU_VERSION: ${{ needs.linux-install-sh-docker.outputs.version_ubuntu }}
+          LINUX_DEBIAN_VERSION: ${{ needs.linux-install-sh-docker.outputs.version_debian }}
         run: |
+          version_match() {
+            local installed="$1" tag="$2"
+            if echo "$installed" | grep -Fq "$tag"; then
+              echo "exact"
+            elif [ -n "$installed" ]; then
+              echo "mismatch"
+            else
+              echo "n/a"
+            fi
+          }
+
+          ubuntu_match=$(version_match "$LINUX_UBUNTU_VERSION" "$TAG")
+          debian_match=$(version_match "$LINUX_DEBIAN_VERSION" "$TAG")
+          macos_match=$(version_match "$MACOS_VERSION" "$TAG")
+          windows_match=$(version_match "$WINDOWS_VERSION" "$TAG")
+
           {
             echo "## Post-release smoke test report"
             echo
-            echo "Target tag: ${{ needs.resolve-release.outputs.tag }}"
+            echo "**Target tag:** \`$TAG\`"
+            echo "**Assets ready:** $ASSETS_RESULT"
             echo
-            echo "| Check | Result |"
-            echo "|---|---|"
-            echo "| install.sh in Docker | ${{ needs.linux-install-sh-docker.result }} |"
-            echo "| Homebrew cask (macOS) | ${{ needs.macos-homebrew-cask.result }} |"
-            echo "| Scoop (Windows) | ${{ needs.windows-scoop.result }} |"
+            echo "| Platform | Result | Installed Version | Tag Match |"
+            echo "|----------|--------|-------------------|-----------|"
+            echo "| install.sh (ubuntu:24.04) | $LINUX_RESULT | \`${LINUX_UBUNTU_VERSION:-n/a}\` | $ubuntu_match |"
+            echo "| install.sh (debian:bookworm-slim) | $LINUX_RESULT | \`${LINUX_DEBIAN_VERSION:-n/a}\` | $debian_match |"
+            echo "| Homebrew cask (macOS) | $MACOS_RESULT | \`${MACOS_VERSION:-n/a}\` | $macos_match |"
+            echo "| Scoop (Windows) | $WINDOWS_RESULT | \`${WINDOWS_VERSION:-n/a}\` | $windows_match |"
           } >> "$GITHUB_STEP_SUMMARY"
