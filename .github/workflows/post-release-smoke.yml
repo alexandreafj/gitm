@@ -53,6 +53,19 @@ jobs:
       matrix:
         image: ["ubuntu:24.04", "debian:bookworm-slim"]
     steps:
+      - name: Verify release has assets
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          asset_count=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
+          echo "Release $RELEASE_TAG has $asset_count asset(s)"
+          if [ "$asset_count" -eq 0 ]; then
+            echo "::error::Release $RELEASE_TAG has no downloadable assets. GoReleaser may have failed (e.g. invalid semver tag). Skipping install test."
+            exit 1
+          fi
+
       - name: Install and validate in Docker image
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
@@ -218,10 +231,17 @@ jobs:
             throw "gitm --help returned empty output"
           }
 
+          # PowerShell 7.4+ treats non-zero native exits as terminating errors
+          # when $PSNativeCommandUseErrorActionPreference is true (the default).
+          # Disable it so we can inspect the exit code ourselves.
+          $PSNativeCommandUseErrorActionPreference = $false
+
           $upgradeOutput = (& gitm upgrade 2>&1)
           $upgradeStatus = $LASTEXITCODE
           $upgradeOutputText = ($upgradeOutput | Out-String)
           Write-Host $upgradeOutputText
+
+          $PSNativeCommandUseErrorActionPreference = $true
 
           if ($upgradeStatus -eq 0) {
             throw "Expected gitm upgrade to be blocked for Scoop installs"
