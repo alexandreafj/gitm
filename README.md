@@ -51,6 +51,9 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [upgrade](#gitm-upgrade)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
+- [Testing](#testing)
+  - [Running Tests](#running-tests)
+  - [Test Stats](#test-stats)
 - [Development](#development)
 
 ---
@@ -1394,6 +1397,34 @@ cp ~/.gitm/gitm.db ~/gitm-backup.db
 # Move to a new machine: copy the binary and the .db file
 scp ~/.gitm/gitm.db newmachine:~/.gitm/gitm.db
 ```
+
+---
+
+## Testing
+
+### Running Tests
+
+```bash
+# Run all tests with race detection
+make test
+
+# Run tests verbosely
+go test ./... -v -race -timeout 60s
+
+# Run a specific package's tests
+go test ./internal/cli/... -v -race
+
+# Run a single test by name
+go test ./internal/cli/... -v -race -run TestResetSoft
+```
+
+### Test Stats
+
+| Metric | Count |
+|---|---|
+| Test files | 38 |
+| Test functions | 330 |
+| Language | Go |
 
 ---
 
