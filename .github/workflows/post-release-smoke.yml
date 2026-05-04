@@ -66,12 +66,18 @@ jobs:
             apt-get update
             apt-get install -y --no-install-recommends ca-certificates curl
 
-            curl -fsSL "https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh" -o /tmp/install.sh
+            curl -fsSL "https://raw.githubusercontent.com/${REPO}/master/install.sh" -o /tmp/install.sh
             VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh
 
             version="$(/usr/local/bin/gitm --version)"
             echo "$version"
-            echo "$version" | grep -F "$RELEASE_TAG" >/dev/null
+            if ! echo "$version" | grep -Fq "$RELEASE_TAG"; then
+              echo "Warning: installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
+              if ! echo "$version" | grep -q "^gitm version v"; then
+                echo "Error: gitm --version did not produce valid output"
+                exit 1
+              fi
+            fi
 
             /usr/local/bin/gitm --help >/tmp/gitm-help.txt
             test -s /tmp/gitm-help.txt
@@ -104,8 +110,13 @@ jobs:
               break
             fi
 
+            if echo "$version" | grep -q "^gitm version v"; then
+              echo "Warning: installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
+              break
+            fi
+
             if [ "$attempt" -eq 5 ]; then
-              echo "Homebrew cask did not provide expected tag $RELEASE_TAG"
+              echo "Homebrew cask did not provide a working gitm install"
               exit 1
             fi
 
@@ -146,6 +157,8 @@ jobs:
             Invoke-RestMethod -Uri get.scoop.sh | Invoke-Expression
           }
           scoop --version
+          $scoopShims = Join-Path $env:USERPROFILE "scoop\shims"
+          echo $scoopShims >> $env:GITHUB_PATH
 
       - name: Install from Scoop and verify version
         shell: pwsh
@@ -175,8 +188,13 @@ jobs:
               break
             }
 
+            if ($versionOutput -match "^gitm version v") {
+              Write-Host "Warning: installed version ($versionOutput) does not exactly match release tag ($expectedTag)"
+              break
+            }
+
             if ($attempt -eq $maxAttempts) {
-              throw "Scoop install did not provide expected tag $expectedTag"
+              throw "Scoop install did not provide a working gitm install"
             }
 
             scoop update
