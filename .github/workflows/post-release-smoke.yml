@@ -66,7 +66,16 @@ jobs:
             apt-get update
             apt-get install -y --no-install-recommends ca-certificates curl
 
-            curl -fsSL "https://raw.githubusercontent.com/${REPO}/master/install.sh" -o /tmp/install.sh
+            tag_script_url="https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh"
+            fallback_script_url="https://raw.githubusercontent.com/${REPO}/master/install.sh"
+
+            if curl -fsSL "$tag_script_url" -o /tmp/install.sh; then
+              echo "Using install.sh from release tag: $RELEASE_TAG"
+            else
+              echo "Could not fetch install.sh from $RELEASE_TAG, falling back to master"
+              curl -fsSL "$fallback_script_url" -o /tmp/install.sh
+            fi
+
             VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh
 
             version="$(/usr/local/bin/gitm --version)"
@@ -158,7 +167,7 @@ jobs:
           }
           scoop --version
           $scoopShims = Join-Path $env:USERPROFILE "scoop\shims"
-          echo $scoopShims >> $env:GITHUB_PATH
+          Add-Content -Path $env:GITHUB_PATH -Value $scoopShims -Encoding utf8
 
       - name: Install from Scoop and verify version
         shell: pwsh
