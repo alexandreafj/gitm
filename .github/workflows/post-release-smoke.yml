@@ -78,29 +78,23 @@ jobs:
             sleep "$delay"
           done
 
-  linux-install-sh-docker:
-    name: install.sh on ${{ matrix.image }}
+  linux-ubuntu:
+    name: install.sh (ubuntu:24.04)
     needs: [resolve-release, wait-for-assets]
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        image: ["ubuntu:24.04", "debian:bookworm-slim"]
     outputs:
-      version_ubuntu: ${{ steps.validate.outputs.version_ubuntu }}
-      version_debian: ${{ steps.validate.outputs.version_debian }}
+      version: ${{ steps.validate.outputs.version }}
     steps:
-      - name: Install and validate in Docker image
+      - name: Install and validate in Docker
         id: validate
         env:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
           REPO: ${{ github.repository }}
-          IMAGE: ${{ matrix.image }}
         run: |
           set -euo pipefail
-          docker pull "$IMAGE"
+          docker pull ubuntu:24.04
 
-          version=$(docker run --rm -e RELEASE_TAG="$RELEASE_TAG" -e REPO="$REPO" "$IMAGE" /bin/sh -lc '
+          version=$(docker run --rm -e RELEASE_TAG="$RELEASE_TAG" -e REPO="$REPO" ubuntu:24.04 /bin/sh -lc '
             set -e
             apt-get update >/dev/null 2>&1
             apt-get install -y --no-install-recommends ca-certificates curl >/dev/null 2>&1
@@ -133,12 +127,58 @@ jobs:
             echo "::warning::Installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
           fi
 
-          # Output version keyed by image name for the report
-          if [[ "$IMAGE" == ubuntu* ]]; then
-            echo "version_ubuntu=$version" >> "$GITHUB_OUTPUT"
-          else
-            echo "version_debian=$version" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux-debian:
+    name: install.sh (debian:bookworm-slim)
+    needs: [resolve-release, wait-for-assets]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - name: Install and validate in Docker
+        id: validate
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          docker pull debian:bookworm-slim
+
+          version=$(docker run --rm -e RELEASE_TAG="$RELEASE_TAG" -e REPO="$REPO" debian:bookworm-slim /bin/sh -lc '
+            set -e
+            apt-get update >/dev/null 2>&1
+            apt-get install -y --no-install-recommends ca-certificates curl >/dev/null 2>&1
+
+            tag_script_url="https://raw.githubusercontent.com/${REPO}/${RELEASE_TAG}/install.sh"
+            fallback_script_url="https://raw.githubusercontent.com/${REPO}/master/install.sh"
+
+            if curl -fsSL "$tag_script_url" -o /tmp/install.sh 2>/dev/null; then
+              echo "Using install.sh from release tag: $RELEASE_TAG" >&2
+            else
+              echo "Could not fetch install.sh from $RELEASE_TAG, falling back to master" >&2
+              curl -fsSL "$fallback_script_url" -o /tmp/install.sh
+            fi
+
+            VERSION="$RELEASE_TAG" INSTALL_DIR="/usr/local/bin" sh /tmp/install.sh >&2
+
+            /usr/local/bin/gitm --version
+
+            /usr/local/bin/gitm --help >/dev/null
+          ')
+
+          echo "Installed: $version"
+
+          if ! echo "$version" | grep -q "^gitm version v"; then
+            echo "Error: gitm --version did not produce valid output"
+            exit 1
           fi
+
+          if ! echo "$version" | grep -Fq "$RELEASE_TAG"; then
+            echo "::warning::Installed version ($version) does not exactly match release tag ($RELEASE_TAG)"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   macos-homebrew-cask:
     name: Homebrew Cask (macOS)
@@ -307,7 +347,8 @@ jobs:
     needs:
       - resolve-release
       - wait-for-assets
-      - linux-install-sh-docker
+      - linux-ubuntu
+      - linux-debian
       - macos-homebrew-cask
       - windows-scoop
     runs-on: ubuntu-latest
@@ -315,14 +356,15 @@ jobs:
       - name: Publish summary
         env:
           TAG: ${{ needs.resolve-release.outputs.tag }}
-          LINUX_RESULT: ${{ needs.linux-install-sh-docker.result }}
+          ASSETS_RESULT: ${{ needs.wait-for-assets.result }}
+          UBUNTU_RESULT: ${{ needs.linux-ubuntu.result }}
+          DEBIAN_RESULT: ${{ needs.linux-debian.result }}
           MACOS_RESULT: ${{ needs.macos-homebrew-cask.result }}
           WINDOWS_RESULT: ${{ needs.windows-scoop.result }}
-          ASSETS_RESULT: ${{ needs.wait-for-assets.result }}
+          UBUNTU_VERSION: ${{ needs.linux-ubuntu.outputs.version }}
+          DEBIAN_VERSION: ${{ needs.linux-debian.outputs.version }}
           MACOS_VERSION: ${{ needs.macos-homebrew-cask.outputs.version }}
           WINDOWS_VERSION: ${{ needs.windows-scoop.outputs.version }}
-          LINUX_UBUNTU_VERSION: ${{ needs.linux-install-sh-docker.outputs.version_ubuntu }}
-          LINUX_DEBIAN_VERSION: ${{ needs.linux-install-sh-docker.outputs.version_debian }}
         run: |
           version_match() {
             local installed="$1" tag="$2"
@@ -335,8 +377,8 @@ jobs:
             fi
           }
 
-          ubuntu_match=$(version_match "$LINUX_UBUNTU_VERSION" "$TAG")
-          debian_match=$(version_match "$LINUX_DEBIAN_VERSION" "$TAG")
+          ubuntu_match=$(version_match "$UBUNTU_VERSION" "$TAG")
+          debian_match=$(version_match "$DEBIAN_VERSION" "$TAG")
           macos_match=$(version_match "$MACOS_VERSION" "$TAG")
           windows_match=$(version_match "$WINDOWS_VERSION" "$TAG")
 
@@ -348,8 +390,8 @@ jobs:
             echo
             echo "| Platform | Result | Installed Version | Tag Match |"
             echo "|----------|--------|-------------------|-----------|"
-            echo "| install.sh (ubuntu:24.04) | $LINUX_RESULT | \`${LINUX_UBUNTU_VERSION:-n/a}\` | $ubuntu_match |"
-            echo "| install.sh (debian:bookworm-slim) | $LINUX_RESULT | \`${LINUX_DEBIAN_VERSION:-n/a}\` | $debian_match |"
+            echo "| install.sh (ubuntu:24.04) | $UBUNTU_RESULT | \`${UBUNTU_VERSION:-n/a}\` | $ubuntu_match |"
+            echo "| install.sh (debian:bookworm-slim) | $DEBIAN_RESULT | \`${DEBIAN_VERSION:-n/a}\` | $debian_match |"
             echo "| Homebrew cask (macOS) | $MACOS_RESULT | \`${MACOS_VERSION:-n/a}\` | $macos_match |"
             echo "| Scoop (Windows) | $WINDOWS_RESULT | \`${WINDOWS_VERSION:-n/a}\` | $windows_match |"
           } >> "$GITHUB_STEP_SUMMARY"
