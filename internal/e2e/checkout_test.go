@@ -68,10 +68,10 @@ func TestCheckout_NonExistentBranch(t *testing.T) {
 	}
 }
 
-func TestCheckout_DirtyRepo_Skips(t *testing.T) {
+func TestCheckout_DirtyRepo_NonConflicting_Succeeds(t *testing.T) {
 	e := newTestEnv(t)
-	repo, _ := e.initRepoWithRemote("co-dirty")
-	e.runGitm("repo", "add", repo, "--alias", "co-dirty")
+	repo, _ := e.initRepoWithRemote("co-dirty-ok")
+	e.runGitm("repo", "add", repo, "--alias", "co-dirty-ok")
 
 	e.mustGit(repo, "checkout", "-b", "feat/dirty-target")
 	e.mustGit(repo, "push", "--set-upstream", "origin", "feat/dirty-target")
@@ -79,14 +79,42 @@ func TestCheckout_DirtyRepo_Skips(t *testing.T) {
 
 	e.writeFile(repo, "README.md", "# dirty content\n")
 
-	r := e.runGitm("checkout", "feat/dirty-target", "--repo", "co-dirty")
+	r := e.runGitm("checkout", "feat/dirty-target", "--repo", "co-dirty-ok")
+	e.assertExitCode(r, 0)
+
+	branch := e.currentBranch(repo)
+	if branch != "feat/dirty-target" {
+		t.Errorf("non-conflicting dirty repo should switch branches, but stayed on %s", branch)
+	}
+}
+
+func TestCheckout_DirtyRepo_Conflicting_Skips(t *testing.T) {
+	e := newTestEnv(t)
+	repo, _ := e.initRepoWithRemote("co-dirty-conflict")
+	e.runGitm("repo", "add", repo, "--alias", "co-dirty-conflict")
+
+	e.writeFile(repo, "conflict.txt", "main-version\n")
+	e.mustGit(repo, "add", "conflict.txt")
+	e.mustGit(repo, "commit", "-m", "add conflict file on main")
+	e.mustGit(repo, "push")
+
+	e.mustGit(repo, "checkout", "-b", "feat/conflict-target")
+	e.writeFile(repo, "conflict.txt", "feature-version\n")
+	e.mustGit(repo, "add", "conflict.txt")
+	e.mustGit(repo, "commit", "-m", "change conflict file on feature")
+	e.mustGit(repo, "push", "--set-upstream", "origin", "feat/conflict-target")
+	e.mustGit(repo, "checkout", "main")
+
+	e.writeFile(repo, "conflict.txt", "local dirty change\n")
+
+	r := e.runGitm("checkout", "feat/conflict-target", "--repo", "co-dirty-conflict")
 	e.assertExitCode(r, 0)
 
 	branch := e.currentBranch(repo)
 	if branch != "main" {
-		t.Errorf("dirty repo should not switch branches, but now on %s", branch)
+		t.Errorf("conflicting dirty repo should stay on current branch, but switched to %s", branch)
 	}
-	e.assertContains(r, "co-dirty") // Should mention the repo
+	e.assertContains(r, "co-dirty-conflict")
 }
 
 func TestCheckout_UntrackedFiles_ShouldNotSkip(t *testing.T) {

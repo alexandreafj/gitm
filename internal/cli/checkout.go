@@ -38,7 +38,7 @@ Three modes of operation:
       Checks out <branch-name> in ALL repos where it exists.
       Repos where the branch is not found are skipped with a warning.
 
-Repositories with uncommitted tracked changes are always skipped.
+Repositories are skipped when uncommitted changes conflict with the target branch.
 
 Use --repo to limit the operation to specific repositories by alias.`,
 		Example: `  gitm checkout
@@ -94,23 +94,10 @@ func runCheckoutDefault(repos []*db.Repository) error {
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
-		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
-		if err != nil {
-			return "", "", fmt.Errorf("git status failed: %w", err)
-		}
-		if dirty {
-			files, filesErr := git.DirtyFiles(repo.Path)
-			if filesErr != nil {
-				return "", "", fmt.Errorf("list dirty files: %w", filesErr)
-			}
-			reason := fmt.Sprintf("uncommitted changes (%d file(s))", len(files))
-			if len(files) > 0 && len(files) <= 3 {
-				reason += ": " + strings.Join(files, ", ")
-			}
-			return "", reason, nil
-		}
-
 		if checkoutErr := git.Checkout(repo.Path, repo.DefaultBranch); checkoutErr != nil {
+			if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
+				return "", reason, nil
+			}
 			return "", "", fmt.Errorf("checkout %s: %w", repo.DefaultBranch, checkoutErr)
 		}
 
@@ -173,23 +160,6 @@ func runCheckoutInteractive(repos []*db.Repository, ui ui) error {
 // checkoutBranchInRepo performs the dirty check, branch-existence check,
 // checkout, and pull for a single repo. Shared by both specific and interactive modes.
 func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, error) {
-	// Skip if tracked files are dirty.
-	dirty, err := git.IsDirtyTrackedOnly(repo.Path)
-	if err != nil {
-		return "", "", fmt.Errorf("git status failed: %w", err)
-	}
-	if dirty {
-		files, filesErr := git.DirtyFiles(repo.Path)
-		if filesErr != nil {
-			return "", "", fmt.Errorf("list dirty files: %w", filesErr)
-		}
-		reason := fmt.Sprintf("uncommitted changes (%d file(s))", len(files))
-		if len(files) > 0 && len(files) <= 3 {
-			reason += ": " + strings.Join(files, ", ")
-		}
-		return "", reason, nil
-	}
-
 	// Check branch existence: local first, then remote.
 	localExists := git.BranchExists(repo.Path, branch)
 	remoteExists := false
@@ -210,6 +180,9 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 	}
 
 	if checkoutErr := git.Checkout(repo.Path, branch); checkoutErr != nil {
+		if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
+			return "", reason, nil
+		}
 		return "", "", fmt.Errorf("checkout: %w", checkoutErr)
 	}
 
@@ -219,6 +192,28 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 	}
 
 	return fmt.Sprintf("on %s — %s", branch, summarisePull(out)), "", nil
+}
+
+func isCheckoutConflict(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Your local changes") ||
+		strings.Contains(msg, "overwritten by checkout") ||
+		strings.Contains(msg, "overwritten by merge")
+}
+
+func checkoutConflictSkip(repoPath string, checkoutErr error) (bool, string) {
+	if !isCheckoutConflict(checkoutErr) {
+		return false, ""
+	}
+	files, filesErr := git.DirtyFiles(repoPath)
+	if filesErr != nil {
+		return true, "uncommitted changes conflict with target branch"
+	}
+	reason := fmt.Sprintf("uncommitted changes conflict (%d file(s))", len(files))
+	if len(files) > 0 && len(files) <= 3 {
+		reason += ": " + strings.Join(files, ", ")
+	}
+	return true, reason
 }
 
 // summarisePull condenses git pull output into a short message.
