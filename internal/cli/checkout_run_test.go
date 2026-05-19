@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,5 +285,223 @@ func TestRunCheckoutDefault_ReturnsErrorOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to checkout") {
 		t.Errorf("error = %q, want to contain \"failed to checkout\"", err.Error())
+	}
+}
+
+func TestRunCheckoutDefault_NonConflictingDirtyFile(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+
+	writeFile(t, dir, "config.txt", "original\n")
+	mustRunGit(t, dir, "add", "config.txt")
+	mustRunGit(t, dir, "commit", "-m", "add config")
+	mustRunGit(t, dir, "push")
+
+	mustRunGit(t, dir, "checkout", "-b", "feature")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "feature")
+	mustRunGit(t, dir, "commit", "--allow-empty", "-m", "feature work")
+
+	writeFile(t, dir, "config.txt", "local modification\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+		t.Fatalf("should succeed with non-conflicting dirty file: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "main" {
+		t.Fatalf("head = %q, want main", head)
+	}
+}
+
+func TestRunCheckoutDefault_ConflictingDirtyFile(t *testing.T) {
+	database = setupTestDB(t)
+	dir := initRepo(t)
+
+	writeFile(t, dir, "conflict.txt", "main-version\n")
+	mustRunGit(t, dir, "add", "conflict.txt")
+	mustRunGit(t, dir, "commit", "-m", "add conflict on main")
+
+	mustRunGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "conflict.txt", "feature-version\n")
+	mustRunGit(t, dir, "add", "conflict.txt")
+	mustRunGit(t, dir, "commit", "-m", "change conflict on feature")
+
+	writeFile(t, dir, "conflict.txt", "local dirty\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+		t.Fatalf("should skip (not error) for conflicting dirty file: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "feature" {
+		t.Fatalf("should stay on feature (skipped), got %s", head)
+	}
+}
+
+func TestCheckoutBranchInRepo_NonConflictingDirtyFile(t *testing.T) {
+	dir, _, _ := initRepoWithRemote(t)
+
+	writeFile(t, dir, "safe.txt", "original\n")
+	mustRunGit(t, dir, "add", "safe.txt")
+	mustRunGit(t, dir, "commit", "-m", "add safe file")
+	mustRunGit(t, dir, "push")
+
+	mustRunGit(t, dir, "checkout", "-b", "target")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "target")
+	mustRunGit(t, dir, "commit", "--allow-empty", "-m", "target commit")
+	mustRunGit(t, dir, "checkout", "main")
+
+	writeFile(t, dir, "safe.txt", "dirty but safe\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	msg, skipReason, err := checkoutBranchInRepo(repo, "target")
+	if err != nil {
+		t.Fatalf("should succeed: %v", err)
+	}
+	if skipReason != "" {
+		t.Fatalf("should not skip, got: %s", skipReason)
+	}
+	if msg == "" {
+		t.Fatal("expected success message")
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "target" {
+		t.Fatalf("head = %q, want target", head)
+	}
+}
+
+func TestCheckoutBranchInRepo_ConflictingDirtyFile(t *testing.T) {
+	dir := initRepo(t)
+
+	writeFile(t, dir, "conflict.txt", "main-version\n")
+	mustRunGit(t, dir, "add", "conflict.txt")
+	mustRunGit(t, dir, "commit", "-m", "add conflict on main")
+
+	mustRunGit(t, dir, "checkout", "-b", "target")
+	writeFile(t, dir, "conflict.txt", "target-version\n")
+	mustRunGit(t, dir, "add", "conflict.txt")
+	mustRunGit(t, dir, "commit", "-m", "change conflict on target")
+
+	mustRunGit(t, dir, "checkout", "main")
+	writeFile(t, dir, "conflict.txt", "local dirty\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	_, skipReason, err := checkoutBranchInRepo(repo, "target")
+	if err != nil {
+		t.Fatalf("should skip, not error: %v", err)
+	}
+	if skipReason == "" {
+		t.Fatal("expected skip reason for conflicting dirty file")
+	}
+	if !strings.Contains(skipReason, "conflict") {
+		t.Errorf("skip reason = %q, want to contain 'conflict'", skipReason)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "main" {
+		t.Fatalf("should stay on main (skipped), got %s", head)
+	}
+}
+
+func TestCheckoutInteractive_NonConflictingDirtyFile(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+
+	writeFile(t, dir, "tracked.txt", "original\n")
+	mustRunGit(t, dir, "add", "tracked.txt")
+	mustRunGit(t, dir, "commit", "-m", "add tracked file")
+	mustRunGit(t, dir, "push")
+
+	mustRunGit(t, dir, "checkout", "-b", "target")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "target")
+	mustRunGit(t, dir, "commit", "--allow-empty", "-m", "target commit")
+	mustRunGit(t, dir, "checkout", "main")
+
+	writeFile(t, dir, "tracked.txt", "dirty but non-conflicting\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	ui := fakeUI{selectRepos: []*db.Repository{repo}, branchName: "target"}
+
+	if err := runCheckoutInteractive([]*db.Repository{repo}, ui); err != nil {
+		t.Fatalf("interactive checkout should succeed with non-conflicting dirty: %v", err)
+	}
+
+	if head := gitCurrentBranch(t, dir); head != "target" {
+		t.Fatalf("head = %q, want target", head)
+	}
+}
+
+func TestCheckoutDefault_MultipleReposMixedDirtyState(t *testing.T) {
+	database = setupTestDB(t)
+
+	cleanDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, cleanDir, "checkout", "-b", "feature")
+	mustRunGit(t, cleanDir, "push", "--set-upstream", "origin", "feature")
+	mustRunGit(t, cleanDir, "commit", "--allow-empty", "-m", "feature")
+
+	conflictDir, _, _ := initRepoWithRemote(t)
+	writeFile(t, conflictDir, "conflict.txt", "v1\n")
+	mustRunGit(t, conflictDir, "add", "conflict.txt")
+	mustRunGit(t, conflictDir, "commit", "-m", "add conflict")
+	mustRunGit(t, conflictDir, "push")
+	mustRunGit(t, conflictDir, "checkout", "-b", "feature")
+	mustRunGit(t, conflictDir, "push", "--set-upstream", "origin", "feature")
+	writeFile(t, conflictDir, "conflict.txt", "v2\n")
+	mustRunGit(t, conflictDir, "add", "conflict.txt")
+	mustRunGit(t, conflictDir, "commit", "-m", "change conflict")
+	writeFile(t, conflictDir, "conflict.txt", "local dirty\n")
+
+	nonConflictDir, _, _ := initRepoWithRemote(t)
+	writeFile(t, nonConflictDir, "safe.txt", "original\n")
+	mustRunGit(t, nonConflictDir, "add", "safe.txt")
+	mustRunGit(t, nonConflictDir, "commit", "-m", "add safe")
+	mustRunGit(t, nonConflictDir, "push")
+	mustRunGit(t, nonConflictDir, "checkout", "-b", "feature")
+	mustRunGit(t, nonConflictDir, "push", "--set-upstream", "origin", "feature")
+	mustRunGit(t, nonConflictDir, "commit", "--allow-empty", "-m", "feature")
+	writeFile(t, nonConflictDir, "safe.txt", "dirty but safe\n")
+
+	repos := []*db.Repository{
+		{ID: 1, Alias: "clean", Path: cleanDir, DefaultBranch: "main"},
+		{ID: 2, Alias: "conflict", Path: conflictDir, DefaultBranch: "main"},
+		{ID: 3, Alias: "non-conflict", Path: nonConflictDir, DefaultBranch: "main"},
+	}
+
+	if err := runCheckoutDefault(repos); err != nil {
+		t.Fatalf("runCheckoutDefault failed: %v", err)
+	}
+
+	if b := gitCurrentBranch(t, cleanDir); b != "main" {
+		t.Errorf("clean repo: expected main, got %s", b)
+	}
+	if b := gitCurrentBranch(t, conflictDir); b != "feature" {
+		t.Errorf("conflict repo: expected to stay on feature, got %s", b)
+	}
+	if b := gitCurrentBranch(t, nonConflictDir); b != "main" {
+		t.Errorf("non-conflict repo: expected main (dirty carried forward), got %s", b)
+	}
+}
+
+func TestIsCheckoutConflict(t *testing.T) {
+	tests := []struct {
+		msg  string
+		want bool
+	}{
+		{"error: Your local changes to the following files would be overwritten by checkout", true},
+		{"error: Your local changes to the following files would be overwritten by merge", true},
+		{"error: pathspec 'nonexistent' did not match any file(s) known to git", false},
+		{"exit status 1", false},
+	}
+	for _, tt := range tests {
+		got := isCheckoutConflict(fmt.Errorf("%s", tt.msg))
+		if got != tt.want {
+			t.Errorf("isCheckoutConflict(%q) = %v, want %v", tt.msg, got, tt.want)
+		}
+	}
+}
+
+func TestCheckoutConflictSkip_NonConflictError(t *testing.T) {
+	skip, _ := checkoutConflictSkip("/nonexistent", fmt.Errorf("pathspec not found"))
+	if skip {
+		t.Error("should not skip for non-conflict errors")
 	}
 }
