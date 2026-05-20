@@ -220,7 +220,7 @@ func runBranchDeleteWithUI(ui ui, branchName string, selectAll, force, noRemote 
 		if git.BranchExists(repo.Path, branchName) {
 			if err := git.DeleteLocalBranch(repo.Path, branchName, force); err != nil {
 				if !force {
-					return "", "", fmt.Errorf("local delete failed — branch may have unmerged commits, re-run with --force: %w", err)
+					return "", "branch has unmerged commits — re-run with --force to delete anyway", nil
 				}
 				return "", "", fmt.Errorf("local delete: %w", err)
 			}
