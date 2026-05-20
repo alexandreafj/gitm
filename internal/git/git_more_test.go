@@ -216,6 +216,42 @@ func TestRemoteBranchOps(t *testing.T) {
 	}
 }
 
+func TestDeleteLocalBranch(t *testing.T) {
+	repo := initRepo(t)
+
+	// A branch pointing at the same commit as main is fully merged, so the
+	// safe (-d) delete succeeds.
+	mustRunGit(t, repo, "branch", "feature/merged")
+	if err := git.DeleteLocalBranch(repo, "feature/merged", false); err != nil {
+		t.Fatalf("DeleteLocalBranch(merged, force=false): %v", err)
+	}
+	if git.BranchExists(repo, "feature/merged") {
+		t.Error("expected feature/merged to be gone after safe delete")
+	}
+
+	// A branch carrying unmerged commits is refused by the safe delete and
+	// only removed when force is set.
+	mustRunGit(t, repo, "checkout", "-b", "feature/unmerged")
+	writeFile(t, repo, "extra.txt", "extra\n")
+	mustRunGit(t, repo, "add", "extra.txt")
+	mustRunGit(t, repo, "commit", "-m", "unmerged commit")
+	mustRunGit(t, repo, "checkout", "main")
+
+	if err := git.DeleteLocalBranch(repo, "feature/unmerged", false); err == nil {
+		t.Error("expected safe delete to refuse a branch with unmerged commits")
+	}
+	if !git.BranchExists(repo, "feature/unmerged") {
+		t.Error("expected feature/unmerged to survive a refused safe delete")
+	}
+
+	if err := git.DeleteLocalBranch(repo, "feature/unmerged", true); err != nil {
+		t.Fatalf("DeleteLocalBranch(unmerged, force=true): %v", err)
+	}
+	if git.BranchExists(repo, "feature/unmerged") {
+		t.Error("expected feature/unmerged to be gone after force delete")
+	}
+}
+
 func TestRenameBranch(t *testing.T) {
 	repo := initRepo(t)
 	mustRunGit(t, repo, "branch", "old-name")

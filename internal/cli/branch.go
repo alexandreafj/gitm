@@ -7,10 +7,11 @@ import (
 func branchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "branch",
-		Short: "Create or rename branches across multiple repositories",
+		Short: "Create, rename, or delete branches across multiple repositories",
 	}
 	cmd.AddCommand(branchCreateCmd())
 	cmd.AddCommand(branchRenameCmd())
+	cmd.AddCommand(branchDeleteCmd())
 	return cmd
 }
 
@@ -78,6 +79,54 @@ selection UI entirely.`,
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all repositories that have the old branch")
 	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only rename locally, skip remote push")
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+
+	return cmd
+}
+
+func branchDeleteCmd() *cobra.Command {
+	var (
+		selectAll   bool
+		force       bool
+		noRemote    bool
+		repoAliases []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "delete <branch-name>",
+		Short: "Delete a branch locally and on remote across selected repositories",
+		Long: `Delete a branch in each selected repository — locally and on origin in one
+step, so you never have to run "git branch -d" and "git push origin --delete"
+by hand.
+
+Per repository:
+  1. git branch -d <branch-name>          (local delete; -D when --force)
+  2. git push origin --delete <branch-name>  (delete the remote branch)
+
+Safety:
+  - The local delete uses "git branch -d", which refuses branches with
+    unmerged commits. Pass --force to delete them anyway ("git branch -D").
+  - The repository's default branch (main/master) is never deleted.
+  - A branch that is currently checked out is skipped — switch away first.
+
+Use --no-remote to delete only the local branch.
+Use --repo to target specific repositories by alias, bypassing the interactive
+selection UI. Non-interactive runs (--all or --repo) ask for confirmation
+before deleting.`,
+		Example: `  gitm branch delete feature/JIRA-123
+  gitm branch delete feature/JIRA-123 --all
+  gitm branch delete feature/JIRA-123 --repo api-gateway,auth-service
+  gitm branch delete feature/JIRA-123 --force
+  gitm branch delete feature/JIRA-123 --no-remote`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runBranchDeleteWithUI(liveUI{}, args[0], selectAll, force, noRemote, repoAliases)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all repositories that have the branch")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force-delete branches with unmerged commits (git branch -D)")
+	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only delete locally, skip the remote branch")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 
 	return cmd

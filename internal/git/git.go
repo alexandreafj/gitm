@@ -277,6 +277,17 @@ func DeleteRemoteBranch(path, branch string) error {
 	return err
 }
 
+// DeleteLocalBranch deletes a local branch. When force is false it uses
+// `git branch -d`, which refuses to delete branches with unmerged commits.
+func DeleteLocalBranch(path, branch string, force bool) error {
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	_, err := run(path, "branch", flag, branch)
+	return err
+}
+
 // PushBranch pushes a local branch to origin and sets upstream tracking.
 func PushBranch(path, branch string) error {
 	_, err := run(path, "push", "--set-upstream", "origin", branch)

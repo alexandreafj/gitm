@@ -21,6 +21,8 @@ type fakeUI struct {
 	branchSeen  *string
 	branchErr   error
 	branchName  string
+	confirm     bool
+	confirmErr  error
 }
 
 func (f fakeUI) FileSelect(porcelainLines []string, title string) ([]string, error) {
@@ -64,6 +66,13 @@ func (f fakeUI) BranchNameInput() (string, error) {
 		return f.branchName, nil
 	}
 	return "feature/test", nil
+}
+
+func (f fakeUI) Confirm(prompt string) (bool, error) {
+	if f.confirmErr != nil {
+		return false, f.confirmErr
+	}
+	return f.confirm, nil
 }
 
 func setupTestDB(t *testing.T) *db.DB {
