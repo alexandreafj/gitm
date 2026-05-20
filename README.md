@@ -40,6 +40,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [checkout](#gitm-checkout)
   - [branch create](#gitm-branch-create)
   - [branch rename](#gitm-branch-rename)
+  - [branch delete](#gitm-branch-delete)
   - [status](#gitm-status)
   - [update](#gitm-update)
   - [discard](#gitm-discard)
@@ -636,6 +637,83 @@ Renaming "feature/JIRA-123" → "feature/JIRA-456" in 2 repository(ies)…
 
 [auth-service        ] ✓ renamed feature/JIRA-123 → feature/JIRA-456 (local + remote)
 [frontend            ] ✓ renamed feature/JIRA-123 → feature/JIRA-456 (local + remote)
+
+Done: 2 succeeded
+```
+
+---
+
+### `gitm branch delete`
+
+Delete a branch across selected repositories — both locally and on the remote in one step. Runs in **parallel**.
+
+```
+gitm branch delete <branch-name> [flags]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `<branch-name>` | The branch to delete. |
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--all` | `-a` | false | Apply to all repositories that have the branch. |
+| `--force` | `-f` | false | Force-delete branches with unmerged commits (`git branch -D` instead of `-d`). |
+| `--no-remote` | — | false | Only delete the local branch. Skip deleting the branch on origin. |
+| `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
+
+**Behaviour:**
+
+1. Filters the registered repositories to only those that have the branch (locally, or on origin unless `--no-remote` is set).
+2. Selects repositories:
+   - Interactive: opens the multi-select UI showing only the matching repositories.
+   - `--all` / `--repo`: skips the UI and asks for a single `y/N` confirmation listing the target repositories.
+3. For each selected repo (in parallel):
+   - `git branch -d <branch-name>` — deletes locally (`-D` when `--force`).
+   - `git push origin --delete <branch-name>` — deletes the remote branch if it exists (skipped with `--no-remote`).
+4. Streams results live.
+
+**Safety:**
+
+- The local delete uses `git branch -d`, which refuses branches with unmerged commits. Pass `--force` to delete them anyway.
+- The repository's default branch (`main`/`master`) is never deleted — it is skipped.
+- A branch that is currently checked out is skipped — switch away from it first.
+
+**Examples:**
+
+```bash
+# Interactive: delete feature/JIRA-123 in selected repos
+gitm branch delete feature/JIRA-123
+
+# Apply to all repos that have the branch
+gitm branch delete feature/JIRA-123 --all
+
+# Delete only in specific repos by alias (asks for confirmation)
+gitm branch delete feature/JIRA-123 --repo api-gateway,auth-service
+
+# Force-delete a branch with unmerged commits
+gitm branch delete feature/JIRA-123 --force
+
+# Delete only the local branch, keep it on origin
+gitm branch delete feature/JIRA-123 --no-remote
+```
+
+**Example output:**
+
+```
+Branch "feature/JIRA-123" will be deleted in 2 repository(ies):
+  - auth-service
+  - frontend
+Delete branch "feature/JIRA-123"? [y/N] y
+
+Deleting "feature/JIRA-123" in 2 repository(ies)…
+
+[auth-service        ] ✓ deleted feature/JIRA-123 (local + remote)
+[frontend            ] ✓ deleted feature/JIRA-123 (local + remote)
 
 Done: 2 succeeded
 ```
@@ -1442,7 +1520,7 @@ cli-git-commands/
 │   │   ├── root.go              # Root cobra command
 │   │   ├── repo.go              # repo add/list/remove/rename
 │   │   ├── checkout.go          # checkout master
-│   │   ├── branch.go            # branch create/rename
+│   │   ├── branch.go            # branch create/rename/delete
 │   │   ├── status.go            # status
 │   │   ├── update.go            # update
 │   │   ├── discard.go           # discard

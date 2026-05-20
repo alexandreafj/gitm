@@ -296,3 +296,186 @@ func TestBranchRename_RepoFlag_UnknownAliasErrors(t *testing.T) {
 		t.Fatal("expected error for unknown alias, got nil")
 	}
 }
+
+func TestBranchDelete_RepoFlag_LocalAndRemote(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/x")
+	mustRunGit(t, repoDir, "push", "origin", "feature/x")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/x", false, false, false, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if git.BranchExists(repoDir, "feature/x") {
+		t.Error("expected local feature/x to be deleted")
+	}
+	if git.RemoteBranchExists(repoDir, "feature/x") {
+		t.Error("expected remote feature/x to be deleted")
+	}
+}
+
+func TestBranchDelete_NoRemote(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/x")
+	mustRunGit(t, repoDir, "push", "origin", "feature/x")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/x", false, false, true, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if git.BranchExists(repoDir, "feature/x") {
+		t.Error("expected local feature/x to be deleted")
+	}
+	if !git.RemoteBranchExists(repoDir, "feature/x") {
+		t.Error("expected remote feature/x to survive with --no-remote")
+	}
+}
+
+func TestBranchDelete_Interactive(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/x")
+	mustRunGit(t, repoDir, "push", "origin", "feature/x")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// No --repo / --all: the interactive multi-select path. fakeUI returns
+	// every offered repo, so feature/x should be deleted.
+	if err := runBranchDeleteWithUI(fakeUI{}, "feature/x", false, false, false, nil); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if git.BranchExists(repoDir, "feature/x") {
+		t.Error("expected feature/x to be deleted via interactive selection")
+	}
+}
+
+func TestBranchDelete_ConfirmationDeclined(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/x")
+	mustRunGit(t, repoDir, "push", "origin", "feature/x")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: false}, "feature/x", false, false, false, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if !git.BranchExists(repoDir, "feature/x") {
+		t.Error("expected feature/x to survive when confirmation is declined")
+	}
+	if !git.RemoteBranchExists(repoDir, "feature/x") {
+		t.Error("expected remote feature/x to survive when confirmation is declined")
+	}
+}
+
+func TestBranchDelete_DefaultBranchProtected(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "main", false, false, true, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if !git.BranchExists(repoDir, "main") {
+		t.Error("expected the default branch main to be protected from deletion")
+	}
+}
+
+func TestBranchDelete_CurrentBranchSkipped(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "checkout", "-b", "feature/current")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/current", false, false, true, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if !git.BranchExists(repoDir, "feature/current") {
+		t.Error("expected the checked-out branch to be skipped, not deleted")
+	}
+}
+
+func TestBranchDelete_UnmergedWithoutForceSkipped(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := unmergedBranchRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Without --force, git refuses to drop a branch with unmerged commits.
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/unmerged", false, false, true, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if !git.BranchExists(repoDir, "feature/unmerged") {
+		t.Error("expected unmerged branch to survive deletion without --force")
+	}
+}
+
+func TestBranchDelete_UnmergedWithForce(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := unmergedBranchRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/unmerged", false, true, true, []string{"repo1"}); err != nil {
+		t.Fatalf("branch delete: %v", err)
+	}
+
+	if git.BranchExists(repoDir, "feature/unmerged") {
+		t.Error("expected unmerged branch to be deleted with --force")
+	}
+}
+
+func TestBranchDelete_NoReposWithBranch(t *testing.T) {
+	database = setupTestDB(t)
+	_, _ = newRepo(t, database, "repo1")
+
+	err := runBranchDeleteWithUI(fakeUI{confirm: true}, "ghost", false, false, true, nil)
+	if err == nil {
+		t.Fatal("expected error when no repos have the branch")
+	}
+}
+
+func TestBranchDelete_RepoFlag_UnknownAliasErrors(t *testing.T) {
+	database = setupTestDB(t)
+	_, dir := newRepo(t, database, "repo1")
+	mustRunGit(t, dir, "branch", "feature/x")
+
+	err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/x", false, false, true, []string{"repo1", "ghost-repo"})
+	if err == nil {
+		t.Fatal("expected error for unknown alias")
+	}
+}
+
+// unmergedBranchRepo builds a repo whose feature/unmerged branch carries a
+// commit not reachable from main, then returns to main.
+func unmergedBranchRepo(t *testing.T) string {
+	t.Helper()
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "checkout", "-b", "feature/unmerged")
+	writeFile(t, repoDir, "extra.txt", "extra\n")
+	mustRunGit(t, repoDir, "add", "extra.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "unmerged commit")
+	mustRunGit(t, repoDir, "checkout", "main")
+	return repoDir
+}

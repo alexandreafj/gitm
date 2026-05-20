@@ -17,7 +17,7 @@ func TestBranchCmdHasSubcommands(t *testing.T) {
 		t.Error("branch command has no subcommands")
 	}
 
-	expectedSubcommands := []string{"create", "rename"}
+	expectedSubcommands := []string{"create", "rename", "delete"}
 	actual := make(map[string]bool)
 	for _, sc := range cmd.Commands() {
 		actual[sc.Name()] = true
@@ -92,6 +92,42 @@ func TestBranchRenameCmdFlags(t *testing.T) {
 		flag := cmd.Flags().Lookup(f.long)
 		if flag == nil {
 			t.Errorf("flag --%s not found on branch rename", f.long)
+			continue
+		}
+		if flag.Shorthand != f.short {
+			t.Errorf("flag --%s: expected shorthand %q, got %q", f.long, f.short, flag.Shorthand)
+		}
+	}
+}
+
+func TestBranchDeleteCmdExists(t *testing.T) {
+	cmd := branchDeleteCmd()
+	if cmd == nil {
+		t.Fatal("branchDeleteCmd() returned nil")
+	}
+
+	if cmd.Use == "" {
+		t.Error("branchDeleteCmd has empty Use")
+	}
+}
+
+func TestBranchDeleteCmdFlags(t *testing.T) {
+	cmd := branchDeleteCmd()
+
+	flags := []struct {
+		long  string
+		short string
+	}{
+		{"all", "a"},
+		{"force", "f"},
+		{"no-remote", ""},
+		{"repo", "r"},
+	}
+
+	for _, f := range flags {
+		flag := cmd.Flags().Lookup(f.long)
+		if flag == nil {
+			t.Errorf("flag --%s not found on branch delete", f.long)
 			continue
 		}
 		if flag.Shorthand != f.short {

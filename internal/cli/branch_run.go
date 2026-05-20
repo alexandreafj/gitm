@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/alexandreafj/gitm/internal/db"
 	"github.com/alexandreafj/gitm/internal/git"
@@ -141,6 +142,103 @@ func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote b
 		}
 
 		return fmt.Sprintf("renamed %s → %s (local + remote)", oldName, newName), "", nil
+	})
+
+	return nil
+}
+
+func runBranchDeleteWithUI(ui ui, branchName string, selectAll, force, noRemote bool, repoAliases []string) error {
+	allRepos, err := resolveRepos(repoAliases)
+	if err != nil {
+		return err
+	}
+	if len(allRepos) == 0 {
+		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		return nil
+	}
+
+	var reposWithBranch []*db.Repository
+	for _, r := range allRepos {
+		has := git.BranchExists(r.Path, branchName)
+		if !has && !noRemote {
+			has = git.RemoteBranchExists(r.Path, branchName)
+		}
+		if has {
+			reposWithBranch = append(reposWithBranch, r)
+		}
+	}
+
+	if len(reposWithBranch) == 0 {
+		return fmt.Errorf("no registered repositories have a branch named %q", branchName)
+	}
+
+	var chosen []*db.Repository
+	switch {
+	case len(repoAliases) > 0 || selectAll:
+		// --repo / --all: non-interactive, so confirm explicitly before deleting.
+		chosen = reposWithBranch
+		fmt.Printf("Branch %q will be deleted in %d repository(ies):\n", branchName, len(chosen))
+		for _, r := range chosen {
+			fmt.Printf("  - %s\n", r.Alias)
+		}
+		confirmed, confErr := ui.Confirm(fmt.Sprintf("Delete branch %q? [y/N]", branchName))
+		if confErr != nil {
+			return confErr
+		}
+		if !confirmed {
+			fmt.Println("Aborted — no branches deleted.")
+			return nil
+		}
+	default:
+		chosen, err = ui.MultiSelect(
+			reposWithBranch,
+			fmt.Sprintf("Select repositories to delete branch: %s", branchName),
+			false,
+			nil,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("\nDeleting %q in %d repository(ies)…\n\n", branchName, len(chosen))
+
+	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+		if branchName == repo.DefaultBranch {
+			return "", fmt.Sprintf("refusing to delete the default branch %q", branchName), nil
+		}
+
+		current, err := git.CurrentBranch(repo.Path)
+		if err != nil {
+			return "", "", fmt.Errorf("current branch: %w", err)
+		}
+		if current == branchName {
+			return "", "branch is currently checked out — switch away first", nil
+		}
+
+		var deleted []string
+		if git.BranchExists(repo.Path, branchName) {
+			if err := git.DeleteLocalBranch(repo.Path, branchName, force); err != nil {
+				if !force {
+					return "", "branch has unmerged commits — re-run with --force to delete anyway", nil
+				}
+				return "", "", fmt.Errorf("local delete: %w", err)
+			}
+			deleted = append(deleted, "local")
+		}
+
+		if !noRemote && git.RemoteBranchExists(repo.Path, branchName) {
+			if err := git.DeleteRemoteBranch(repo.Path, branchName); err != nil {
+				return "", "", fmt.Errorf("remote delete: %w", err)
+			}
+			deleted = append(deleted, "remote")
+		}
+
+		if len(deleted) == 0 {
+			return "", fmt.Sprintf("branch %q not found", branchName), nil
+		}
+
+		return fmt.Sprintf("deleted %s (%s)", branchName, strings.Join(deleted, " + ")), "", nil
 	})
 
 	return nil
