@@ -92,7 +92,6 @@ release:
   github:
     owner: alexandreafj
     name: gitm
-  mode: replace
   header: |
     ## Installation
 
