@@ -29,8 +29,8 @@ For each selected repository, gitm:
   1. Fetches the latest default branch from origin.
   2. Merges it into whatever branch the repository is currently on.
 
-This replaces the manual loop of "gitm checkout master", cd into the repo
-folder, and "git merge master" for every repository.
+This replaces the manual, per-repo routine of pulling the latest master/main
+and merging it into your working branch with "git merge master" by hand.
 
 Selection:
 

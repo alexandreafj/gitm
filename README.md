@@ -933,7 +933,7 @@ Done: 3 succeeded, 1 skipped
 
 ### `gitm sync`
 
-Merge the latest **default branch** (`main`/`master`, auto-detected per repo) into the branch each repository is **currently on** — in parallel. This replaces the manual loop of `gitm checkout master`, `cd` into the repo folder, and `git merge master` for every repository.
+Merge the latest **default branch** (`main`/`master`, auto-detected per repo) into the branch each repository is **currently on** — in parallel. This replaces the manual, per-repo routine of pulling the latest `master`/`main` and merging it into your working branch with `git merge master` by hand.
 
 ```
 gitm sync [flags]
