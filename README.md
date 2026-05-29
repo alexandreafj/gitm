@@ -43,6 +43,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [branch delete](#gitm-branch-delete)
   - [status](#gitm-status)
   - [update](#gitm-update)
+  - [sync](#gitm-sync)
   - [discard](#gitm-discard)
   - [commit](#gitm-commit)
   - [stash](#gitm-stash)
@@ -930,6 +931,77 @@ Done: 3 succeeded, 1 skipped
 
 ---
 
+### `gitm sync`
+
+Merge the latest **default branch** (`main`/`master`, auto-detected per repo) into the branch each repository is **currently on** — in parallel. This replaces the manual loop of `gitm checkout master`, `cd` into the repo folder, and `git merge master` for every repository.
+
+```
+gitm sync [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(prompt)_ | Sync only the listed repository aliases (comma-separated). Skips the interactive picker. |
+| `--all` | `-a` | `false` | Sync every registered repository without prompting. |
+
+**Selection modes:**
+
+| Invocation | Behaviour |
+|---|---|
+| `gitm sync` | Interactive — pick repositories via the TUI. |
+| `gitm sync --repo a,b` | Sync only repos `a` and `b` (no prompt). |
+| `gitm sync --all` | Sync every registered repository (no prompt). |
+
+**Behaviour (per repository, in parallel):**
+
+1. Detects the repository's default branch automatically (`main` or `master`, from the value stored at `repo add`).
+2. **Skips** repos with uncommitted changes (stash or commit first).
+3. **Skips** repos already on their default branch (use `gitm update` to pull instead).
+4. Fetches the latest default branch from `origin`, then merges `origin/<default>` into the current branch (falls back to the local default branch when there is no remote).
+5. **Merge conflicts are left in place** — the repo is reported and kept in its merging state so you can resolve the conflicts and commit. A conflict is not treated as a failure; the command still exits 0.
+6. Streams results live with a summary, followed by a list of any repos left with conflicts.
+
+**Use case:** Your feature branch has drifted behind `master`/`main` across several repos and you want to merge the latest changes into each one in a single step.
+
+**Examples:**
+
+```bash
+# Interactively pick repos to sync
+gitm sync
+
+# Sync every repo
+gitm sync --all
+
+# Sync specific repos by alias
+gitm sync --repo=api-gateway,auth-service
+
+# Short form
+gitm sync -r api-gateway
+```
+
+**Example output:**
+
+```
+Merging default branch into the current branch of 3 repository(ies)…
+
+[api-gateway        ] ✓ merged main into feature/JIRA-456 — fast-forward
+[auth-service       ] ⚠ SKIPPED: currently on default branch "main" — nothing to merge (use `gitm update` to pull)
+[frontend           ] ⚠ SKIPPED: merge conflict — 2 file(s) to resolve manually
+
+Done: 1 succeeded, 2 skipped
+
+1 repository(ies) have merge conflicts left for you to resolve:
+  - frontend (/Users/me/code/frontend)
+      conflict: src/app.tsx
+      conflict: package.json
+
+Resolve the conflicts in each repo, then `git add` + `git commit` (or `git merge --abort`).
+```
+
+---
+
 ### `gitm commit`
 
 Interactively stage files and commit across dirty repositories. Walks you through each selected repository **sequentially** — pick files, write a message, and push. Use `--repo` to skip the selection UI and target specific repositories by alias.
@@ -1523,6 +1595,7 @@ cli-git-commands/
 │   │   ├── branch.go            # branch create/rename/delete
 │   │   ├── status.go            # status
 │   │   ├── update.go            # update
+│   │   ├── sync.go              # sync (merge default branch into current branch)
 │   │   ├── discard.go           # discard
 │   │   ├── commit.go            # commit
 │   │   ├── stash.go             # stash / stash apply / stash pop / stash list
