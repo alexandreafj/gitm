@@ -238,6 +238,38 @@ func Pull(path string) (string, error) {
 	return run(path, "pull", "--ff-only")
 }
 
+// Merge merges ref (e.g. "origin/main" or "main") into the current branch and
+// returns git's output. --no-edit suppresses the merge-commit message editor,
+// which would otherwise hang the non-interactive multi-repo runner. On a merge
+// conflict git exits non-zero and leaves the working tree in a merging state;
+// callers detect that case with UnmergedFiles rather than treating it as a hard
+// failure.
+func Merge(path, ref string) (string, error) {
+	return run(path, "merge", "--no-edit", ref)
+}
+
+// UnmergedFiles returns the paths with merge conflicts (unmerged index entries).
+// A non-empty result after a failed Merge means the merge stopped on conflicts
+// and left the tree in a conflicted state for manual resolution. git diff exits
+// zero here, so the signal survives even though run() drops stdout on a failed
+// merge.
+func UnmergedFiles(path string) ([]string, error) {
+	out, err := run(path, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	var files []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) != "" {
+			files = append(files, strings.TrimSpace(l))
+		}
+	}
+	return files, nil
+}
+
 // CreateBranch creates and checks out a new branch from the current HEAD.
 func CreateBranch(path, branch string) error {
 	_, err := run(path, "checkout", "-b", branch)
