@@ -109,8 +109,8 @@ func runSyncWithUI(ui ui, selectAll bool, repoAliases []string) error {
 		conflicts []conflictedRepo
 	)
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
-		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+		dirty, err := git.IsDirty(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status: %w", err)
 		}
@@ -129,12 +129,13 @@ func runSyncWithUI(ui ui, selectAll bool, repoAliases []string) error {
 		}
 
 		// Fetch the latest default branch. A failure (no remote / offline) is not
-		// fatal — fall back to merging the local default branch.
-		if fetchErr := git.FetchBranch(repo.Path, def); fetchErr != nil {
-			fmt.Printf("  warning: fetch %s failed on %s: %v\n", def, repo.Alias, fetchErr)
-		}
+		// fatal — we fall back to the local branch rather than a stale
+		// remote-tracking ref (see mergeRef). The outcome is folded into the
+		// result message instead of printed here, so it stays synchronized with
+		// the runner's own output.
+		fetched := git.FetchBranch(repo.Path, def) == nil
 
-		ref := mergeRef(repo.Path, def)
+		ref := mergeRef(repo.Path, def, fetched)
 		if ref == "" {
 			return "", fmt.Sprintf("default branch %q not found locally or on origin", def), nil
 		}
@@ -151,10 +152,21 @@ func runSyncWithUI(ui ui, selectAll bool, repoAliases []string) error {
 			return "", "", fmt.Errorf("merge %s: %w", ref, mergeErr)
 		}
 
-		return fmt.Sprintf("merged %s into %s — %s", def, cur, summariseMerge(out)), "", nil
+		msg := fmt.Sprintf("merged %s into %s — %s", def, cur, summariseMerge(out))
+		if !fetched {
+			msg += " (fetch failed; merged without refresh)"
+		}
+		return msg, "", nil
 	})
 
 	printConflicts(conflicts)
+
+	// Merge conflicts are intentional skips, not failures. Only genuine errors
+	// (status/branch failures, non-conflict merge errors) make the command exit
+	// non-zero, matching the other multi-repo commands.
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to sync", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -164,14 +176,21 @@ type conflictedRepo struct {
 	files []string
 }
 
-// mergeRef returns the most up-to-date ref to merge for the default branch:
-// the remote-tracking origin/<def> when it exists, otherwise the local branch.
-func mergeRef(path, def string) string {
-	if git.BranchExists(path, "origin/"+def) {
-		return "origin/" + def
+// mergeRef returns the ref to merge for the default branch. When the fetch
+// succeeded it prefers the freshly-updated remote-tracking origin/<def>;
+// otherwise it falls back to the local branch so an offline/failed fetch never
+// silently merges a stale remote-tracking ref. As a last resort (no local
+// branch) it uses origin/<def> if one exists.
+func mergeRef(path, def string, fetched bool) string {
+	originRef := "origin/" + def
+	if fetched && git.BranchExists(path, originRef) {
+		return originRef
 	}
 	if git.BranchExists(path, def) {
 		return def
+	}
+	if git.BranchExists(path, originRef) {
+		return originRef
 	}
 	return ""
 }

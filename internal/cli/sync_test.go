@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alexandreafj/gitm/internal/db"
@@ -223,6 +224,50 @@ func TestRunSync_AllFlagBypassesTUI(t *testing.T) {
 
 	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr != nil {
 		t.Errorf("expected frommain.go to be merged: %v", statErr)
+	}
+}
+
+func TestRunSync_SkipsUntrackedChanges(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+
+	mustRunGit(t, dir, "checkout", "-b", "feature/x")
+	advanceOriginMain(t, originDir, "frommain.go", "package main\n")
+
+	// An untracked file can collide with a path the merge introduces, so sync
+	// requires a fully clean tree and skips repos with untracked files too.
+	writeFile(t, dir, "scratch.txt", "untracked\n")
+
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr == nil {
+		t.Error("repo with untracked changes should be skipped, but origin/main was merged")
+	}
+}
+
+func TestRunSync_ReturnsErrorOnFailure(t *testing.T) {
+	database = setupTestDB(t)
+
+	// A repo whose path does not exist makes git fail — a genuine error that
+	// must surface (exit non-zero), unlike a merge conflict which is a skip.
+	repo, err := database.AddRepository("broken", "broken", "/nonexistent/path", "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	err = runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil)
+	if err == nil {
+		t.Fatal("expected error when a repo fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to sync") {
+		t.Errorf("error = %q, want to contain \"failed to sync\"", err.Error())
 	}
 }
 

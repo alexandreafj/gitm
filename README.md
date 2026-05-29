@@ -1573,7 +1573,7 @@ go test ./internal/cli/... -v -race -run TestResetSoft
 | Metric | Count |
 |---|---|
 | Test files | 40 |
-| Test functions | 367 |
+| Test functions | 369 |
 | Language | Go |
 
 ---
