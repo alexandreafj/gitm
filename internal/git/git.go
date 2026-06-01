@@ -393,22 +393,14 @@ func UntrackedFiles(path string) ([]string, error) {
 // UntrackFiles removes files from the git index but keeps them on disk.
 // Equivalent to: git rm --cached -- <files>
 func UntrackFiles(path string, files []string) error {
-	cleaned := make([]string, 0, len(files))
-	for _, f := range files {
-		if len(f) > 3 {
-			cleaned = append(cleaned, strings.TrimSpace(f[3:]))
-		} else {
-			cleaned = append(cleaned, strings.TrimSpace(f))
-		}
-	}
-	args := append([]string{"rm", "--cached", "--"}, cleaned...)
+	args := append([]string{"rm", "--cached", "--"}, cleanPorcelainPaths(files)...)
 	_, err := run(path, args...)
 	return err
 }
 
-// StageFiles stages specific files (by their path relative to the repo root).
-func StageFiles(path string, files []string) error {
-	// Strip the porcelain status prefix (e.g. " M ", "?? ") to get the raw path.
+// cleanPorcelainPaths strips the two-char porcelain status prefix (e.g. " M ",
+// "?? ") from each line, yielding the bare repo-relative path.
+func cleanPorcelainPaths(files []string) []string {
 	cleaned := make([]string, 0, len(files))
 	for _, f := range files {
 		// porcelain format: "XY filename" where XY is two chars + space.
@@ -418,14 +410,23 @@ func StageFiles(path string, files []string) error {
 			cleaned = append(cleaned, strings.TrimSpace(f))
 		}
 	}
-	args := append([]string{"add", "--"}, cleaned...)
+	return cleaned
+}
+
+// StageFiles stages specific files (by their path relative to the repo root).
+func StageFiles(path string, files []string) error {
+	args := append([]string{"add", "--"}, cleanPorcelainPaths(files)...)
 	_, err := run(path, args...)
 	return err
 }
 
-// Commit creates a commit with the given message.
-func Commit(path, message string) (string, error) {
-	return run(path, "commit", "-m", message)
+// Commit creates a commit containing only the given files. Scoping the commit to
+// an explicit pathspec stops files that were already staged but NOT selected by the
+// user from leaking into the commit. Callers must pass a non-empty file list; an
+// empty list would degrade to a whole-index commit.
+func Commit(path, message string, files []string) (string, error) {
+	args := append([]string{"commit", "-m", message, "--"}, cleanPorcelainPaths(files)...)
+	return run(path, args...)
 }
 
 // Push pushes the current branch to origin.

@@ -287,7 +287,7 @@ func TestPullAndPush(t *testing.T) {
 
 	writeFile(t, repo1, "local.txt", "local\n")
 	mustRunGit(t, repo1, "add", "local.txt")
-	if _, err := git.Commit(repo1, "local commit"); err != nil {
+	if _, err := git.Commit(repo1, "local commit", []string{"A  local.txt"}); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := git.Push(repo1); err != nil {
@@ -352,6 +352,49 @@ func TestStageFilesAndDiscard(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "a.txt")); err == nil {
 		t.Error("expected untracked file to be removed after DiscardChanges")
+	}
+}
+
+// TestCommitOnlySelectedFiles guards against the regression where Commit ran a
+// bare `git commit`, sweeping the whole index — so a file that was already staged
+// but NOT selected by the user leaked into the commit. Commit must include only the
+// files passed to it and leave other staged files untouched.
+func TestCommitOnlySelectedFiles(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "selected.txt", "v1\n", "add selected")
+
+	// An unselected new file the user never chose, but already staged in the index.
+	writeFile(t, repo, "leak.txt", "leak\n")
+	mustRunGit(t, repo, "add", "leak.txt")
+
+	// The file the user actually selects (a tracked, unstaged modification).
+	writeFile(t, repo, "selected.txt", "v2\n")
+
+	selection := []string{" M selected.txt"}
+	if err := git.StageFiles(repo, selection); err != nil {
+		t.Fatalf("StageFiles: %v", err)
+	}
+	if _, err := git.Commit(repo, "commit selected only", selection); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	committed := mustRunGit(t, repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
+	if !strings.Contains(committed, "selected.txt") {
+		t.Errorf("expected selected.txt in commit, got: %q", committed)
+	}
+	if strings.Contains(committed, "leak.txt") {
+		t.Errorf("leak.txt was committed but the user never selected it; committed files: %q", committed)
+	}
+
+	staged := stagedFiles(t, repo)
+	foundLeak := false
+	for _, f := range staged {
+		if f == "leak.txt" {
+			foundLeak = true
+		}
+	}
+	if !foundLeak {
+		t.Errorf("expected leak.txt to remain staged (not committed), staged files: %v", staged)
 	}
 }
 

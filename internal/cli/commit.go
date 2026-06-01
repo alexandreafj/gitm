@@ -214,7 +214,7 @@ func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, current
 		color.Green("  ✓ Staged %d file(s)", len(selectedFiles))
 
 		// 3e. Commit.
-		out, err := git.Commit(repo.Path, message)
+		out, err := git.Commit(repo.Path, message, selectedFiles)
 		if err != nil {
 			color.Red("  ✗ git commit failed: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})
