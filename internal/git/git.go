@@ -4,6 +4,7 @@ package git
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -517,6 +518,80 @@ func HasStash(path string) (bool, error) {
 		return false, err
 	}
 	return len(entries) > 0, nil
+}
+
+// RemoteConfigured reports whether a named remote exists in the repository.
+func RemoteConfigured(path, remote string) (bool, error) {
+	_, err := run(path, "remote", "get-url", remote)
+	if err != nil {
+		if strings.Contains(err.Error(), "No such remote") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// HasUpstream reports whether the current branch has an upstream configured.
+func HasUpstream(path string) (bool, error) {
+	_, err := run(path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "no upstream configured") ||
+			strings.Contains(msg, "HEAD does not point to a branch") ||
+			strings.Contains(msg, "ambiguous argument '@{upstream}'") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// InProgressOperations returns git operations that are currently unfinished.
+func InProgressOperations(path string) ([]string, error) {
+	checks := []struct {
+		gitPath string
+		label   string
+		isDir   bool
+	}{
+		{gitPath: "MERGE_HEAD", label: "merge"},
+		{gitPath: "rebase-merge", label: "rebase", isDir: true},
+		{gitPath: "rebase-apply", label: "rebase", isDir: true},
+		{gitPath: "CHERRY_PICK_HEAD", label: "cherry-pick"},
+		{gitPath: "REVERT_HEAD", label: "revert"},
+		{gitPath: "BISECT_LOG", label: "bisect"},
+	}
+
+	var ops []string
+	seen := make(map[string]bool)
+	for _, check := range checks {
+		gitPath, err := run(path, "rev-parse", "--git-path", check.gitPath)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(gitPath) {
+			gitPath = filepath.Join(path, gitPath)
+		}
+
+		info, err := os.Stat(gitPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		if check.isDir && !info.IsDir() {
+			continue
+		}
+		if !check.isDir && info.IsDir() {
+			continue
+		}
+		if !seen[check.label] {
+			ops = append(ops, check.label)
+			seen[check.label] = true
+		}
+	}
+	return ops, nil
 }
 
 // RepoName returns the base directory name of a repository path.
