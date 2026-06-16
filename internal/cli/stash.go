@@ -13,6 +13,8 @@ import (
 )
 
 func stashCmd() *cobra.Command {
+	var repoAliases []string
+
 	cmd := &cobra.Command{
 		Use:   "stash",
 		Short: "Stash and apply changes across selected repositories",
@@ -22,10 +24,23 @@ Subcommands:
   gitm stash        — select dirty repos and stash their changes
   gitm stash apply  — select repos with stashes and apply the latest
   gitm stash pop    — select repos with stashes, apply and drop the latest
-  gitm stash list   — show all repos that have stash entries`,
+  gitm stash list   — show all repos that have stash entries
+
+Use --repo / -r to target specific repositories by alias, bypassing the
+interactive multi-select UI entirely. Non-dirty repos are silently skipped.`,
+		Example: `  gitm stash
+  gitm stash -r api-gateway
+  gitm stash -r api-gateway,auth-service
+  gitm stash apply -r api-gateway
+  gitm stash pop --repo=api-gateway,auth-service
+  gitm stash list -r api-gateway`,
 		Args: cobra.NoArgs,
-		RunE: runStashPush,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStashPush(repoAliases)
+		},
 	}
+
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 
 	cmd.AddCommand(stashApplyCmd())
 	cmd.AddCommand(stashPopCmd())
@@ -34,14 +49,14 @@ Subcommands:
 	return cmd
 }
 
-func runStashPush(cmd *cobra.Command, args []string) error {
-	return runStashPushWithUI(liveUI{})
+func runStashPush(repoAliases []string) error {
+	return runStashPushWithUI(liveUI{}, repoAliases)
 }
 
-func runStashPushWithUI(ui ui) error {
-	repos, err := database.ListRepositories()
+func runStashPushWithUI(ui ui, repoAliases []string) error {
+	repos, err := resolveRepos(repoAliases)
 	if err != nil {
-		return fmt.Errorf("list repositories: %w", err)
+		return err
 	}
 
 	// Filter to dirty repos.
@@ -63,10 +78,15 @@ func runStashPushWithUI(ui ui) error {
 		return nil
 	}
 
-	chosen, err := ui.MultiSelect(dirty, "Select repositories to stash", false, nil)
-	if err != nil {
-		fmt.Println(err)
-		return nil
+	var chosen []*db.Repository
+	if len(repoAliases) > 0 {
+		chosen = dirty
+	} else {
+		chosen, err = ui.MultiSelect(dirty, "Select repositories to stash", false, nil)
+		if err != nil {
+			fmt.Println(err)
+			return nil
+		}
 	}
 
 	fmt.Printf("\nStashing changes in %d repository(ies)…\n\n", len(chosen))
@@ -87,35 +107,45 @@ func runStashPushWithUI(ui ui) error {
 }
 
 func stashApplyCmd() *cobra.Command {
-	return &cobra.Command{
+	var repoAliases []string
+
+	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Apply the latest stash in selected repositories (keeps stash)",
 		Args:  cobra.NoArgs,
-		RunE:  runStashApply,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStashApplyOrPop(false, repoAliases)
+		},
 	}
-}
 
-func runStashApply(cmd *cobra.Command, args []string) error {
-	return runStashApplyOrPopWithUI(liveUI{}, false)
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	return cmd
 }
 
 func stashPopCmd() *cobra.Command {
-	return &cobra.Command{
+	var repoAliases []string
+
+	cmd := &cobra.Command{
 		Use:   "pop",
 		Short: "Apply and drop the latest stash in selected repositories",
 		Args:  cobra.NoArgs,
-		RunE:  runStashPop,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStashApplyOrPop(true, repoAliases)
+		},
 	}
+
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	return cmd
 }
 
-func runStashPop(cmd *cobra.Command, args []string) error {
-	return runStashApplyOrPopWithUI(liveUI{}, true)
+func runStashApplyOrPop(pop bool, repoAliases []string) error {
+	return runStashApplyOrPopWithUI(liveUI{}, pop, repoAliases)
 }
 
-func runStashApplyOrPopWithUI(ui ui, pop bool) error {
-	repos, err := database.ListRepositories()
+func runStashApplyOrPopWithUI(ui ui, pop bool, repoAliases []string) error {
+	repos, err := resolveRepos(repoAliases)
 	if err != nil {
-		return fmt.Errorf("list repositories: %w", err)
+		return err
 	}
 
 	// Filter to repos that have stash entries.
@@ -143,10 +173,15 @@ func runStashApplyOrPopWithUI(ui ui, pop bool) error {
 	}
 	title := fmt.Sprintf("Select repositories to stash %s", verb)
 
-	chosen, err := ui.MultiSelect(withStash, title, false, nil)
-	if err != nil {
-		fmt.Println(err)
-		return nil
+	var chosen []*db.Repository
+	if len(repoAliases) > 0 {
+		chosen = withStash
+	} else {
+		chosen, err = ui.MultiSelect(withStash, title, false, nil)
+		if err != nil {
+			fmt.Println(err)
+			return nil
+		}
 	}
 
 	fmt.Printf("\nRunning stash %s in %d repository(ies)…\n\n", verb, len(chosen))
@@ -168,18 +203,25 @@ func runStashApplyOrPopWithUI(ui ui, pop bool) error {
 }
 
 func stashListCmd() *cobra.Command {
-	return &cobra.Command{
+	var repoAliases []string
+
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "Show repositories that have stash entries",
 		Args:  cobra.NoArgs,
-		RunE:  runStashList,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStashListFn(repoAliases)
+		},
 	}
+
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	return cmd
 }
 
-func runStashList(cmd *cobra.Command, args []string) error {
-	repos, err := database.ListRepositories()
+func runStashListFn(repoAliases []string) error {
+	repos, err := resolveRepos(repoAliases)
 	if err != nil {
-		return fmt.Errorf("list repositories: %w", err)
+		return err
 	}
 
 	type stashEntry struct {

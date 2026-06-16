@@ -34,9 +34,10 @@ type repoResetInfo struct {
 
 func resetCmd() *cobra.Command {
 	var (
-		soft    bool
-		hard    bool
-		commits int
+		soft        bool
+		hard        bool
+		commits     int
+		repoAliases []string
 	)
 
 	cmd := &cobra.Command{
@@ -59,25 +60,31 @@ exactly what will be undone.
 
 If any of the commits to be undone have already been pushed to origin, you will
 be offered the option to force-push (--force-with-lease) to clean the remote
-history. This rewrites shared history — only do this on branches you own.`,
+history. This rewrites shared history — only do this on branches you own.
+
+Use --repo / -r to target specific repositories by alias, bypassing the
+interactive multi-select UI entirely.`,
 		Example: `  gitm reset                  # mixed reset, undo last commit
   gitm reset --soft           # soft reset, keep changes staged
   gitm reset --hard           # hard reset, discard all changes
   gitm reset --commits 3      # undo last 3 commits (mixed)
-  gitm reset --soft --commits 2`,
+  gitm reset --soft --commits 2
+  gitm reset -r api-gateway
+  gitm reset --soft -r api-gateway,auth-service`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode, err := determineResetMode(soft, hard)
 			if err != nil {
 				return err
 			}
-			return runReset(mode, commits)
+			return runReset(mode, commits, repoAliases)
 		},
 	}
 
 	cmd.Flags().BoolVar(&soft, "soft", false, "Keep changes staged (git reset --soft)")
 	cmd.Flags().BoolVar(&hard, "hard", false, "Discard all changes — irreversible (git reset --hard)")
 	cmd.Flags().IntVar(&commits, "commits", 1, "Number of commits to undo (default: 1)")
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 	cmd.MarkFlagsMutuallyExclusive("soft", "hard")
 
 	return cmd
@@ -125,16 +132,16 @@ func resetModeDescription(m resetMode) string {
 }
 
 // runReset is the main entry-point for the reset command.
-func runReset(mode resetMode, numCommits int) error {
-	return runResetWithUI(liveUI{}, mode, numCommits)
+func runReset(mode resetMode, numCommits int, repoAliases []string) error {
+	return runResetWithUI(liveUI{}, mode, numCommits, repoAliases)
 }
 
-func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
+func runResetWithUI(ui ui, mode resetMode, numCommits int, repoAliases []string) error {
 	if numCommits < 1 {
 		return fmt.Errorf("--commits must be at least 1")
 	}
 
-	allRepos, err := database.ListRepositories()
+	allRepos, err := resolveRepos(repoAliases)
 	if err != nil {
 		return err
 	}
@@ -161,13 +168,18 @@ func runResetWithUI(ui ui, mode resetMode, numCommits int) error {
 		repos[i] = info.repo
 	}
 
-	chosen, err := ui.MultiSelect(repos, "Select repositories to reset", false, nil)
-	if err != nil {
-		return err
-	}
-	if len(chosen) == 0 {
-		fmt.Println("Nothing selected — no changes made.")
-		return nil
+	var chosen []*db.Repository
+	if len(repoAliases) > 0 {
+		chosen = repos
+	} else {
+		chosen, err = ui.MultiSelect(repos, "Select repositories to reset", false, nil)
+		if err != nil {
+			return err
+		}
+		if len(chosen) == 0 {
+			fmt.Println("Nothing selected — no changes made.")
+			return nil
+		}
 	}
 
 	// Build a map from repo path → info for quick lookup after selection.

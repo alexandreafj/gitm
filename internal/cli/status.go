@@ -11,7 +11,10 @@ import (
 )
 
 func statusCmd() *cobra.Command {
-	var fetchRemote bool
+	var (
+		fetchRemote bool
+		repoAliases []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "status",
@@ -22,16 +25,21 @@ func statusCmd() *cobra.Command {
   - How many commits ahead/behind origin (based on last known remote state)
 
 Use --fetch to run git fetch on all repos first for up-to-date remote numbers.
-Without --fetch the command is near-instant (no network calls).`,
+Without --fetch the command is near-instant (no network calls).
+
+Use --repo / -r to limit output to specific repositories by alias.`,
 		Example: `  gitm status
-  gitm status --fetch`,
+  gitm status --fetch
+  gitm status -r api-gateway
+  gitm status -r api-gateway,auth-service --fetch`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(cmd, args, fetchRemote)
+			return runStatus(fetchRemote, repoAliases)
 		},
 	}
 
 	cmd.Flags().BoolVar(&fetchRemote, "fetch", false, "Fetch from origin before checking ahead/behind (slower but accurate)")
+	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
 	return cmd
 }
 
@@ -44,8 +52,8 @@ type repoStatus struct {
 	err    string
 }
 
-func runStatus(cmd *cobra.Command, args []string, fetchRemote bool) error {
-	repos, err := database.ListRepositories()
+func runStatus(fetchRemote bool, repoAliases []string) error {
+	repos, err := resolveRepos(repoAliases)
 	if err != nil {
 		return err
 	}
