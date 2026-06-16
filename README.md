@@ -731,9 +731,10 @@ gitm status [flags]
 
 **Flags:**
 
-| Flag | Default | Description |
-|---|---|---|
-| `--fetch` | false | Run `git fetch` on all repos first for up-to-date remote numbers (slower, requires network). |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--fetch` | — | false | Run `git fetch` on all repos first for up-to-date remote numbers (slower, requires network). |
+| `--repo` | `-r` | _(all repos)_ | Limit output to specific repository aliases (comma-separated). |
 
 **Example output (fast mode, no network):**
 
@@ -772,6 +773,10 @@ gitm status
 
 # Accurate: fetch from origin first, then show status (takes a few seconds)
 gitm status --fetch
+
+# Show status for specific repos only
+gitm status -r api-gateway
+gitm status -r api-gateway,auth-service --fetch
 ```
 
 > **Performance note:** By default, `gitm status` is near-instant because it doesn't fetch from origin. The ahead/behind numbers reflect the last known state of remote branches. Use `--fetch` if you need up-to-the-second accuracy from the remote.
@@ -1104,18 +1109,24 @@ gitm commit --repo api-gateway --no-push
 
 ### `gitm stash`
 
-Manage git stashes across selected repositories. All subcommands require you to select repos via the interactive multi-select TUI before anything happens.
+Manage git stashes across selected repositories. By default, an interactive multi-select TUI lets you choose which repos to operate on. Use `--repo` / `-r` to bypass the UI and target specific repos by alias.
 
 ```
-gitm stash
-gitm stash apply
-gitm stash pop
-gitm stash list
+gitm stash [flags]
+gitm stash apply [flags]
+gitm stash pop [flags]
+gitm stash list [flags]
 ```
+
+**Flags (all subcommands):**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive selection. |
 
 #### `gitm stash` _(push)_
 
-Scans all repos for uncommitted changes (including untracked files), shows only dirty repos in the multi-select, then runs `git stash push --include-untracked` with an auto-generated message on each selected repo in parallel.
+Scans repos for uncommitted changes (including untracked files), shows only dirty repos in the multi-select, then runs `git stash push --include-untracked` with an auto-generated message on each selected repo in parallel.
 
 ```
 $ gitm stash
@@ -1139,7 +1150,7 @@ Done: 1 succeeded
 
 #### `gitm stash apply`
 
-Scans all repos for stash entries, shows only repos with stashes in the multi-select, then runs `git stash apply` (keeps the stash) on each selected repo in parallel.
+Scans repos for stash entries, shows only repos with stashes in the multi-select, then runs `git stash apply` (keeps the stash) on each selected repo in parallel.
 
 #### `gitm stash pop`
 
@@ -1147,7 +1158,7 @@ Same as `apply`, but runs `git stash pop` — applies and removes the stash entr
 
 #### `gitm stash list`
 
-Prints a table of all repos that have stash entries, with the count and top stash message.
+Prints a table of repos that have stash entries, with the count and top stash message.
 
 ```
 $ gitm stash list
@@ -1158,6 +1169,25 @@ repo1          1        On feature/JIRA-456: gitm stash on feature/JIRA-456
 repo2          2        On master: gitm stash on master
 
 2 repository(ies) with stash entries.
+```
+
+**Examples:**
+
+```bash
+# Interactive — select repos via TUI
+gitm stash
+
+# Stash specific repos by alias (no prompt)
+gitm stash -r api-gateway,auth-service
+
+# Apply stash to a specific repo
+gitm stash apply -r api-gateway
+
+# Pop stash from specific repos
+gitm stash pop --repo=api-gateway,auth-service
+
+# List stash entries for a specific repo
+gitm stash list -r api-gateway
 ```
 
 ---
@@ -1180,11 +1210,12 @@ gitm reset [flags]
 
 **Flags:**
 
-| Flag | Default | Description |
-|---|---|---|
-| `--commits` | 1 | Number of commits to undo (reset back N commits) |
-| `--soft` | false | Keep changes staged after reset |
-| `--hard` | false | Discard all changes (irreversible) |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--commits` | — | 1 | Number of commits to undo (reset back N commits) |
+| `--soft` | — | false | Keep changes staged after reset |
+| `--hard` | — | false | Discard all changes (irreversible) |
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive selection. |
 
 > **⚠️ WARNING:** `--hard` is irreversible. Discarded changes cannot be recovered. Only use this when you're certain.
 
@@ -1225,6 +1256,10 @@ gitm reset --commits 3
 
 # Undo last 2 commits, discard all changes (IRREVERSIBLE)
 gitm reset --hard --commits 2
+
+# Reset specific repos by alias (no selection prompt)
+gitm reset -r api-gateway
+gitm reset --soft -r api-gateway,auth-service
 ```
 
 **Example flow:**
@@ -1573,7 +1608,7 @@ go test ./internal/cli/... -v -race -run TestResetSoft
 | Metric | Count |
 |---|---|
 | Test files | 40 |
-| Test functions | 369 |
+| Test functions | 381 |
 | Language | Go |
 
 ---
