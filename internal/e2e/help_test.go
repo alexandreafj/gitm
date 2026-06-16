@@ -24,7 +24,7 @@ func TestHelp_RootCommand(t *testing.T) {
 
 	expectedCommands := []string{
 		"branch", "checkout", "commit", "discard",
-		"repo", "reset", "stash", "status",
+		"doctor", "repo", "reset", "stash", "status",
 		"track", "untrack", "update", "upgrade",
 	}
 	for _, cmd := range expectedCommands {
@@ -39,7 +39,7 @@ func TestHelp_SubCommands(t *testing.T) {
 
 	commands := []string{
 		"repo", "branch", "checkout", "commit",
-		"discard", "stash", "status", "track",
+		"discard", "doctor", "stash", "status", "track",
 		"untrack", "update", "reset", "upgrade",
 	}
 

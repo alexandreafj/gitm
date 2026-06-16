@@ -63,6 +63,7 @@ All multi-repo operations run concurrently for speed.`,
 	root.AddCommand(resetCmd())
 	root.AddCommand(trackCmd())
 	root.AddCommand(untrackCmd())
+	root.AddCommand(doctorCmd())
 	root.AddCommand(upgradeCmd(version))
 
 	return root

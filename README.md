@@ -50,6 +50,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [reset](#gitm-reset)
   - [track](#gitm-track)
   - [untrack](#gitm-untrack)
+  - [doctor](#gitm-doctor)
   - [upgrade](#gitm-upgrade)
 - [How It Works](#how-it-works)
 - [Data Storage](#data-storage)
@@ -1455,6 +1456,65 @@ gitm untrack --repo api-gateway --path "*.log"
 
 ---
 
+### `gitm doctor`
+
+Run read-only diagnostics across registered repositories and report common health issues before they interrupt a workflow.
+
+```
+gitm doctor [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+
+**What it checks:**
+
+1. The registered path still exists and is a directory.
+2. The path is still the root of a git repository.
+3. The current branch can be read and is not detached.
+4. The configured default branch exists locally.
+5. An `origin` remote is configured.
+6. The current branch has an upstream.
+7. The working tree has uncommitted changes.
+8. A merge, rebase, cherry-pick, revert, or bisect operation is in progress.
+
+**Behaviour notes:**
+
+- `OK` means the repository passed every diagnostic.
+- `WARN` means the repository is usable but may need attention, such as a dirty working tree or missing upstream.
+- `ERROR` means the registered repository is broken or cannot be inspected, such as a missing path or non-git directory.
+- The command exits non-zero only when one or more repositories have `ERROR` status.
+- The command does not fetch, pull, push, checkout, modify files, or update the database.
+
+**Example output:**
+
+```
+$ gitm doctor
+
+Checking 3 registered repository(ies)…
+
+REPO                    STATUS   DETAILS
+──────────────────────────────────────────────────────────────────────────────────────────
+api-gateway             OK       healthy
+auth-service            WARN     working tree has uncommitted changes; current branch has no upstream
+old-worker              ERROR    path is not accessible: stat /home/user/work/old-worker: no such file or directory
+```
+
+**Examples:**
+
+```bash
+# Check every registered repository
+gitm doctor
+
+# Check only specific repos by alias
+gitm doctor --repo api-gateway,auth-service
+```
+
+---
+
 ### `gitm upgrade`
 
 Self-update gitm to the latest release from GitHub for manual macOS/Linux installs. Downloads the correct binary for your platform, verifies the checksum, and replaces the current binary — no manual download needed.
@@ -1607,8 +1667,8 @@ go test ./internal/cli/... -v -race -run TestResetSoft
 
 | Metric | Count |
 |---|---|
-| Test files | 40 |
-| Test functions | 381 |
+| Test files | 43 |
+| Test functions | 402 |
 | Language | Go |
 
 ---
@@ -1637,6 +1697,7 @@ cli-git-commands/
 │   │   ├── reset.go             # reset --soft / --hard with force-push support
 │   │   ├── track.go             # start tracking untracked files
 │   │   ├── untrack.go           # stop tracking files (git rm --cached)
+│   │   ├── doctor.go            # repository health diagnostics
 │   │   └── upgrade.go           # self-update from GitHub releases
 │   ├── config/
 │   │   └── config.go            # App config & data dir
