@@ -11,7 +11,10 @@ import (
 )
 
 func trackCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "track",
@@ -20,22 +23,33 @@ func trackCmd() *cobra.Command {
 multiple repositories. Only repositories with untracked files are shown.
 
 Use --repo to target specific repositories by alias, bypassing the interactive
-multi-select UI.`,
+multi-select UI.
+Use --group to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm track
-  gitm track --repo api-gateway,auth-service`,
+  gitm track --group backend
+  gitm track --repo api-gateway,auth-service --group backend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTrack(repoAliases)
+			if groupName == "" {
+				return runTrack(repoAliases)
+			}
+			return runTrackWithGroup(repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
 
 func runTrack(repoAliases []string) error {
-	return runTrackWithUI(liveUI{}, repoAliases)
+	return runTrackWithGroup(repoAliases, "")
+}
+
+func runTrackWithGroup(repoAliases []string, groupName string) error {
+	return runTrackWithUIAndGroup(liveUI{}, repoAliases, groupName)
 }
 
 type trackResult struct {
@@ -45,7 +59,11 @@ type trackResult struct {
 }
 
 func runTrackWithUI(ui ui, repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runTrackWithUIAndGroup(ui, repoAliases, "")
+}
+
+func runTrackWithUIAndGroup(ui ui, repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

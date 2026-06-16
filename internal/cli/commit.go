@@ -14,6 +14,7 @@ func commitCmd() *cobra.Command {
 	var (
 		noPush      bool
 		repoAliases []string
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -28,18 +29,25 @@ lets you pick which repos to commit, then walks through each one sequentially:
 Repositories on their default branch are shown but cannot be selected (protected).
 
 Use --repo to target specific repositories by alias, bypassing the interactive
-multi-select UI entirely. Non-dirty repos in the list are silently skipped.`,
+multi-select UI entirely. Non-dirty repos in the list are silently skipped.
+Use --group to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm commit
   gitm commit --no-push
+  gitm commit --group backend
   gitm commit --repo api-gateway,auth-service
-  gitm commit --repo api-gateway --no-push`,
+  gitm commit --repo api-gateway --group backend --no-push`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommit(noPush, repoAliases)
+			if groupName == "" {
+				return runCommit(noPush, repoAliases)
+			}
+			return runCommitWithGroup(noPush, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().BoolVar(&noPush, "no-push", false, "Skip git push after committing")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
@@ -53,15 +61,27 @@ type repoCommitResult struct {
 }
 
 func runCommit(noPush bool, repoAliases []string) error {
-	return runCommitWithUI(liveUI{}, noPush, repoAliases)
+	return runCommitWithGroup(noPush, repoAliases, "")
+}
+
+func runCommitWithGroup(noPush bool, repoAliases []string, groupName string) error {
+	return runCommitWithUIAndGroup(liveUI{}, noPush, repoAliases, groupName)
 }
 
 func runCommitWithUI(ui ui, noPush bool, repoAliases []string) error {
-	return runCommitWithBranchLookup(ui, noPush, repoAliases, git.CurrentBranch)
+	return runCommitWithUIAndGroup(ui, noPush, repoAliases, "")
+}
+
+func runCommitWithUIAndGroup(ui ui, noPush bool, repoAliases []string, groupName string) error {
+	return runCommitWithBranchLookupAndGroup(ui, noPush, repoAliases, groupName, git.CurrentBranch)
 }
 
 func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, currentBranch func(string) (string, error)) error {
-	repos, err := resolveRepos(repoAliases)
+	return runCommitWithBranchLookupAndGroup(ui, noPush, repoAliases, "", currentBranch)
+}
+
+func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string, groupName string, currentBranch func(string) (string, error)) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

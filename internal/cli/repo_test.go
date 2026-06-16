@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -600,5 +601,85 @@ func TestRepoAddSamePathIdempotent(t *testing.T) {
 	cmd2 := repoAddCmd()
 	if err := cmd2.RunE(cmd2, []string{repoDir}); err != nil {
 		t.Fatalf("second add of same path should be idempotent, got: %v", err)
+	}
+}
+
+func TestRepoAddWithGroupAssignsCustomMembership(t *testing.T) {
+	d := setupTestDB(t)
+	if _, err := d.CreateGroup("backend"); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+
+	repoDir := initRepo(t)
+	cmd := repoAddCmd()
+	if err := cmd.Flags().Set("alias", "api"); err != nil {
+		t.Fatalf("set alias: %v", err)
+	}
+	if err := cmd.Flags().Set("group", "backend"); err != nil {
+		t.Fatalf("set group: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{repoDir}); err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+
+	repos, err := d.ListRepositoriesByGroup("backend")
+	if err != nil {
+		t.Fatalf("ListRepositoriesByGroup backend: %v", err)
+	}
+	if got, want := repoAliases(repos), []string{"api"}; !sameAliasSlice(got, want) {
+		t.Fatalf("backend repos = %v, want %v", got, want)
+	}
+	repos, err = d.ListRepositoriesByGroup(db.DefaultGroupName)
+	if err != nil {
+		t.Fatalf("ListRepositoriesByGroup all: %v", err)
+	}
+	if got, want := repoAliases(repos), []string{"api"}; !sameAliasSlice(got, want) {
+		t.Fatalf("all repos = %v, want %v", got, want)
+	}
+}
+
+func TestRepoAddWithGroupRejectsMissingGroup(t *testing.T) {
+	setupTestDB(t)
+
+	repoDir := initRepo(t)
+	cmd := repoAddCmd()
+	if err := cmd.Flags().Set("group", "missing"); err != nil {
+		t.Fatalf("set group: %v", err)
+	}
+	err := cmd.RunE(cmd, []string{repoDir})
+	if !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("RunE error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRepoAddSamePathWithGroupAssignsExistingRepo(t *testing.T) {
+	d := setupTestDB(t)
+	if _, err := d.CreateGroup("backend"); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+
+	repoDir := initRepo(t)
+	cmd1 := repoAddCmd()
+	if err := cmd1.Flags().Set("alias", "api"); err != nil {
+		t.Fatalf("set alias: %v", err)
+	}
+	if err := cmd1.RunE(cmd1, []string{repoDir}); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+
+	cmd2 := repoAddCmd()
+	if err := cmd2.Flags().Set("group", "backend"); err != nil {
+		t.Fatalf("set group: %v", err)
+	}
+	if err := cmd2.RunE(cmd2, []string{repoDir}); err != nil {
+		t.Fatalf("second add with group: %v", err)
+	}
+
+	repos, err := d.ListRepositoriesByGroup("backend")
+	if err != nil {
+		t.Fatalf("ListRepositoriesByGroup backend: %v", err)
+	}
+	if got, want := repoAliases(repos), []string{"api"}; !sameAliasSlice(got, want) {
+		t.Fatalf("backend repos = %v, want %v", got, want)
 	}
 }

@@ -15,6 +15,7 @@ import (
 func untrackCmd() *cobra.Command {
 	var (
 		repoAliases []string
+		groupName   string
 		pathFilter  string
 	)
 
@@ -30,26 +31,37 @@ Use --path to filter which tracked files are shown (supports glob patterns and
 path prefixes). Without --path, all tracked files are listed.
 
 Use --repo to target specific repositories by alias, bypassing the interactive
-multi-select UI.`,
+multi-select UI.
+Use --group to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm untrack
   gitm untrack --path "*.env"
   gitm untrack --path "public/"
   gitm untrack --path "debug.log"
-  gitm untrack --repo api-gateway --path "*.log"`,
+  gitm untrack --group backend
+  gitm untrack --repo api-gateway --group backend --path "*.log"`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUntrack(repoAliases, pathFilter)
+			if groupName == "" {
+				return runUntrack(repoAliases, pathFilter)
+			}
+			return runUntrackWithGroup(repoAliases, groupName, pathFilter)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 	cmd.Flags().StringVarP(&pathFilter, "path", "p", "", "Filter files by glob pattern or path prefix (e.g. \"*.env\", \"public/\")")
 
 	return cmd
 }
 
 func runUntrack(repoAliases []string, pathFilter string) error {
-	return runUntrackWithUI(liveUI{}, repoAliases, pathFilter)
+	return runUntrackWithGroup(repoAliases, "", pathFilter)
+}
+
+func runUntrackWithGroup(repoAliases []string, groupName string, pathFilter string) error {
+	return runUntrackWithUIAndGroup(liveUI{}, repoAliases, groupName, pathFilter)
 }
 
 func filterTrackedFiles(files []string, pattern string) []string {
@@ -91,7 +103,11 @@ type untrackResult struct {
 }
 
 func runUntrackWithUI(ui ui, repoAliases []string, pathFilter string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runUntrackWithUIAndGroup(ui, repoAliases, "", pathFilter)
+}
+
+func runUntrackWithUIAndGroup(ui ui, repoAliases []string, groupName string, pathFilter string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

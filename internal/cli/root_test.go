@@ -34,7 +34,7 @@ func TestRootCommandHasSubcommands(t *testing.T) {
 
 func TestRootCommandSubcommandNames(t *testing.T) {
 	cmd := Root("test")
-	expectedCommands := []string{"repo", "checkout", "branch", "status", "update", "sync", "discard", "commit", "stash", "reset", "track", "untrack", "doctor", "upgrade"}
+	expectedCommands := []string{"repo", "checkout", "branch", "status", "update", "sync", "discard", "commit", "stash", "reset", "track", "untrack", "doctor", "group", "upgrade"}
 
 	actual := make(map[string]bool)
 	for _, sc := range cmd.Commands() {

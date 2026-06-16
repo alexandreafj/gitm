@@ -14,6 +14,7 @@ func statusCmd() *cobra.Command {
 	var (
 		fetchRemote bool
 		repoAliases []string
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -27,19 +28,26 @@ func statusCmd() *cobra.Command {
 Use --fetch to run git fetch on all repos first for up-to-date remote numbers.
 Without --fetch the command is near-instant (no network calls).
 
-Use --repo / -r to limit output to specific repositories by alias.`,
+Use --repo / -r to limit output to specific repositories by alias.
+Use --group / -g to limit output to repositories in a group.
+When both are provided, gitm shows only aliases that also belong to the group.`,
 		Example: `  gitm status
   gitm status --fetch
   gitm status -r api-gateway
-  gitm status -r api-gateway,auth-service --fetch`,
+  gitm status -g backend
+  gitm status -r api-gateway,auth-service -g backend --fetch`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(fetchRemote, repoAliases)
+			if groupName == "" {
+				return runStatus(fetchRemote, repoAliases)
+			}
+			return runStatusWithGroup(fetchRemote, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().BoolVar(&fetchRemote, "fetch", false, "Fetch from origin before checking ahead/behind (slower but accurate)")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 	return cmd
 }
 
@@ -53,7 +61,11 @@ type repoStatus struct {
 }
 
 func runStatus(fetchRemote bool, repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runStatusWithGroup(fetchRemote, repoAliases, "")
+}
+
+func runStatusWithGroup(fetchRemote bool, repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

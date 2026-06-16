@@ -38,6 +38,7 @@ func resetCmd() *cobra.Command {
 		hard        bool
 		commits     int
 		repoAliases []string
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -63,21 +64,27 @@ be offered the option to force-push (--force-with-lease) to clean the remote
 history. This rewrites shared history — only do this on branches you own.
 
 Use --repo / -r to target specific repositories by alias, bypassing the
-interactive multi-select UI entirely.`,
+interactive multi-select UI entirely.
+Use --group / -g to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm reset                  # mixed reset, undo last commit
   gitm reset --soft           # soft reset, keep changes staged
   gitm reset --hard           # hard reset, discard all changes
   gitm reset --commits 3      # undo last 3 commits (mixed)
   gitm reset --soft --commits 2
+  gitm reset -g backend
   gitm reset -r api-gateway
-  gitm reset --soft -r api-gateway,auth-service`,
+  gitm reset --soft -r api-gateway,auth-service -g backend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode, err := determineResetMode(soft, hard)
 			if err != nil {
 				return err
 			}
-			return runReset(mode, commits, repoAliases)
+			if groupName == "" {
+				return runReset(mode, commits, repoAliases)
+			}
+			return runResetWithGroup(mode, commits, repoAliases, groupName)
 		},
 	}
 
@@ -85,6 +92,7 @@ interactive multi-select UI entirely.`,
 	cmd.Flags().BoolVar(&hard, "hard", false, "Discard all changes — irreversible (git reset --hard)")
 	cmd.Flags().IntVar(&commits, "commits", 1, "Number of commits to undo (default: 1)")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 	cmd.MarkFlagsMutuallyExclusive("soft", "hard")
 
 	return cmd
@@ -133,15 +141,23 @@ func resetModeDescription(m resetMode) string {
 
 // runReset is the main entry-point for the reset command.
 func runReset(mode resetMode, numCommits int, repoAliases []string) error {
-	return runResetWithUI(liveUI{}, mode, numCommits, repoAliases)
+	return runResetWithGroup(mode, numCommits, repoAliases, "")
+}
+
+func runResetWithGroup(mode resetMode, numCommits int, repoAliases []string, groupName string) error {
+	return runResetWithUIAndGroup(liveUI{}, mode, numCommits, repoAliases, groupName)
 }
 
 func runResetWithUI(ui ui, mode resetMode, numCommits int, repoAliases []string) error {
+	return runResetWithUIAndGroup(ui, mode, numCommits, repoAliases, "")
+}
+
+func runResetWithUIAndGroup(ui ui, mode resetMode, numCommits int, repoAliases []string, groupName string) error {
 	if numCommits < 1 {
 		return fmt.Errorf("--commits must be at least 1")
 	}
 
-	allRepos, err := resolveRepos(repoAliases)
+	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

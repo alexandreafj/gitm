@@ -10,9 +10,13 @@ import (
 )
 
 func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string) error {
+	return runBranchCreateWithUIAndGroup(ui, args, selectAll, fromBranch, repoAliases, "")
+}
+
+func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string, groupName string) error {
 	branchName := args[0]
 
-	allRepos, err := resolveRepos(repoAliases)
+	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
@@ -81,7 +85,11 @@ func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch stri
 }
 
 func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote bool, repoAliases []string) error {
-	allRepos, err := resolveRepos(repoAliases)
+	return runBranchRenameWithUIAndGroup(ui, oldName, newName, selectAll, noRemote, repoAliases, "")
+}
+
+func runBranchRenameWithUIAndGroup(ui ui, oldName, newName string, selectAll, noRemote bool, repoAliases []string, groupName string) error {
+	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
@@ -148,7 +156,11 @@ func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote b
 }
 
 func runBranchDeleteWithUI(ui ui, branchName string, selectAll, force, noRemote bool, repoAliases []string) error {
-	allRepos, err := resolveRepos(repoAliases)
+	return runBranchDeleteWithUIAndGroup(ui, branchName, selectAll, force, noRemote, repoAliases, "")
+}
+
+func runBranchDeleteWithUIAndGroup(ui ui, branchName string, selectAll, force, noRemote bool, repoAliases []string, groupName string) error {
+	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

@@ -26,15 +26,37 @@ func (db *DB) AddRepository(name, alias, path, defaultBranch string) (*Repositor
 	if alias == "" {
 		alias = name
 	}
-	res, err := db.conn.Exec(
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin add repository: %w", err)
+	}
+	//nolint:errcheck // rollback is best-effort; after commit it is expected to fail.
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
 		`INSERT INTO repositories (name, alias, path, default_branch) VALUES (?, ?, ?, ?)`,
 		name, alias, path, defaultBranch,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("add repository: %w", err)
 	}
-	//nolint:errcheck // ID defaults to 0 on error, which is safe
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("read repository id: %w", err)
+	}
+
+	if _, err := tx.Exec(
+		`INSERT OR IGNORE INTO group_repositories (group_id, repository_id)
+		 SELECT id, ? FROM groups WHERE name = ?`,
+		id, DefaultGroupName,
+	); err != nil {
+		return nil, fmt.Errorf("add repository to %q group: %w", DefaultGroupName, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit add repository: %w", err)
+	}
+
 	return &Repository{
 		ID:            id,
 		Name:          name,
@@ -85,14 +107,34 @@ func (db *DB) ListRepositories() ([]*Repository, error) {
 
 // RemoveRepository deletes a repository by alias.
 func (db *DB) RemoveRepository(alias string) error {
-	res, err := db.conn.Exec(`DELETE FROM repositories WHERE alias = ?`, alias)
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin remove repository: %w", err)
+	}
+	//nolint:errcheck // rollback is best-effort; after commit it is expected to fail.
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`DELETE FROM group_repositories
+		 WHERE repository_id IN (SELECT id FROM repositories WHERE alias = ?)`,
+		alias,
+	); err != nil {
+		return fmt.Errorf("remove repository group memberships: %w", err)
+	}
+
+	res, err := tx.Exec(`DELETE FROM repositories WHERE alias = ?`, alias)
 	if err != nil {
 		return fmt.Errorf("remove repository: %w", err)
 	}
-	//nolint:errcheck // n defaults to 0 on error, which is safe
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count removed repositories: %w", err)
+	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit remove repository: %w", err)
 	}
 	return nil
 }

@@ -37,6 +37,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [repo list](#gitm-repo-list)
   - [repo remove](#gitm-repo-remove)
   - [repo rename](#gitm-repo-rename)
+  - [group](#gitm-group)
   - [checkout](#gitm-checkout)
   - [branch create](#gitm-branch-create)
   - [branch rename](#gitm-branch-rename)
@@ -256,6 +257,7 @@ Register one or more local git repositories with gitm.
 
 ```
 gitm repo add <path> [path...]
+gitm repo add <path> --group <name>
 ```
 
 **Arguments:**
@@ -271,12 +273,16 @@ gitm repo add <path> [path...]
 | `--alias` | _(directory name)_ | Custom display name for the repository. Must be unique across all registered repos. Useful when two repos share the same directory name (e.g. two repos both named `v1`). Cannot be combined with `--auto-detect`. |
 | `--auto-detect` | false | Scan the immediate subdirectories of the given path and register every git repository found. Skips plain directories and hidden directories (names starting with `.`). Cannot be combined with `--alias`. |
 | `--depth` | 1 | How many directory levels to scan when using `--auto-detect`. Use `--depth 2` when repos are nested inside grouping folders (e.g. `project/v1`). Requires `--auto-detect`. |
+| `--group`, `-g` | _(none)_ | Also add the repository to an existing custom group. Can be repeated or comma-separated. The repo is always added to the built-in `all` group automatically. |
 
 **Examples:**
 
 ```bash
 # Add a single repo
 gitm repo add /home/user/work/api-gateway
+
+# Add a repo and place it in an existing group
+gitm repo add /home/user/work/api-gateway --group backend
 
 # Add multiple repos at once
 gitm repo add /home/user/work/api-gateway /home/user/work/auth-service /home/user/work/frontend
@@ -332,6 +338,7 @@ Found 4 git repository(ies) in /home/user/work
 - The alias (display name) defaults to the directory base name. Use `--alias` to override — this is required when two repos share the same directory name.
 - If the alias is already taken by another path, prints a clear error with a suggested `--alias` command.
 - Stores the alias, path, and default branch in `~/.gitm/gitm.db`.
+- Every repository is automatically added to the built-in `all` group. Use `--group` only for extra custom memberships; the group must already exist.
 - With `--auto-detect`: scans subdirectories up to `--depth` levels deep (default 1). When a git repo is found, its children are not scanned. Hidden directories (`.git`, `.cache`, etc.) are always skipped at every level.
 
 ---
@@ -408,12 +415,78 @@ gitm repo rename v2 www-api-v2
 
 ---
 
+### `gitm group`
+
+Manage optional repository groups. Existing users do not need to do anything after upgrading: the database migration creates a built-in `all` group and backfills every registered repository into it automatically.
+
+The `all` group is system-managed. It appears in `gitm group list` and `gitm group show all`, but it cannot be created, renamed, deleted, or edited manually.
+
+```
+gitm group list
+gitm group show <name>
+gitm group create <name>
+gitm group rename <old-name> <new-name>
+gitm group delete <name>
+gitm group add <name> <repo-alias...>
+gitm group remove <name> <repo-alias...>
+```
+
+**Subcommands:**
+
+| Command | Description |
+|---|---|
+| `gitm group list` | List groups, including `all`, with repository counts. |
+| `gitm group show <name>` | Show repositories in a group. |
+| `gitm group create <name>` | Create a custom group. |
+| `gitm group rename <old> <new>` | Rename a custom group. |
+| `gitm group delete <name>` | Delete a custom group and its memberships. Repositories are not removed. |
+| `gitm group add <name> <repo-alias...>` | Add registered repositories to a custom group. |
+| `gitm group remove <name> <repo-alias...>` | Remove registered repositories from a custom group. |
+
+**Behaviour:**
+
+- Group names cannot be empty, contain spaces, or contain commas.
+- Repository aliases must already exist before they can be added to a group.
+- The `all` group always contains every registered repository and is updated automatically by `repo add` and `repo remove`.
+- `--group all` on repo-aware commands is equivalent to no group filter.
+- `--repo` and `--group` can be combined; gitm uses the intersection and preserves the explicit `--repo` order.
+
+**Examples:**
+
+```bash
+# Create a group and add repos to it
+gitm group create backend
+gitm group add backend api-gateway auth-service
+
+# Show groups and group contents
+gitm group list
+gitm group show backend
+gitm group show all
+
+# Rename or delete a custom group
+gitm group rename backend services
+gitm group delete services
+```
+
+**Example output:**
+
+```
+$ gitm group list
+
+GROUP                     REPOS       TYPE
+all                       5           built-in
+backend                   2           custom
+frontend                  1           custom
+```
+
+---
+
 ### `gitm checkout`
 
 Switch repositories to a branch and pull. Three modes of operation. Runs in **parallel**.
 
 ```
-gitm checkout [branch] [--repo alias1,alias2]
+gitm checkout [branch] [--repo alias1,alias2] [--group name]
 ```
 
 **Modes:**
@@ -429,6 +502,7 @@ gitm checkout [branch] [--repo alias1,alias2]
 | Flag | Shorthand | Description |
 |---|---|---|
 | `--repo` | `-r` | Limit checkout to specific repository aliases (comma-separated) |
+| `--group` | `-g` | Limit checkout to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Behaviour (all modes):**
 
@@ -463,6 +537,14 @@ Checking out default branch and pulling for 2 repositories…
 [auth-service       ] ✓ on master — 3 files changed, 47 insertions(+)
 
 Done: 2 succeeded, 0 skipped
+```
+
+**Example — group only:**
+
+```
+$ gitm checkout master --group backend
+
+Checking out default branch and pulling for 2 repositories…
 ```
 
 **Example — specific branch:**
@@ -525,6 +607,7 @@ gitm branch create <branch-name> [flags]
 | `--all` | `-a` | false | Skip the selection UI and apply to all registered repositories. |
 | `--from` | `-f` | _(repo default branch)_ | Base branch to create from instead of the repo's default branch. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Interactive UI:**
 
@@ -571,8 +654,11 @@ gitm branch create feature/JIRA-456
 # Create in all repos without prompting
 gitm branch create feature/JIRA-456 --all
 
+# Create in every repo from a group
+gitm branch create feature/JIRA-456 --all --group backend
+
 # Create only in specific repos by alias (no prompt)
-gitm branch create feature/AA-1 --repo api-gateway,auth-service
+gitm branch create feature/AA-1 --repo api-gateway,auth-service --group backend
 
 # Create from a specific base branch
 gitm branch create hotfix/critical-bug --from develop
@@ -605,6 +691,7 @@ gitm branch rename <old-name> <new-name> [flags]
 | `--all` | `-a` | false | Apply to all repositories that have the old branch. |
 | `--no-remote` | — | false | Only rename locally. Skip deleting the old remote branch and pushing the new one. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Behaviour:**
 
@@ -626,7 +713,7 @@ gitm branch rename feature/JIRA-123 feature/JIRA-456
 gitm branch rename feature/JIRA-123 feature/JIRA-456 --all
 
 # Rename only in specific repos by alias (no prompt)
-gitm branch rename feature/JIRA-123 feature/JIRA-456 --repo api-gateway,auth-service
+gitm branch rename feature/JIRA-123 feature/JIRA-456 --repo api-gateway,auth-service --group backend
 
 # Local rename only (skip remote)
 gitm branch rename old-name new-name --no-remote
@@ -667,6 +754,7 @@ gitm branch delete <branch-name> [flags]
 | `--force` | `-f` | false | Force-delete branches with unmerged commits (`git branch -D` instead of `-d`). |
 | `--no-remote` | — | false | Only delete the local branch. Skip deleting the branch on origin. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Behaviour:**
 
@@ -695,7 +783,7 @@ gitm branch delete feature/JIRA-123
 gitm branch delete feature/JIRA-123 --all
 
 # Delete only in specific repos by alias (asks for confirmation)
-gitm branch delete feature/JIRA-123 --repo api-gateway,auth-service
+gitm branch delete feature/JIRA-123 --repo api-gateway,auth-service --group backend
 
 # Force-delete a branch with unmerged commits
 gitm branch delete feature/JIRA-123 --force
@@ -736,6 +824,7 @@ gitm status [flags]
 |---|---|---|---|
 | `--fetch` | — | false | Run `git fetch` on all repos first for up-to-date remote numbers (slower, requires network). |
 | `--repo` | `-r` | _(all repos)_ | Limit output to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit output to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Example output (fast mode, no network):**
 
@@ -777,7 +866,10 @@ gitm status --fetch
 
 # Show status for specific repos only
 gitm status -r api-gateway
-gitm status -r api-gateway,auth-service --fetch
+gitm status -r api-gateway,auth-service --group backend --fetch
+
+# Show status for a group
+gitm status --group backend
 ```
 
 > **Performance note:** By default, `gitm status` is near-instant because it doesn't fetch from origin. The ahead/behind numbers reflect the last known state of remote branches. Use `--fetch` if you need up-to-the-second accuracy from the remote.
@@ -799,6 +891,7 @@ gitm discard [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive repo selection. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **What it does per selected file (based on status):**
 
@@ -810,7 +903,7 @@ gitm discard [flags]
 
 **Behaviour:**
 
-1. Scans all registered repositories (or those specified with `--repo`) for uncommitted changes.
+1. Scans all registered repositories (or those specified with `--repo` / `--group`) for uncommitted changes.
 2. If **none** are dirty, prints `Nothing to discard — all repositories are clean.` and exits.
 3. If some are dirty, shows a summary of how many files each has modified, then opens the interactive multi-select showing **only the dirty repos** (skipped when `--repo` is used).
 4. For each selected repo, opens a **file picker** where you choose exactly which files to discard. **No files are pre-selected** — you must explicitly pick every file you want gone.
@@ -869,7 +962,8 @@ Summary
 
 ```
 $ gitm discard --repo api-gateway
-$ gitm discard -r api-gateway,auth-service
+$ gitm discard -r api-gateway,auth-service --group backend
+$ gitm discard --group backend
 ```
 
 **Example when nothing to discard:**
@@ -894,10 +988,11 @@ gitm update [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit update to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit update to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Behaviour:**
 
-1. If `--repo` is specified, only the listed repos are updated. Otherwise, all registered repos are updated.
+1. If `--repo` or `--group` is specified, only matching repos are updated. Otherwise, all registered repos are updated.
 2. For each repository (in parallel):
    - Checks for uncommitted changes — skips if dirty.
    - Runs `git pull --ff-only` on the current branch.
@@ -918,8 +1013,11 @@ gitm update --repo=api-gateway
 # Update multiple specific repos
 gitm update --repo=api-gateway,auth-service
 
+# Update repos in a group
+gitm update --group backend
+
 # Short form
-gitm update -r api-gateway,auth-service
+gitm update -r api-gateway,auth-service -g backend
 ```
 
 **Example output:**
@@ -951,6 +1049,7 @@ gitm sync [flags]
 |---|---|---|---|
 | `--repo` | `-r` | _(prompt)_ | Sync only the listed repository aliases (comma-separated). Skips the interactive picker. |
 | `--all` | `-a` | `false` | Sync every registered repository without prompting. |
+| `--group` | `-g` | _(all repos)_ | Limit sync candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **Selection modes:**
 
@@ -959,6 +1058,7 @@ gitm sync [flags]
 | `gitm sync` | Interactive — pick repositories via the TUI. |
 | `gitm sync --repo a,b` | Sync only repos `a` and `b` (no prompt). |
 | `gitm sync --all` | Sync every registered repository (no prompt). |
+| `gitm sync --group backend` | Interactive — pick from repositories in `backend`. |
 
 **Behaviour (per repository, in parallel):**
 
@@ -980,8 +1080,11 @@ gitm sync
 # Sync every repo
 gitm sync --all
 
+# Sync every repo in a group
+gitm sync --all --group backend
+
 # Sync specific repos by alias
-gitm sync --repo=api-gateway,auth-service
+gitm sync --repo=api-gateway,auth-service --group backend
 
 # Short form
 gitm sync -r api-gateway
@@ -1022,10 +1125,11 @@ gitm commit [flags]
 |---|---|---|---|
 | `--no-push` | — | false | Commit but skip `git push` after each commit. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive multi-select UI. Non-dirty repos in the list are silently skipped. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **What it does:**
 
-1. **Scans** the registered repositories (all, or only those in `--repo`) for uncommitted changes.
+1. **Scans** the registered repositories (all, or only those in `--repo` / `--group`) for uncommitted changes.
 2. **Filters** to dirty repos only — repos on their default branch are shown but marked `⛔ protected branch` and cannot be selected.
 3. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
 4. For each selected repo, **sequentially**:
@@ -1100,10 +1204,10 @@ gitm commit
 gitm commit --no-push
 
 # Commit only specific repos by alias (no selection prompt)
-gitm commit --repo api-gateway,auth-service
+gitm commit --repo api-gateway,auth-service --group backend
 
 # Commit specific repos and skip push
-gitm commit --repo api-gateway --no-push
+gitm commit --repo api-gateway --group backend --no-push
 ```
 
 ---
@@ -1124,6 +1228,7 @@ gitm stash list [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive selection. |
+| `--group` | `-g` | _(all repos)_ | Limit to repositories in a group. Combines with `--repo` as an intersection. |
 
 #### `gitm stash` _(push)_
 
@@ -1178,17 +1283,20 @@ repo2          2        On master: gitm stash on master
 # Interactive — select repos via TUI
 gitm stash
 
+# Stash dirty repos from a group
+gitm stash --group backend
+
 # Stash specific repos by alias (no prompt)
-gitm stash -r api-gateway,auth-service
+gitm stash -r api-gateway,auth-service --group backend
 
 # Apply stash to a specific repo
-gitm stash apply -r api-gateway
+gitm stash apply -r api-gateway --group backend
 
 # Pop stash from specific repos
 gitm stash pop --repo=api-gateway,auth-service
 
 # List stash entries for a specific repo
-gitm stash list -r api-gateway
+gitm stash list -r api-gateway --group backend
 ```
 
 ---
@@ -1217,6 +1325,7 @@ gitm reset [flags]
 | `--soft` | — | false | Keep changes staged after reset |
 | `--hard` | — | false | Discard all changes (irreversible) |
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive selection. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 > **⚠️ WARNING:** `--hard` is irreversible. Discarded changes cannot be recovered. Only use this when you're certain.
 
@@ -1260,7 +1369,10 @@ gitm reset --hard --commits 2
 
 # Reset specific repos by alias (no selection prompt)
 gitm reset -r api-gateway
-gitm reset --soft -r api-gateway,auth-service
+gitm reset --soft -r api-gateway,auth-service --group backend
+
+# Reset only repos in a group
+gitm reset --group backend
 ```
 
 **Example flow:**
@@ -1329,6 +1441,7 @@ gitm track [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
 **What it does:**
 
@@ -1378,7 +1491,10 @@ Done: 1 succeeded
 gitm track
 
 # Track files only in specific repos by alias
-gitm track --repo api-gateway,auth-service
+gitm track --repo api-gateway,auth-service --group backend
+
+# Track files in repos from a group
+gitm track --group backend
 ```
 
 ---
@@ -1396,6 +1512,7 @@ gitm untrack [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 | `--path` | `-p` | _(all files)_ | Filter files by glob pattern or path prefix (e.g. `"*.env"`, `"public/"`). |
 
 **What it does:**
@@ -1442,7 +1559,7 @@ Done: 1 succeeded
 gitm untrack
 
 # Untrack files only in specific repos by alias
-gitm untrack --repo api-gateway
+gitm untrack --repo api-gateway --group backend
 
 # Filter to only show .env files
 gitm untrack --path "*.env"
@@ -1451,7 +1568,7 @@ gitm untrack --path "*.env"
 gitm untrack --path "public/"
 
 # Combine repo and path filters
-gitm untrack --repo api-gateway --path "*.log"
+gitm untrack --repo api-gateway --group backend --path "*.log"
 ```
 
 ---
@@ -1469,6 +1586,7 @@ gitm doctor [flags]
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit diagnostics to repositories in a group. Combines with `--repo` as an intersection. |
 
 **What it checks:**
 
@@ -1510,7 +1628,10 @@ old-worker              ERROR    path is not accessible: stat /home/user/work/ol
 gitm doctor
 
 # Check only specific repos by alias
-gitm doctor --repo api-gateway,auth-service
+gitm doctor --repo api-gateway,auth-service --group backend
+
+# Check a group
+gitm doctor --group backend
 ```
 
 ---
@@ -1620,7 +1741,9 @@ gitm stores repository configuration in a SQLite database at:
 ~/.gitm/gitm.db
 ```
 
-The database is created automatically on first run. It contains a single table:
+The database is created automatically on first run. When gitm opens the database after an upgrade, it automatically applies missing migrations; users do not run migration commands manually. Group support creates the built-in `all` group and backfills every existing repository into it.
+
+It contains these tables:
 
 ```sql
 CREATE TABLE repositories (
@@ -1630,6 +1753,20 @@ CREATE TABLE repositories (
     path           TEXT     NOT NULL UNIQUE,        -- absolute path
     default_branch TEXT     NOT NULL,               -- auto-detected: main or master
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE groups (
+    id         INTEGER  PRIMARY KEY AUTOINCREMENT,
+    name       TEXT     NOT NULL UNIQUE,             -- includes built-in "all"
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE group_repositories (
+    group_id      INTEGER NOT NULL,
+    repository_id INTEGER NOT NULL,
+    PRIMARY KEY (group_id, repository_id),
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
 );
 ```
 
@@ -1667,8 +1804,8 @@ go test ./internal/cli/... -v -race -run TestResetSoft
 
 | Metric | Count |
 |---|---|
-| Test files | 43 |
-| Test functions | 402 |
+| Test files | 46 |
+| Test functions | 424 |
 | Language | Go |
 
 ---
@@ -1686,6 +1823,7 @@ cli-git-commands/
 │   ├── cli/
 │   │   ├── root.go              # Root cobra command
 │   │   ├── repo.go              # repo add/list/remove/rename
+│   │   ├── group.go             # group list/show/create/rename/delete/add/remove
 │   │   ├── checkout.go          # checkout master
 │   │   ├── branch.go            # branch create/rename/delete
 │   │   ├── status.go            # status
@@ -1703,6 +1841,7 @@ cli-git-commands/
 │   │   └── config.go            # App config & data dir
 │   ├── db/
 │   │   ├── db.go                # SQLite connection & migrations
+│   │   ├── group.go             # Repository group CRUD and memberships
 │   │   └── repository.go        # Repository CRUD
 │   ├── git/
 │   │   └── git.go               # Git operations

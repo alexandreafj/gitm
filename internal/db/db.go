@@ -17,6 +17,20 @@ CREATE TABLE IF NOT EXISTS repositories (
     default_branch TEXT     NOT NULL DEFAULT 'main',
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS groups (
+    id         INTEGER  PRIMARY KEY AUTOINCREMENT,
+    name       TEXT     NOT NULL UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS group_repositories (
+    group_id      INTEGER NOT NULL,
+    repository_id INTEGER NOT NULL,
+    PRIMARY KEY (group_id, repository_id),
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+);
 `
 
 // migrations are applied once, in order. Each entry is a SQL statement.
@@ -44,6 +58,27 @@ var migrations = []string{
 	`ALTER TABLE repositories RENAME TO repositories_old`,
 	`ALTER TABLE repositories_new RENAME TO repositories`,
 	`DROP TABLE IF EXISTS repositories_old`,
+	// v3: add many-to-many repository groups. The built-in "all" group is
+	// materialized so upgraded users can see every existing repo in it without
+	// any manual migration step.
+	`CREATE TABLE IF NOT EXISTS groups (
+		id         INTEGER  PRIMARY KEY AUTOINCREMENT,
+		name       TEXT     NOT NULL UNIQUE,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS group_repositories (
+		group_id      INTEGER NOT NULL,
+		repository_id INTEGER NOT NULL,
+		PRIMARY KEY (group_id, repository_id),
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+		FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+	)`,
+	`INSERT OR IGNORE INTO groups (name) VALUES ('all')`,
+	`INSERT OR IGNORE INTO group_repositories (group_id, repository_id)
+		SELECT groups.id, repositories.id
+		FROM groups
+		CROSS JOIN repositories
+		WHERE groups.name = 'all'`,
 }
 
 // DB wraps the SQLite connection.

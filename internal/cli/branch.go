@@ -20,6 +20,7 @@ func branchCreateCmd() *cobra.Command {
 		selectAll   bool
 		fromBranch  string
 		repoAliases []string
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -30,20 +31,27 @@ The branch is created from the repository's default branch (main/master)
 unless --from is specified. All operations run in parallel.
 
 Use --repo to target specific repositories by alias, bypassing the interactive
-selection UI entirely.`,
+selection UI entirely.
+Use --group to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm branch create feature/JIRA-123
   gitm branch create feature/JIRA-123 --all
+  gitm branch create feature/JIRA-123 --group backend
   gitm branch create feature/JIRA-123 --repo api-gateway,auth-service
-  gitm branch create hotfix/bug --from develop`,
+  gitm branch create hotfix/bug --from develop -g backend`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBranchCreateWithUI(liveUI{}, args, selectAll, fromBranch, repoAliases)
+			if groupName == "" {
+				return runBranchCreateWithUI(liveUI{}, args, selectAll, fromBranch, repoAliases)
+			}
+			return runBranchCreateWithUIAndGroup(liveUI{}, args, selectAll, fromBranch, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all registered repositories without prompting")
 	cmd.Flags().StringVarP(&fromBranch, "from", "f", "", "Base branch to create from (default: repo's default branch)")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
@@ -53,6 +61,7 @@ func branchRenameCmd() *cobra.Command {
 		selectAll   bool
 		noRemote    bool
 		repoAliases []string
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -66,20 +75,27 @@ Steps per repository:
 
 Use --no-remote to skip the remote steps.
 Use --repo to target specific repositories by alias, bypassing the interactive
-selection UI entirely.`,
+selection UI entirely.
+Use --group to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm branch rename feature/JIRA-123 feature/JIRA-456
   gitm branch rename feature/JIRA-123 feature/JIRA-456 --all
+  gitm branch rename feature/JIRA-123 feature/JIRA-456 --group backend
   gitm branch rename feature/JIRA-123 feature/JIRA-456 --repo api-gateway,auth-service
-  gitm branch rename old-name new-name --no-remote`,
+  gitm branch rename old-name new-name --no-remote -g backend`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBranchRenameWithUI(liveUI{}, args[0], args[1], selectAll, noRemote, repoAliases)
+			if groupName == "" {
+				return runBranchRenameWithUI(liveUI{}, args[0], args[1], selectAll, noRemote, repoAliases)
+			}
+			return runBranchRenameWithUIAndGroup(liveUI{}, args[0], args[1], selectAll, noRemote, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all repositories that have the old branch")
 	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only rename locally, skip remote push")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
@@ -90,6 +106,7 @@ func branchDeleteCmd() *cobra.Command {
 		force       bool
 		noRemote    bool
 		repoAliases []string
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -112,15 +129,21 @@ Safety:
 Use --no-remote to delete only the local branch.
 Use --repo to target specific repositories by alias, bypassing the interactive
 selection UI. Non-interactive runs (--all or --repo) ask for confirmation
-before deleting.`,
+before deleting.
+Use --group to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm branch delete feature/JIRA-123
   gitm branch delete feature/JIRA-123 --all
+  gitm branch delete feature/JIRA-123 --group backend
   gitm branch delete feature/JIRA-123 --repo api-gateway,auth-service
   gitm branch delete feature/JIRA-123 --force
-  gitm branch delete feature/JIRA-123 --no-remote`,
+  gitm branch delete feature/JIRA-123 --no-remote -g backend`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBranchDeleteWithUI(liveUI{}, args[0], selectAll, force, noRemote, repoAliases)
+			if groupName == "" {
+				return runBranchDeleteWithUI(liveUI{}, args[0], selectAll, force, noRemote, repoAliases)
+			}
+			return runBranchDeleteWithUIAndGroup(liveUI{}, args[0], selectAll, force, noRemote, repoAliases, groupName)
 		},
 	}
 
@@ -128,6 +151,7 @@ before deleting.`,
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force-delete branches with unmerged commits (git branch -D)")
 	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only delete locally, skip the remote branch")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }

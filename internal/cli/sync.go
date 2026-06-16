@@ -16,6 +16,7 @@ func syncCmd() *cobra.Command {
 	var (
 		repoAliases []string
 		selectAll   bool
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -40,6 +41,9 @@ Selection:
   gitm sync --repo api-gateway,auth-service
       Sync only the named repositories (no prompt).
 
+  gitm sync --group backend
+      Show only repositories in the backend group when prompting.
+
   gitm sync --all
       Sync every registered repository (no prompt).
 
@@ -51,11 +55,15 @@ Merge conflicts are left in place so you can resolve them yourself: the repo is
 reported and kept in its merging state — resolve the conflicts and commit.`,
 		Example: `  gitm sync
   gitm sync --all
+  gitm sync --group backend
   gitm sync --repo=api-gateway,auth-service
-  gitm sync -r api-gateway`,
+  gitm sync -r api-gateway -g backend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSyncWithUI(liveUI{}, selectAll, repoAliases)
+			if groupName == "" {
+				return runSyncWithUI(liveUI{}, selectAll, repoAliases)
+			}
+			return runSyncWithUIAndGroup(liveUI{}, selectAll, repoAliases, groupName)
 		},
 	}
 
@@ -63,12 +71,17 @@ reported and kept in its merging state — resolve the conflicts and commit.`,
 		"Limit sync to specific repository aliases (comma-separated)")
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false,
 		"Sync all registered repositories without prompting")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
 
 func runSyncWithUI(ui ui, selectAll bool, repoAliases []string) error {
-	allRepos, err := resolveRepos(repoAliases)
+	return runSyncWithUIAndGroup(ui, selectAll, repoAliases, "")
+}
+
+func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupName string) error {
+	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

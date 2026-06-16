@@ -48,7 +48,10 @@ func (r doctorReport) hasWarnings() bool {
 }
 
 func doctorCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "doctor",
@@ -64,22 +67,33 @@ Warnings call out normal conditions that may need attention, such as dirty
 working trees or missing upstreams. Errors are reserved for broken registrations
 or repositories that cannot be inspected.
 
-Use --repo / -r to limit diagnostics to specific repositories by alias.`,
+Use --repo / -r to limit diagnostics to specific repositories by alias.
+Use --group / -g to limit diagnostics to repositories in a group.
+When both are provided, gitm checks only aliases that also belong to the group.`,
 		Example: `  gitm doctor
+  gitm doctor --group backend
   gitm doctor --repo api-gateway
-  gitm doctor -r api-gateway,auth-service`,
+  gitm doctor -r api-gateway,auth-service -g backend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(repoAliases)
+			if groupName == "" {
+				return runDoctor(repoAliases)
+			}
+			return runDoctorWithGroup(repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 	return cmd
 }
 
 func runDoctor(repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runDoctorWithGroup(repoAliases, "")
+}
+
+func runDoctorWithGroup(repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
