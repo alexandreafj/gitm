@@ -151,6 +151,35 @@ func TestRunUpdate_ReturnsErrorOnFailure(t *testing.T) {
 	}
 }
 
+func TestRunUpdate_DeletedRemoteBranchFallsBackToDefault(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, originDir, _ := initRepoWithRemote(t)
+
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Create a feature branch, push it, then delete it from origin.
+	mustRunGit(t, repoDir, "checkout", "-b", "feature/old")
+	writeFile(t, repoDir, "feature.txt", "feature\n")
+	mustRunGit(t, repoDir, "add", "feature.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "feature commit")
+	mustRunGit(t, repoDir, "push", "--set-upstream", "origin", "feature/old")
+
+	// Delete the remote branch (simulates PR merge + branch cleanup).
+	mustRunGit(t, originDir, "branch", "-D", "feature/old")
+
+	// runUpdate should detect the deleted remote branch and switch to default.
+	if err := runUpdate([]string{"repo1"}); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+
+	branch := gitCurrentBranch(t, repoDir)
+	if branch != "main" {
+		t.Errorf("expected to be on default branch 'main', got %q", branch)
+	}
+}
+
 func pushRemoteChange(t *testing.T, origin, filename string) {
 	t.Helper()
 	clone := cloneRepo(t, origin)

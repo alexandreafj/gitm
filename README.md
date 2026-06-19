@@ -901,6 +901,7 @@ gitm update [flags]
 2. For each repository (in parallel):
    - Checks for uncommitted changes — skips if dirty.
    - Runs `git pull --ff-only` on the current branch.
+   - If the remote branch no longer exists (e.g. deleted after a PR merge), automatically switches to the default branch and pulls that instead.
 3. Streams results live with a summary.
 4. If a `--repo` alias doesn't match any registered repository, the command exits with an error before pulling anything.
 

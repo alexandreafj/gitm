@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +21,9 @@ func updateCmd() *cobra.Command {
 		Long: `Run git pull on the current branch of every registered repository in parallel.
 Unlike 'checkout master', this does NOT switch branches — it just pulls
 whatever branch each repo is currently on.
+
+If the remote branch no longer exists (e.g. deleted after a PR merge), the
+repository is automatically switched to its default branch and pulled.
 
 Repositories with uncommitted changes are skipped.
 
@@ -67,9 +71,21 @@ func runUpdate(repoAliases []string) error {
 			return "", "", fmt.Errorf("get current branch: %w", err)
 		}
 
-		out, err := git.Pull(repo.Path)
-		if err != nil {
-			return "", "", fmt.Errorf("pull: %w", err)
+		out, pullErr := git.Pull(repo.Path)
+		if pullErr != nil {
+			if strings.Contains(pullErr.Error(), "no such ref was fetched") {
+				def := repo.DefaultBranch
+				if err := git.Checkout(repo.Path, def); err != nil {
+					return "", "", fmt.Errorf("remote branch gone, switch to %s failed: %w", def, err)
+				}
+				out, err = git.Pull(repo.Path)
+				if err != nil {
+					return "", "", fmt.Errorf("pull %s: %w", def, err)
+				}
+				msg := fmt.Sprintf("remote branch %s gone → switched to %s — %s", branch, def, summarisePull(out))
+				return msg, "", nil
+			}
+			return "", "", fmt.Errorf("pull: %w", pullErr)
 		}
 
 		msg := fmt.Sprintf("on %s — %s", branch, summarisePull(out))
