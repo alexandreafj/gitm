@@ -1029,13 +1029,21 @@ gitm commit [flags]
 2. **Filters** to dirty repos only — repos on their default branch are shown but marked `⛔ protected branch` and cannot be selected.
 3. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
 4. For each selected repo, **sequentially**:
-   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, dim `??`). Nothing is pre-selected.
+   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, orange `U` for conflicts, dim `??`). Nothing is pre-selected.
    - **Commit message input** — single-line text input; rejects empty messages.
    - `git add -- <selected files>`
-   - `git commit -m "<message>"`
+   - `git commit -m "<message>"` (during a merge, commits the entire index to complete the merge)
    - `git push --set-upstream origin <branch>` (skipped with `--no-push`)
    - Live result printed per repo.
 5. **Final summary** — `N committed, N skipped, N failed`.
+
+**Merge conflict resolution:**
+
+If a repository is in the middle of a merge (e.g. after `git merge` produced conflicts), `gitm commit` handles it automatically. Resolve the conflicted files, select them in the file picker, and commit — gitm detects the merge state and uses a full-index commit (no pathspec) as git requires.
+
+**Rebase / cherry-pick / revert guard:**
+
+Repos with an in-progress rebase, cherry-pick, or revert are **skipped** with a message hinting to use `git <operation> --continue` instead.
 
 **Example flow:**
 

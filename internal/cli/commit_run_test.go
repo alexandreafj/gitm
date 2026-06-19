@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -286,5 +288,100 @@ func TestRunCommit_RepoFlag_AllDirtyProtected(t *testing.T) {
 	log1 := mustRunGit(t, repo1Dir, "log", "--oneline")
 	if strings.Contains(log1, "should not be called") {
 		t.Errorf("repo1: unexpected commit on protected branch: %s", log1)
+	}
+}
+
+func TestRunCommit_MergeConflictResolution(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Create a merge conflict.
+	writeFile(t, repoDir, "shared.txt", "base\n")
+	mustRunGit(t, repoDir, "add", "shared.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "base content")
+
+	mustRunGit(t, repoDir, "checkout", "-b", "feature")
+	writeFile(t, repoDir, "shared.txt", "feature change\n")
+	mustRunGit(t, repoDir, "add", "shared.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "feature edit")
+
+	mustRunGit(t, repoDir, "checkout", "main")
+	writeFile(t, repoDir, "shared.txt", "main change\n")
+	mustRunGit(t, repoDir, "add", "shared.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "main edit")
+
+	mustRunGit(t, repoDir, "checkout", "feature")
+	// Start a merge that will conflict.
+	mergeCmd := exec.Command("git", "merge", "--no-edit", "main")
+	mergeCmd.Dir = repoDir
+	if err := mergeCmd.Run(); err == nil {
+		t.Fatal("expected merge to fail on conflicting changes")
+	}
+
+	// Resolve the conflict.
+	writeFile(t, repoDir, "shared.txt", "resolved\n")
+
+	ui := fakeUI{commitMsg: "resolve merge"}
+	if err := runCommitWithUI(ui, true, []string{"repo1"}); err != nil {
+		t.Fatalf("runCommitWithUI: %v", err)
+	}
+
+	// Verify the merge commit was created.
+	logOut := mustRunGit(t, repoDir, "log", "-1", "--format=%s")
+	if !strings.Contains(logOut, "resolve merge") {
+		t.Errorf("expected merge commit message, got: %s", logOut)
+	}
+
+	// Verify MERGE_HEAD is gone.
+	if _, err := os.Stat(filepath.Join(repoDir, ".git", "MERGE_HEAD")); !os.IsNotExist(err) {
+		t.Error("expected MERGE_HEAD to be removed after merge commit")
+	}
+}
+
+func TestRunCommit_RebaseInProgressSkips(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Create commits that will conflict during rebase.
+	writeFile(t, repoDir, "shared.txt", "base\n")
+	mustRunGit(t, repoDir, "add", "shared.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "base")
+
+	mustRunGit(t, repoDir, "checkout", "-b", "feature")
+	writeFile(t, repoDir, "shared.txt", "feature change\n")
+	mustRunGit(t, repoDir, "add", "shared.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "feature edit")
+
+	mustRunGit(t, repoDir, "checkout", "main")
+	writeFile(t, repoDir, "shared.txt", "main change\n")
+	mustRunGit(t, repoDir, "add", "shared.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "main edit")
+
+	mustRunGit(t, repoDir, "checkout", "feature")
+	// Start a rebase that will conflict.
+	rebaseCmd := exec.Command("git", "rebase", "main")
+	rebaseCmd.Dir = repoDir
+	if err := rebaseCmd.Run(); err == nil {
+		t.Fatal("expected rebase to fail on conflicting changes")
+	}
+
+	// Dirty the repo so the commit flow would normally try to commit.
+	writeFile(t, repoDir, "extra.txt", "dirty\n")
+
+	ui := fakeUI{commitMsg: "should not commit"}
+	if err := runCommitWithUI(ui, true, []string{"repo1"}); err != nil {
+		t.Fatalf("runCommitWithUI: %v", err)
+	}
+
+	// Verify no commit was created with our message.
+	logOut := mustRunGit(t, repoDir, "log", "--oneline", "--all")
+	if strings.Contains(logOut, "should not commit") {
+		t.Errorf("expected rebase repo to be skipped, but found commit: %s", logOut)
 	}
 }
