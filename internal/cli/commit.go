@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -87,7 +88,7 @@ func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, current
 	var candidates []candidate
 
 	for _, repo := range repos {
-		dirty, dirtyErr := git.IsDirty(repo.Path)
+		dirty, dirtyErr := git.IsDirtyTrackedOnly(repo.Path)
 		if dirtyErr != nil {
 			color.Yellow("  ⚠  %s: cannot check status (%v) — skipping", repo.Alias, dirtyErr)
 			continue
@@ -174,12 +175,18 @@ repoLoop:
 			}
 		}
 
-		// 3a. Get dirty files.
-		porcelainLines, err := git.DirtyFilesWithStatus(repo.Path)
+		// 3a. Get dirty tracked files (untracked files belong in `gitm track`).
+		allLines, err := git.DirtyFilesWithStatus(repo.Path)
 		if err != nil {
 			color.Red("  ✗ Cannot list dirty files: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})
 			continue
+		}
+		var porcelainLines []string
+		for _, l := range allLines {
+			if !strings.HasPrefix(l, "??") {
+				porcelainLines = append(porcelainLines, l)
+			}
 		}
 		if len(porcelainLines) == 0 {
 			color.Yellow("  ⚠  No dirty files found (may have been cleaned externally) — skipping")

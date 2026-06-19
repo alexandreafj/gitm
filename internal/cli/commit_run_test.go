@@ -41,7 +41,7 @@ func TestRunCommit_CanceledSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
-	writeFile(t, repoDir, "dirty.txt", "dirty\n")
+	writeFile(t, repoDir, "README.md", "modified\n")
 
 	ui := fakeUI{selectErr: errors.New("canceled")}
 	if err := runCommitWithUI(ui, false, nil); err != nil {
@@ -56,7 +56,7 @@ func TestRunCommit_SuccessNoPush(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
-	writeFile(t, repoDir, "dirty.txt", "dirty\n")
+	writeFile(t, repoDir, "README.md", "modified\n")
 
 	mustRunGit(t, repoDir, "checkout", "-b", "AA-111")
 
@@ -83,7 +83,7 @@ func TestRunCommit_FileSelectError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
-	writeFile(t, repoDir, "dirty.txt", "dirty\n")
+	writeFile(t, repoDir, "README.md", "modified\n")
 
 	ui := fakeUI{fileErr: errors.New("boom")}
 	if err := runCommitWithUI(ui, true, nil); err != nil {
@@ -98,7 +98,7 @@ func TestRunCommit_CommitMessageCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
-	writeFile(t, repoDir, "dirty.txt", "dirty\n")
+	writeFile(t, repoDir, "README.md", "modified\n")
 
 	ui := fakeUI{commitErr: errors.New("canceled")}
 	if err := runCommitWithUI(ui, true, nil); err != nil {
@@ -113,9 +113,9 @@ func TestRunCommit_StageError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
-	writeFile(t, repoDir, "dirty.txt", "dirty\n")
+	writeFile(t, repoDir, "README.md", "modified\n")
 
-	ui := fakeUI{fileSelect: []string{"?? missing.txt"}}
+	ui := fakeUI{fileSelect: []string{" M missing.txt"}}
 	if err := runCommitWithUI(ui, true, nil); err != nil {
 		t.Fatalf("runCommitWithUI: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestRunCommit_BranchLookupFailureWarnsAndContinues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
-	writeFile(t, repoDir, "dirty.txt", "dirty\n")
+	writeFile(t, repoDir, "README.md", "modified\n")
 
 	var seenBranch string
 	ui := fakeUI{commitMsg: "add new feature", branchSeen: &seenBranch}
@@ -190,7 +190,7 @@ func TestRunCommit_RepoFlag_TargetsOnlySpecifiedRepos(t *testing.T) {
 	// repo1 — dirty, on feature branch
 	repo1Dir := initRepo(t)
 	mustRunGit(t, repo1Dir, "checkout", "-b", "feature/AA-1")
-	writeFile(t, repo1Dir, "change1.txt", "dirty\n")
+	writeFile(t, repo1Dir, "README.md", "modified\n")
 	if _, err := database.AddRepository("repo1", "repo1", repo1Dir, "main"); err != nil {
 		t.Fatalf("AddRepository repo1: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestRunCommit_RepoFlag_TargetsOnlySpecifiedRepos(t *testing.T) {
 	// repo2 — dirty, on feature branch
 	repo2Dir := initRepo(t)
 	mustRunGit(t, repo2Dir, "checkout", "-b", "feature/AA-1")
-	writeFile(t, repo2Dir, "change2.txt", "dirty\n")
+	writeFile(t, repo2Dir, "README.md", "modified\n")
 	if _, err := database.AddRepository("repo2", "repo2", repo2Dir, "main"); err != nil {
 		t.Fatalf("AddRepository repo2: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestRunCommit_RepoFlag_TargetsOnlySpecifiedRepos(t *testing.T) {
 	// repo3 — dirty, on feature branch — NOT in --repo list
 	repo3Dir := initRepo(t)
 	mustRunGit(t, repo3Dir, "checkout", "-b", "feature/AA-1")
-	writeFile(t, repo3Dir, "change3.txt", "dirty\n")
+	writeFile(t, repo3Dir, "README.md", "modified\n")
 	if _, err := database.AddRepository("repo3", "repo3", repo3Dir, "main"); err != nil {
 		t.Fatalf("AddRepository repo3: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestRunCommit_RepoFlag_AllDirtyProtected(t *testing.T) {
 
 	// repo1 — dirty but on default branch (protected)
 	repo1Dir := initRepo(t)
-	writeFile(t, repo1Dir, "change.txt", "dirty\n")
+	writeFile(t, repo1Dir, "README.md", "modified\n")
 	if _, err := database.AddRepository("repo1", "repo1", repo1Dir, "main"); err != nil {
 		t.Fatalf("AddRepository repo1: %v", err)
 	}
@@ -370,9 +370,6 @@ func TestRunCommit_RebaseInProgressSkips(t *testing.T) {
 	if err := rebaseCmd.Run(); err == nil {
 		t.Fatal("expected rebase to fail on conflicting changes")
 	}
-
-	// Dirty the repo so the commit flow would normally try to commit.
-	writeFile(t, repoDir, "extra.txt", "dirty\n")
 
 	ui := fakeUI{commitMsg: "should not commit"}
 	if err := runCommitWithUI(ui, true, []string{"repo1"}); err != nil {
