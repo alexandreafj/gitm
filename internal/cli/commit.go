@@ -27,6 +27,13 @@ lets you pick which repos to commit, then walks through each one sequentially:
 
 Repositories on their default branch are shown but cannot be selected (protected).
 
+If a repository is in the middle of a merge, the commit automatically completes
+the merge (git forbids partial commits during a merge, so all staged changes are
+included). Conflict files are shown in orange in the file picker.
+
+Repositories with an in-progress rebase, cherry-pick, or revert are skipped with
+a hint to use the appropriate --continue command instead.
+
 Use --repo to target specific repositories by alias, bypassing the interactive
 multi-select UI entirely. Non-dirty repos in the list are silently skipped.`,
 		Example: `  gitm commit
@@ -151,8 +158,21 @@ func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, current
 	// Step 3: Sequential per-repo commit workflow.
 	results := make([]repoCommitResult, 0, len(chosen))
 
+repoLoop:
 	for _, repo := range chosen {
 		fmt.Printf("\n%s\n", color.CyanString("━━━ %s ━━━", repo.Alias))
+
+		// 3-pre. Skip repos with in-progress rebase/cherry-pick/revert.
+		ops, opsErr := git.InProgressOperations(repo.Path)
+		if opsErr == nil {
+			for _, op := range ops {
+				if op == "rebase" || op == "cherry-pick" || op == "revert" {
+					color.Yellow("  ⚠  %s in progress — resolve with `git %s --continue`, not `gitm commit`. Skipping.", op, op)
+					results = append(results, repoCommitResult{alias: repo.Alias, skipped: true})
+					continue repoLoop
+				}
+			}
+		}
 
 		// 3a. Get dirty files.
 		porcelainLines, err := git.DirtyFilesWithStatus(repo.Path)
@@ -213,8 +233,18 @@ func runCommitWithBranchLookup(ui ui, noPush bool, repoAliases []string, current
 		}
 		color.Green("  ✓ Staged %d file(s)", len(selectedFiles))
 
-		// 3e. Commit.
-		out, err := git.Commit(repo.Path, message, selectedFiles)
+		// 3e. Commit — use CommitMerge during an active merge (git forbids pathspec commits).
+		merging, mergeErr := git.IsMerging(repo.Path)
+		if mergeErr != nil {
+			color.Yellow("  ⚠  Cannot detect merge state: %v — proceeding with standard commit", mergeErr)
+		}
+
+		var out string
+		if merging {
+			out, err = git.CommitMerge(repo.Path, message)
+		} else {
+			out, err = git.Commit(repo.Path, message, selectedFiles)
+		}
 		if err != nil {
 			color.Red("  ✗ git commit failed: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})

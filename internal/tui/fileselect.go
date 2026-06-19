@@ -10,11 +10,12 @@ import (
 
 // File status color styles (porcelain prefix).
 var (
-	statusMStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true) // M  modified   → yellow
-	statusAStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // A  added      → green
-	statusDStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true) // D  deleted    → red
-	statusUStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))            // ?? untracked  → dim
-	statusRStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true) // R  renamed    → magenta
+	statusMStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true)   // M  modified   → yellow
+	statusAStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)   // A  added      → green
+	statusDStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)   // D  deleted    → red
+	statusUStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))              // ?? untracked  → dim
+	statusRStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)   // R  renamed    → magenta
+	statusConflictStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true) // U  conflict   → orange
 )
 
 // fileLine holds a parsed porcelain entry.
@@ -40,6 +41,8 @@ func renderStatus(status string) string {
 	}
 	padded := fmt.Sprintf("%-2s", s)
 	switch {
+	case strings.Contains(s, "U"):
+		return statusConflictStyle.Render(padded)
 	case strings.Contains(s, "M"):
 		return statusMStyle.Render(padded)
 	case strings.Contains(s, "A"):

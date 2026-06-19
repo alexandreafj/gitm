@@ -430,6 +430,12 @@ func Commit(path, message string, files []string) (string, error) {
 	return run(path, args...)
 }
 
+// CommitMerge completes a merge commit without a pathspec. Git forbids partial
+// commits during a merge, so this commits the entire staged index.
+func CommitMerge(path, message string) (string, error) {
+	return run(path, "commit", "-m", message)
+}
+
 // Push pushes the current branch to origin.
 // If no upstream is set yet, it sets one automatically.
 func Push(path string) error {
@@ -592,6 +598,25 @@ func InProgressOperations(path string) ([]string, error) {
 		}
 	}
 	return ops, nil
+}
+
+// IsMerging reports whether the repository is in the middle of a merge.
+func IsMerging(path string) (bool, error) {
+	gitPath, err := run(path, "rev-parse", "--git-path", "MERGE_HEAD")
+	if err != nil {
+		return false, fmt.Errorf("check merge state: %w", err)
+	}
+	if !filepath.IsAbs(gitPath) {
+		gitPath = filepath.Join(path, gitPath)
+	}
+	_, err = os.Stat(gitPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat MERGE_HEAD: %w", err)
+	}
+	return true, nil
 }
 
 // RepoName returns the base directory name of a repository path.
