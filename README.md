@@ -963,7 +963,7 @@ gitm sync [flags]
 **Behaviour (per repository, in parallel):**
 
 1. Detects the repository's default branch automatically (`main` or `master`, from the value stored at `repo add`).
-2. **Skips** repos with uncommitted changes (stash or commit first).
+2. **Skips** repos with uncommitted tracked changes (stash or commit first). Untracked files do not block the sync.
 3. **Skips** repos already on their default branch (use `gitm update` to pull instead).
 4. Fetches the latest default branch from `origin`, then merges `origin/<default>` into the current branch (falls back to the local default branch when there is no remote).
 5. **Merge conflicts are left in place** — the repo is reported and kept in its merging state so you can resolve the conflicts and commit. A conflict is not treated as a failure; the command still exits 0.

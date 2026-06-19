@@ -227,15 +227,14 @@ func TestRunSync_AllFlagBypassesTUI(t *testing.T) {
 	}
 }
 
-func TestRunSync_SkipsUntrackedChanges(t *testing.T) {
+func TestRunSync_AllowsUntrackedFiles(t *testing.T) {
 	database = setupTestDB(t)
 	dir, originDir, _ := initRepoWithRemote(t)
 
 	mustRunGit(t, dir, "checkout", "-b", "feature/x")
 	advanceOriginMain(t, originDir, "frommain.go", "package main\n")
 
-	// An untracked file can collide with a path the merge introduces, so sync
-	// requires a fully clean tree and skips repos with untracked files too.
+	// Untracked files should not block sync — they don't interfere with merges.
 	writeFile(t, dir, "scratch.txt", "untracked\n")
 
 	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
@@ -247,8 +246,8 @@ func TestRunSync_SkipsUntrackedChanges(t *testing.T) {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
-	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr == nil {
-		t.Error("repo with untracked changes should be skipped, but origin/main was merged")
+	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr != nil {
+		t.Errorf("expected frommain.go to be merged, but sync was blocked: %v", statErr)
 	}
 }
 

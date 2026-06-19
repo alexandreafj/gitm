@@ -44,8 +44,10 @@ Selection:
       Sync every registered repository (no prompt).
 
 Repositories are skipped when:
-  - they have uncommitted changes (stash or commit first), or
+  - they have uncommitted tracked changes (stash or commit first), or
   - they are already on their default branch (use "gitm update" to pull).
+
+Untracked files do not block the sync.
 
 Merge conflicts are left in place so you can resolve them yourself: the repo is
 reported and kept in its merging state — resolve the conflicts and commit.`,
@@ -110,7 +112,7 @@ func runSyncWithUI(ui ui, selectAll bool, repoAliases []string) error {
 	)
 
 	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
-		dirty, err := git.IsDirty(repo.Path)
+		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status: %w", err)
 		}
