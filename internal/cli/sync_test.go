@@ -17,8 +17,21 @@ func TestSyncCmdExists(t *testing.T) {
 }
 
 func TestSyncCmdHasUse(t *testing.T) {
-	if cmd := syncCmd(); cmd.Use != "sync" {
-		t.Errorf("syncCmd Use = %q, want %q", cmd.Use, "sync")
+	if cmd := syncCmd(); cmd.Use != "sync [branch]" {
+		t.Errorf("syncCmd Use = %q, want %q", cmd.Use, "sync [branch]")
+	}
+}
+
+func TestSyncCmdAcceptsBranchArg(t *testing.T) {
+	cmd := syncCmd()
+	if err := cmd.Args(cmd, []string{}); err != nil {
+		t.Errorf("syncCmd should accept zero args, got error: %v", err)
+	}
+	if err := cmd.Args(cmd, []string{"master-raw"}); err != nil {
+		t.Errorf("syncCmd should accept one positional branch arg, got error: %v", err)
+	}
+	if err := cmd.Args(cmd, []string{"a", "b"}); err == nil {
+		t.Error("syncCmd should reject more than one positional arg")
 	}
 }
 
@@ -68,6 +81,22 @@ func advanceOriginMain(t *testing.T, originDir, filename, content string) {
 	mustRunGit(t, clone, "push", "origin", "main")
 }
 
+// advanceOriginBranch creates (or fast-forwards) an arbitrary branch on origin by
+// cloning the bare origin, branching off its default, committing, and pushing —
+// used to set up a non-default branch (e.g. "staging") for sync to merge.
+func advanceOriginBranch(t *testing.T, originDir, branch, filename, content string) {
+	t.Helper()
+	clone := cloneRepo(t, originDir)
+	mustRunGit(t, clone, "config", "user.email", "test@example.com")
+	mustRunGit(t, clone, "config", "user.name", "Test User")
+	mustRunGit(t, clone, "config", "commit.gpgsign", "false")
+	mustRunGit(t, clone, "checkout", "-B", branch)
+	writeFile(t, clone, filename, content)
+	mustRunGit(t, clone, "add", ".")
+	mustRunGit(t, clone, "commit", "-m", "advance "+branch+": "+filename)
+	mustRunGit(t, clone, "push", "origin", branch)
+}
+
 func TestRunSync_MergesDefaultIntoCurrent(t *testing.T) {
 	database = setupTestDB(t)
 	dir, originDir, _ := initRepoWithRemote(t)
@@ -80,7 +109,7 @@ func TestRunSync_MergesDefaultIntoCurrent(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil); err != nil {
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
@@ -107,7 +136,7 @@ func TestRunSync_SkipsDirty(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil); err != nil {
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
@@ -132,7 +161,7 @@ func TestRunSync_SkipsWhenOnDefaultBranch(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil); err != nil {
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
@@ -170,7 +199,7 @@ func TestRunSync_LeavesConflictInPlace(t *testing.T) {
 	}
 
 	// A conflict is an expected outcome, not a hard failure → no error returned.
-	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil); err != nil {
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI returned error on conflict (should be nil): %v", err)
 	}
 
@@ -197,7 +226,7 @@ func TestRunSync_RepoFlagBypassesTUI(t *testing.T) {
 	// selectErr ensures the test fails if MultiSelect is consulted — proving
 	// --repo bypasses the interactive picker.
 	ui := fakeUI{selectErr: fmt.Errorf("MultiSelect should not be called with --repo")}
-	if err := runSyncWithUI(ui, false, []string{"repo1"}); err != nil {
+	if err := runSyncWithUI(ui, false, []string{"repo1"}, ""); err != nil {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
@@ -218,7 +247,7 @@ func TestRunSync_AllFlagBypassesTUI(t *testing.T) {
 	}
 
 	ui := fakeUI{selectErr: fmt.Errorf("MultiSelect should not be called with --all")}
-	if err := runSyncWithUI(ui, true, nil); err != nil {
+	if err := runSyncWithUI(ui, true, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
@@ -242,7 +271,7 @@ func TestRunSync_AllowsUntrackedFiles(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil); err != nil {
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI: %v", err)
 	}
 
@@ -261,7 +290,7 @@ func TestRunSync_ReturnsErrorOnFailure(t *testing.T) {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	err = runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil)
+	err = runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "")
 	if err == nil {
 		t.Fatal("expected error when a repo fails, got nil")
 	}
@@ -272,7 +301,93 @@ func TestRunSync_ReturnsErrorOnFailure(t *testing.T) {
 
 func TestRunSync_NoRepos(t *testing.T) {
 	database = setupTestDB(t)
-	if err := runSyncWithUI(fakeUI{}, false, nil); err != nil {
+	if err := runSyncWithUI(fakeUI{}, false, nil, ""); err != nil {
 		t.Fatalf("runSyncWithUI with no repos: %v", err)
+	}
+}
+
+func TestRunSync_MergesSpecifiedBranch(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+
+	// A non-default branch "staging" exists on origin with a unique file.
+	advanceOriginBranch(t, originDir, "staging", "fromstaging.go", "package staging\n")
+
+	mustRunGit(t, dir, "checkout", "-b", "feature/x")
+
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// Sync the explicit branch instead of the default (main).
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "staging"); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(dir, "fromstaging.go")); statErr != nil {
+		t.Errorf("expected fromstaging.go to be merged from origin/staging: %v", statErr)
+	}
+	if head := gitCurrentBranch(t, dir); head != "feature/x" {
+		t.Fatalf("expected to stay on feature/x, got %q", head)
+	}
+}
+
+func TestRunSync_SkipsWhenOnSpecifiedBranch(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+
+	// Check out staging locally so we are *on* the branch being synced.
+	advanceOriginBranch(t, originDir, "staging", "fromstaging.go", "package staging\n")
+	mustRunGit(t, dir, "fetch", "origin")
+	mustRunGit(t, dir, "checkout", "staging")
+
+	// Advance origin/main with a unique file; if sync wrongly merged the default
+	// branch, this file would appear in the working tree.
+	advanceOriginMain(t, originDir, "frommain.go", "package main\n")
+
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "staging"); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+
+	// Syncing a branch into itself is a no-op: nothing from the default branch
+	// should have been merged.
+	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr == nil {
+		t.Error("on the specified branch sync should be a no-op, but origin/main was merged")
+	}
+	if head := gitCurrentBranch(t, dir); head != "staging" {
+		t.Fatalf("expected to stay on staging, got %q", head)
+	}
+}
+
+func TestRunSync_SpecifiedBranchNotFound(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+
+	mustRunGit(t, dir, "checkout", "-b", "feature/x")
+	// Advance origin/main so the default-branch path would merge something — proving
+	// the requested (missing) branch, not the default, drives the outcome.
+	advanceOriginMain(t, originDir, "frommain.go", "package main\n")
+
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// A branch that exists neither locally nor on origin is a skip, not an error.
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "nope-not-real"); err != nil {
+		t.Fatalf("runSyncWithUI returned error for missing branch (should skip): %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr == nil {
+		t.Error("missing branch should be skipped, but the default branch was merged instead")
+	}
+	if head := gitCurrentBranch(t, dir); head != "feature/x" {
+		t.Fatalf("expected to stay on feature/x, got %q", head)
 	}
 }
