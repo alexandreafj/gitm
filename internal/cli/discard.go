@@ -12,7 +12,10 @@ import (
 )
 
 func discardCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "discard",
@@ -31,18 +34,25 @@ Depending on the file status, the appropriate git command is used:
 
 Use --repo / -r to target specific repositories by alias, bypassing the
 interactive multi-select UI entirely. Non-dirty repos are silently skipped.
+Use --group / -g to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.
 
 WARNING: This operation is irreversible. Discarded changes cannot be recovered.`,
 		Example: `  gitm discard
+  gitm discard --group backend
   gitm discard --repo my-api
-  gitm discard -r api-gateway,auth-service`,
+  gitm discard -r api-gateway,auth-service -g backend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiscard(repoAliases)
+			if groupName == "" {
+				return runDiscard(repoAliases)
+			}
+			return runDiscardWithGroup(repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
@@ -56,16 +66,24 @@ type discardResult struct {
 }
 
 func runDiscard(repoAliases []string) error {
-	return runDiscardWithUI(liveUI{}, repoAliases)
+	return runDiscardWithGroup(repoAliases, "")
+}
+
+func runDiscardWithGroup(repoAliases []string, groupName string) error {
+	return runDiscardWithUIAndGroup(liveUI{}, repoAliases, groupName)
 }
 
 func runDiscardWithUI(ui ui, repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runDiscardWithUIAndGroup(ui, repoAliases, "")
+}
+
+func runDiscardWithUIAndGroup(ui ui, repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
 	if len(repos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 

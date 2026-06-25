@@ -13,7 +13,10 @@ import (
 )
 
 func stashCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "stash",
@@ -27,20 +30,27 @@ Subcommands:
   gitm stash list   — show all repos that have stash entries
 
 Use --repo / -r to target specific repositories by alias, bypassing the
-interactive multi-select UI entirely. Non-dirty repos are silently skipped.`,
+interactive multi-select UI entirely. Non-dirty repos are silently skipped.
+Use --group / -g to limit candidates to repositories in a group.
+When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm stash
+  gitm stash -g backend
   gitm stash -r api-gateway
-  gitm stash -r api-gateway,auth-service
+  gitm stash -r api-gateway,auth-service -g backend
   gitm stash apply -r api-gateway
   gitm stash pop --repo=api-gateway,auth-service
-  gitm stash list -r api-gateway`,
+  gitm stash list -r api-gateway -g backend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStashPush(repoAliases)
+			if groupName == "" {
+				return runStashPush(repoAliases)
+			}
+			return runStashPushWithGroup(repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 
 	cmd.AddCommand(stashApplyCmd())
 	cmd.AddCommand(stashPopCmd())
@@ -50,11 +60,19 @@ interactive multi-select UI entirely. Non-dirty repos are silently skipped.`,
 }
 
 func runStashPush(repoAliases []string) error {
-	return runStashPushWithUI(liveUI{}, repoAliases)
+	return runStashPushWithGroup(repoAliases, "")
+}
+
+func runStashPushWithGroup(repoAliases []string, groupName string) error {
+	return runStashPushWithUIAndGroup(liveUI{}, repoAliases, groupName)
 }
 
 func runStashPushWithUI(ui ui, repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runStashPushWithUIAndGroup(ui, repoAliases, "")
+}
+
+func runStashPushWithUIAndGroup(ui ui, repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
@@ -107,43 +125,65 @@ func runStashPushWithUI(ui ui, repoAliases []string) error {
 }
 
 func stashApplyCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Apply the latest stash in selected repositories (keeps stash)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStashApplyOrPop(false, repoAliases)
+			if groupName == "" {
+				return runStashApplyOrPop(false, repoAliases)
+			}
+			return runStashApplyOrPopWithGroup(false, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 	return cmd
 }
 
 func stashPopCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "pop",
 		Short: "Apply and drop the latest stash in selected repositories",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStashApplyOrPop(true, repoAliases)
+			if groupName == "" {
+				return runStashApplyOrPop(true, repoAliases)
+			}
+			return runStashApplyOrPopWithGroup(true, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	addGroupFlag(cmd, &groupName)
 	return cmd
 }
 
 func runStashApplyOrPop(pop bool, repoAliases []string) error {
-	return runStashApplyOrPopWithUI(liveUI{}, pop, repoAliases)
+	return runStashApplyOrPopWithGroup(pop, repoAliases, "")
+}
+
+func runStashApplyOrPopWithGroup(pop bool, repoAliases []string, groupName string) error {
+	return runStashApplyOrPopWithUIAndGroup(liveUI{}, pop, repoAliases, groupName)
 }
 
 func runStashApplyOrPopWithUI(ui ui, pop bool, repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runStashApplyOrPopWithUIAndGroup(ui, pop, repoAliases, "")
+}
+
+func runStashApplyOrPopWithUIAndGroup(ui ui, pop bool, repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
@@ -203,23 +243,34 @@ func runStashApplyOrPopWithUI(ui ui, pop bool, repoAliases []string) error {
 }
 
 func stashListCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "Show repositories that have stash entries",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStashListFn(repoAliases)
+			if groupName == "" {
+				return runStashListFn(repoAliases)
+			}
+			return runStashListWithGroup(repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 	return cmd
 }
 
 func runStashListFn(repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runStashListWithGroup(repoAliases, "")
+}
+
+func runStashListWithGroup(repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}

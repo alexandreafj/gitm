@@ -34,6 +34,7 @@ func repoAddCmd() *cobra.Command {
 	var alias string
 	var autoDetect bool
 	var depth int
+	var groupNames []string
 
 	cmd := &cobra.Command{
 		Use:   "add <path> [path...]",
@@ -48,6 +49,7 @@ one level deep (immediate children); use --depth N to scan N levels deep. This
 is useful when repos are nested inside grouping folders (e.g. project/v1, project/v2).`,
 		Example: `  gitm repo add .
   gitm repo add /home/user/work/api-gateway
+  gitm repo add /home/user/work/api-gateway --group backend
   gitm repo add /home/user/work/api-gateway /home/user/work/auth-service
   gitm repo add /home/user/work/www-api/v1 --alias www-v1
 
@@ -72,6 +74,9 @@ is useful when repos are nested inside grouping folders (e.g. project/v1, projec
 			}
 			if depth < 1 {
 				return fmt.Errorf("--depth must be at least 1")
+			}
+			if err := validateRepoAddGroups(groupNames); err != nil {
+				return err
 			}
 
 			// --auto-detect: expand the single parent dir into its git-repo children.
@@ -128,6 +133,11 @@ is useful when repos are nested inside grouping folders (e.g. project/v1, projec
 					if strings.Contains(err.Error(), "UNIQUE constraint") {
 						// Check if this is a path duplicate (idempotent re-add).
 						if existing, pathErr := database.GetRepositoryByPath(abs); pathErr == nil {
+							if groupErr := addRepoToRequestedGroups(existing.Alias, groupNames); groupErr != nil {
+								color.Red("  ✗ %s: %v", existing.Alias, groupErr)
+								failed++
+								continue
+							}
 							// Path already registered under a (possibly different) alias.
 							color.Yellow("  ⚠ %s: already registered as %q", abs, existing.Alias)
 						} else if aliasOwner, aliasErr := database.GetRepository(displayAlias); aliasErr == nil {
@@ -154,6 +164,11 @@ is useful when repos are nested inside grouping folders (e.g. project/v1, projec
 					}
 					continue
 				}
+				if groupErr := addRepoToRequestedGroups(displayAlias, groupNames); groupErr != nil {
+					color.Red("  ✗ %s: %v", displayAlias, groupErr)
+					failed++
+					continue
+				}
 
 				color.Green("  ✓ added %s (default branch: %s)", displayAlias, defaultBranch)
 				added++
@@ -172,7 +187,30 @@ is useful when repos are nested inside grouping folders (e.g. project/v1, projec
 	cmd.Flags().StringVar(&alias, "alias", "", "Custom display name for the repository (must be unique)")
 	cmd.Flags().BoolVar(&autoDetect, "auto-detect", false, "Scan subdirectories of the given path and register every git repository found (default depth 1; use --depth to scan deeper)")
 	cmd.Flags().IntVar(&depth, "depth", 1, "How many directory levels to scan when using --auto-detect (default 1)")
+	cmd.Flags().StringSliceVarP(&groupNames, "group", "g", nil, "Add repository to existing custom group(s) in addition to all")
 	return cmd
+}
+
+func validateRepoAddGroups(groupNames []string) error {
+	for _, groupName := range uniqueStrings(groupNames) {
+		name := strings.TrimSpace(groupName)
+		if name == db.DefaultGroupName {
+			return fmt.Errorf("group %q is automatic; omit --group %s: %w", db.DefaultGroupName, db.DefaultGroupName, db.ErrReservedGroup)
+		}
+		if _, err := database.GetGroup(name); err != nil {
+			return groupError("find group", name, err)
+		}
+	}
+	return nil
+}
+
+func addRepoToRequestedGroups(alias string, groupNames []string) error {
+	for _, groupName := range uniqueStrings(groupNames) {
+		if err := database.AddRepositoriesToGroup(groupName, []string{alias}); err != nil {
+			return groupError("add repository to group", groupName, err)
+		}
+	}
+	return nil
 }
 
 // discoverRepos scans subdirectories of parentDir up to maxDepth levels deep

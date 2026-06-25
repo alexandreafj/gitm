@@ -18,7 +18,10 @@ var defaultBranchKeywords = map[string]bool{
 }
 
 func checkoutCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "checkout [branch]",
@@ -40,31 +43,42 @@ Three modes of operation:
 
 Repositories are skipped when uncommitted changes conflict with the target branch.
 
-Use --repo to limit the operation to specific repositories by alias.`,
+Use --repo to limit the operation to specific repositories by alias.
+Use --group to limit the operation to repositories in a group.
+When both are provided, gitm checks out only aliases that also belong to the group.`,
 		Example: `  gitm checkout
   gitm checkout master
   gitm checkout feature/JIRA-12345
+  gitm checkout master --group backend
   gitm checkout master --repo=api-gateway,auth-service
-  gitm checkout feature/JIRA-12345 -r api-gateway`,
+  gitm checkout feature/JIRA-12345 -r api-gateway -g backend`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCheckoutWithUI(liveUI{}, args, repoAliases)
+			if groupName == "" {
+				return runCheckoutWithUI(liveUI{}, args, repoAliases)
+			}
+			return runCheckoutWithUIAndGroup(liveUI{}, args, repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil,
 		"Limit checkout to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
 
 func runCheckoutWithUI(ui ui, args []string, repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runCheckoutWithUIAndGroup(ui, args, repoAliases, "")
+}
+
+func runCheckoutWithUIAndGroup(ui ui, args []string, repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
 	if len(repos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 

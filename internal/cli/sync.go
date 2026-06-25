@@ -16,6 +16,7 @@ func syncCmd() *cobra.Command {
 	var (
 		repoAliases []string
 		selectAll   bool
+		groupName   string
 	)
 
 	cmd := &cobra.Command{
@@ -47,6 +48,9 @@ Selection:
   gitm sync --repo api-gateway,auth-service
       Sync only the named repositories (no prompt).
 
+  gitm sync --group backend
+      Show only repositories in the backend group when prompting.
+
   gitm sync --all
       Sync every registered repository (no prompt).
 
@@ -62,15 +66,17 @@ reported and kept in its merging state — resolve the conflicts and commit.`,
 		Example: `  gitm sync
   gitm sync --all
   gitm sync master-raw
-  gitm sync master-raw --repo=api-gateway,auth-service
-  gitm sync -r api-gateway`,
+  gitm sync --group backend
+  gitm sync master-raw --group backend
+  gitm sync --repo=api-gateway,auth-service
+  gitm sync master-raw -r api-gateway -g backend`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			branch := ""
 			if len(args) > 0 {
 				branch = strings.TrimSpace(args[0])
 			}
-			return runSyncWithUI(liveUI{}, selectAll, repoAliases, branch)
+			return runSyncWithUIAndGroup(liveUI{}, selectAll, repoAliases, groupName, branch)
 		},
 	}
 
@@ -78,17 +84,22 @@ reported and kept in its merging state — resolve the conflicts and commit.`,
 		"Limit sync to specific repository aliases (comma-separated)")
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false,
 		"Sync all registered repositories without prompting")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
 
 func runSyncWithUI(ui ui, selectAll bool, repoAliases []string, branch string) error {
-	allRepos, err := resolveRepos(repoAliases)
+	return runSyncWithUIAndGroup(ui, selectAll, repoAliases, "", branch)
+}
+
+func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupName, branch string) error {
+	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
 	if len(allRepos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 

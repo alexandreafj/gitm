@@ -13,7 +13,10 @@ import (
 )
 
 func updateCmd() *cobra.Command {
-	var repoAliases []string
+	var (
+		repoAliases []string
+		groupName   string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -28,30 +31,40 @@ repository is automatically switched to its default branch and pulled.
 Repositories with uncommitted changes are skipped.
 
 Use --repo to limit the update to specific repositories by alias.
-The flag can be repeated to target multiple repos.`,
+Use --group to limit the update to repositories in a group.
+When both are provided, gitm updates only aliases that also belong to the group.
+The repo flag can be repeated to target multiple repos.`,
 		Example: `  gitm update
   gitm update --repo=api-gateway
   gitm update --repo=api-gateway,auth-service,frontend
   gitm update -r api-gateway,auth-service`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUpdate(repoAliases)
+			if groupName == "" {
+				return runUpdate(repoAliases)
+			}
+			return runUpdateWithGroup(repoAliases, groupName)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil,
 		"Limit update to specific repository aliases (comma-separated)")
+	addGroupFlag(cmd, &groupName)
 
 	return cmd
 }
 
 func runUpdate(repoAliases []string) error {
-	repos, err := resolveRepos(repoAliases)
+	return runUpdateWithGroup(repoAliases, "")
+}
+
+func runUpdateWithGroup(repoAliases []string, groupName string) error {
+	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
 	}
 	if len(repos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 
@@ -99,6 +112,55 @@ func runUpdate(repoAliases []string) error {
 }
 
 func resolveRepos(aliases []string) ([]*db.Repository, error) {
+	return resolveReposByAlias(aliases)
+}
+
+// noReposMessage returns the right empty-state message: a registration hint when
+// nothing is registered at all, or a filter hint when --repo/--group narrowed the
+// set to nothing (so we don't wrongly tell the user to add repositories).
+func noReposMessage(aliases []string, groupName string) string {
+	if len(aliases) > 0 || strings.TrimSpace(groupName) != "" {
+		return "No repositories match the given --repo/--group filters."
+	}
+	return "No repositories registered. Run `gitm repo add <path>` to add one."
+}
+
+func resolveReposWithGroup(aliases []string, groupName string) ([]*db.Repository, error) {
+	groupName = strings.TrimSpace(groupName)
+	if groupName == "" {
+		return resolveRepos(aliases)
+	}
+
+	groupRepos, err := database.ListRepositoriesByGroup(groupName)
+	if err != nil {
+		if errors.Is(err, db.ErrGroupNotFound) {
+			return nil, fmt.Errorf("group %q not found — run `gitm group list` to see groups: %w", groupName, err)
+		}
+		return nil, fmt.Errorf("list repositories in group %q: %w", groupName, err)
+	}
+	if len(aliases) == 0 {
+		return groupRepos, nil
+	}
+
+	groupAliases := make(map[string]bool, len(groupRepos))
+	for _, repo := range groupRepos {
+		groupAliases[repo.Alias] = true
+	}
+
+	repos, err := resolveReposByAlias(aliases)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]*db.Repository, 0, len(repos))
+	for _, repo := range repos {
+		if groupAliases[repo.Alias] {
+			filtered = append(filtered, repo)
+		}
+	}
+	return filtered, nil
+}
+
+func resolveReposByAlias(aliases []string) ([]*db.Repository, error) {
 	if len(aliases) == 0 {
 		return database.ListRepositories()
 	}
