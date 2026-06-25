@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -27,6 +28,13 @@ lets you pick which repos to commit, then walks through each one sequentially:
   3. Stage selected files, commit, and push (use --no-push to skip push)
 
 Repositories on their default branch are shown but cannot be selected (protected).
+
+If a repository is in the middle of a merge, the commit automatically completes
+the merge (git forbids partial commits during a merge, so all staged changes are
+included). Conflict files are shown in orange in the file picker.
+
+Repositories with an in-progress rebase, cherry-pick, or revert are skipped with
+a hint to use the appropriate --continue command instead.
 
 Use --repo to target specific repositories by alias, bypassing the interactive
 multi-select UI entirely. Non-dirty repos in the list are silently skipped.
@@ -100,7 +108,7 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 	var candidates []candidate
 
 	for _, repo := range repos {
-		dirty, dirtyErr := git.IsDirty(repo.Path)
+		dirty, dirtyErr := git.IsDirtyTrackedOnly(repo.Path)
 		if dirtyErr != nil {
 			color.Yellow("  ⚠  %s: cannot check status (%v) — skipping", repo.Alias, dirtyErr)
 			continue
@@ -171,15 +179,34 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 	// Step 3: Sequential per-repo commit workflow.
 	results := make([]repoCommitResult, 0, len(chosen))
 
+repoLoop:
 	for _, repo := range chosen {
 		fmt.Printf("\n%s\n", color.CyanString("━━━ %s ━━━", repo.Alias))
 
-		// 3a. Get dirty files.
-		porcelainLines, err := git.DirtyFilesWithStatus(repo.Path)
+		// 3-pre. Skip repos with in-progress rebase/cherry-pick/revert.
+		ops, opsErr := git.InProgressOperations(repo.Path)
+		if opsErr == nil {
+			for _, op := range ops {
+				if op == "rebase" || op == "cherry-pick" || op == "revert" {
+					color.Yellow("  ⚠  %s in progress — resolve with `git %s --continue`, not `gitm commit`. Skipping.", op, op)
+					results = append(results, repoCommitResult{alias: repo.Alias, skipped: true})
+					continue repoLoop
+				}
+			}
+		}
+
+		// 3a. Get dirty tracked files (untracked files belong in `gitm track`).
+		allLines, err := git.DirtyFilesWithStatus(repo.Path)
 		if err != nil {
 			color.Red("  ✗ Cannot list dirty files: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})
 			continue
+		}
+		var porcelainLines []string
+		for _, l := range allLines {
+			if !strings.HasPrefix(l, "??") {
+				porcelainLines = append(porcelainLines, l)
+			}
 		}
 		if len(porcelainLines) == 0 {
 			color.Yellow("  ⚠  No dirty files found (may have been cleaned externally) — skipping")
@@ -233,8 +260,18 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		}
 		color.Green("  ✓ Staged %d file(s)", len(selectedFiles))
 
-		// 3e. Commit.
-		out, err := git.Commit(repo.Path, message, selectedFiles)
+		// 3e. Commit — use CommitMerge during an active merge (git forbids pathspec commits).
+		merging, mergeErr := git.IsMerging(repo.Path)
+		if mergeErr != nil {
+			color.Yellow("  ⚠  Cannot detect merge state: %v — proceeding with standard commit", mergeErr)
+		}
+
+		var out string
+		if merging {
+			out, err = git.CommitMerge(repo.Path, message)
+		} else {
+			out, err = git.Commit(repo.Path, message, selectedFiles)
+		}
 		if err != nil {
 			color.Red("  ✗ git commit failed: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})

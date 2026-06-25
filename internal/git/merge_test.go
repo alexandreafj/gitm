@@ -76,3 +76,86 @@ func TestUnmergedFilesClean(t *testing.T) {
 		t.Errorf("expected no unmerged files in clean repo, got %v", conflicts)
 	}
 }
+
+func TestIsMerging_Clean(t *testing.T) {
+	dir := initRepo(t)
+
+	merging, err := git.IsMerging(dir)
+	if err != nil {
+		t.Fatalf("IsMerging: %v", err)
+	}
+	if merging {
+		t.Error("expected IsMerging=false on clean repo")
+	}
+}
+
+func TestIsMerging_DuringConflict(t *testing.T) {
+	dir := initRepo(t)
+
+	makeCommit(t, dir, "shared.txt", "base\n", "base content")
+	mustRunGit(t, dir, "checkout", "-b", "feature")
+	makeCommit(t, dir, "shared.txt", "feature change\n", "feature edit")
+
+	mustRunGit(t, dir, "checkout", "main")
+	makeCommit(t, dir, "shared.txt", "main change\n", "main edit")
+
+	mustRunGit(t, dir, "checkout", "feature")
+	if _, err := git.Merge(dir, "main"); err == nil {
+		t.Fatal("expected Merge to fail on conflicting changes")
+	}
+
+	merging, err := git.IsMerging(dir)
+	if err != nil {
+		t.Fatalf("IsMerging: %v", err)
+	}
+	if !merging {
+		t.Error("expected IsMerging=true during merge conflict")
+	}
+}
+
+func TestCommitMerge(t *testing.T) {
+	dir := initRepo(t)
+
+	makeCommit(t, dir, "shared.txt", "base\n", "base content")
+	mustRunGit(t, dir, "checkout", "-b", "feature")
+	makeCommit(t, dir, "shared.txt", "feature change\n", "feature edit")
+
+	mustRunGit(t, dir, "checkout", "main")
+	makeCommit(t, dir, "shared.txt", "main change\n", "main edit")
+
+	mustRunGit(t, dir, "checkout", "feature")
+	if _, err := git.Merge(dir, "main"); err == nil {
+		t.Fatal("expected Merge to fail on conflicting changes")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "shared.txt"), []byte("resolved\n"), 0644); err != nil {
+		t.Fatalf("write resolution: %v", err)
+	}
+	if err := git.StageFiles(dir, []string{"UU shared.txt"}); err != nil {
+		t.Fatalf("StageFiles: %v", err)
+	}
+
+	out, err := git.CommitMerge(dir, "resolve merge conflict")
+	if err != nil {
+		t.Fatalf("CommitMerge: %v", err)
+	}
+	if out == "" {
+		t.Error("expected non-empty commit output")
+	}
+
+	merging, err := git.IsMerging(dir)
+	if err != nil {
+		t.Fatalf("IsMerging after commit: %v", err)
+	}
+	if merging {
+		t.Error("expected IsMerging=false after CommitMerge")
+	}
+
+	conflicts, err := git.UnmergedFiles(dir)
+	if err != nil {
+		t.Fatalf("UnmergedFiles: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Errorf("expected no unmerged files after merge commit, got %v", conflicts)
+	}
+}

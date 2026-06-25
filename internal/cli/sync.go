@@ -20,14 +20,21 @@ func syncCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "sync",
+		Use:   "sync [branch]",
 		Short: "Merge the latest default branch (main/master) into the current branch",
-		Long: `Bring the branch you are working on up to date with the latest default
-branch (main or master, auto-detected per repository) by merging it in —
-across one or many repositories at once.
+		Long: `Bring the branch you are working on up to date by merging another branch
+into it — across one or many repositories at once.
+
+By default the branch merged in is each repository's default branch (main or
+master, auto-detected per repository). Pass a branch name to merge that branch
+instead — useful when you track a long-lived integration branch that is not the
+repository's configured default:
+
+  gitm sync                merge each repo's default branch (main/master)
+  gitm sync master-raw     merge "master-raw" into the current branch
 
 For each selected repository, gitm:
-  1. Fetches the latest default branch from origin.
+  1. Fetches the latest target branch from origin.
   2. Merges it into whatever branch the repository is currently on.
 
 This replaces the manual, per-repo routine of pulling the latest master/main
@@ -48,22 +55,28 @@ Selection:
       Sync every registered repository (no prompt).
 
 Repositories are skipped when:
-  - they have uncommitted changes (stash or commit first), or
-  - they are already on their default branch (use "gitm update" to pull).
+  - they have uncommitted tracked changes (stash or commit first),
+  - they are already on the branch being merged (use "gitm update" to pull), or
+  - the requested branch does not exist locally or on origin.
+
+Untracked files do not block the sync.
 
 Merge conflicts are left in place so you can resolve them yourself: the repo is
 reported and kept in its merging state — resolve the conflicts and commit.`,
 		Example: `  gitm sync
   gitm sync --all
+  gitm sync master-raw
   gitm sync --group backend
+  gitm sync master-raw --group backend
   gitm sync --repo=api-gateway,auth-service
-  gitm sync -r api-gateway -g backend`,
-		Args: cobra.NoArgs,
+  gitm sync master-raw -r api-gateway -g backend`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if groupName == "" {
-				return runSyncWithUI(liveUI{}, selectAll, repoAliases)
+			branch := ""
+			if len(args) > 0 {
+				branch = strings.TrimSpace(args[0])
 			}
-			return runSyncWithUIAndGroup(liveUI{}, selectAll, repoAliases, groupName)
+			return runSyncWithUIAndGroup(liveUI{}, selectAll, repoAliases, groupName, branch)
 		},
 	}
 
@@ -76,11 +89,11 @@ reported and kept in its merging state — resolve the conflicts and commit.`,
 	return cmd
 }
 
-func runSyncWithUI(ui ui, selectAll bool, repoAliases []string) error {
-	return runSyncWithUIAndGroup(ui, selectAll, repoAliases, "")
+func runSyncWithUI(ui ui, selectAll bool, repoAliases []string, branch string) error {
+	return runSyncWithUIAndGroup(ui, selectAll, repoAliases, "", branch)
 }
 
-func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupName string) error {
+func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupName, branch string) error {
 	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
@@ -88,6 +101,15 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 	if len(allRepos) == 0 {
 		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
+	}
+
+	// When no branch is given, each repo merges its own configured default
+	// branch; an explicit branch overrides that uniformly across repos.
+	branchLabel := "default branch"
+	selectTitle := "Select repositories to sync with their default branch"
+	if branch != "" {
+		branchLabel = fmt.Sprintf("%q", branch)
+		selectTitle = fmt.Sprintf("Select repositories to sync with %q", branch)
 	}
 
 	var chosen []*db.Repository
@@ -99,7 +121,7 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 	default:
 		chosen, err = ui.MultiSelect(
 			allRepos,
-			"Select repositories to sync with their default branch",
+			selectTitle,
 			false,
 			nil,
 		)
@@ -112,7 +134,7 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 		return nil
 	}
 
-	fmt.Printf("\nMerging default branch into the current branch of %d repository(ies)…\n\n", len(chosen))
+	fmt.Printf("\nMerging %s into the current branch of %d repository(ies)…\n\n", branchLabel, len(chosen))
 
 	// Conflicts are recorded here rather than treated as hard failures, so a
 	// clear follow-up block can be printed once the parallel run finishes. The
@@ -123,7 +145,7 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 	)
 
 	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
-		dirty, err := git.IsDirty(repo.Path)
+		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("git status: %w", err)
 		}
@@ -136,21 +158,24 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 			return "", "", fmt.Errorf("current branch: %w", err)
 		}
 
-		def := repo.DefaultBranch
-		if cur == def {
-			return "", fmt.Sprintf("currently on default branch %q — nothing to merge (use `gitm update` to pull)", def), nil
+		target := repo.DefaultBranch
+		if branch != "" {
+			target = branch
+		}
+		if cur == target {
+			return "", fmt.Sprintf("currently on %q — nothing to merge (use `gitm update` to pull)", target), nil
 		}
 
-		// Fetch the latest default branch. A failure (no remote / offline) is not
+		// Fetch the latest target branch. A failure (no remote / offline) is not
 		// fatal — we fall back to the local branch rather than a stale
 		// remote-tracking ref (see mergeRef). The outcome is folded into the
 		// result message instead of printed here, so it stays synchronized with
 		// the runner's own output.
-		fetched := git.FetchBranch(repo.Path, def) == nil
+		fetched := git.FetchBranch(repo.Path, target) == nil
 
-		ref := mergeRef(repo.Path, def, fetched)
+		ref := mergeRef(repo.Path, target, fetched)
 		if ref == "" {
-			return "", fmt.Sprintf("default branch %q not found locally or on origin", def), nil
+			return "", fmt.Sprintf("branch %q not found locally or on origin", target), nil
 		}
 
 		out, mergeErr := git.Merge(repo.Path, ref)
@@ -165,7 +190,7 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 			return "", "", fmt.Errorf("merge %s: %w", ref, mergeErr)
 		}
 
-		msg := fmt.Sprintf("merged %s into %s — %s", def, cur, summariseMerge(out))
+		msg := fmt.Sprintf("merged %s into %s — %s", target, cur, summariseMerge(out))
 		if !fetched {
 			msg += " (fetch failed; merged without refresh)"
 		}

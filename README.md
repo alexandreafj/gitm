@@ -996,6 +996,7 @@ gitm update [flags]
 2. For each repository (in parallel):
    - Checks for uncommitted changes — skips if dirty.
    - Runs `git pull --ff-only` on the current branch.
+   - If the remote branch no longer exists (e.g. deleted after a PR merge), automatically switches to the default branch and pulls that instead.
 3. Streams results live with a summary.
 4. If a `--repo` alias doesn't match any registered repository, the command exits with an error before pulling anything.
 
@@ -1037,11 +1038,17 @@ Done: 3 succeeded, 1 skipped
 
 ### `gitm sync`
 
-Merge the latest **default branch** (`main`/`master`, auto-detected per repo) into the branch each repository is **currently on** — in parallel. This replaces the manual, per-repo routine of pulling the latest `master`/`main` and merging it into your working branch with `git merge master` by hand.
+Merge a branch into the branch each repository is **currently on** — in parallel. By default that branch is each repo's **default branch** (`main`/`master`, auto-detected per repo); pass an optional `[branch]` argument to merge a different branch instead. This replaces the manual, per-repo routine of pulling the latest `master`/`main` and merging it into your working branch with `git merge master` by hand.
 
 ```
-gitm sync [flags]
+gitm sync [branch] [flags]
 ```
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `[branch]` | _(optional)_ Branch to merge into each repo's current branch. Omit it to use each repo's default branch (`main`/`master`). Repos where the branch does not exist locally or on `origin` are skipped. |
 
 **Flags:**
 
@@ -1056,32 +1063,40 @@ gitm sync [flags]
 | Invocation | Behaviour |
 |---|---|
 | `gitm sync` | Interactive — pick repositories via the TUI. |
+| `gitm sync <branch>` | Merge `<branch>` (instead of the default branch) into each repo's current branch. |
 | `gitm sync --repo a,b` | Sync only repos `a` and `b` (no prompt). |
+| `gitm sync <branch> --repo a,b` | Merge `<branch>` into repos `a` and `b` (no prompt). |
 | `gitm sync --all` | Sync every registered repository (no prompt). |
 | `gitm sync --group backend` | Interactive — pick from repositories in `backend`. |
 
 **Behaviour (per repository, in parallel):**
 
-1. Detects the repository's default branch automatically (`main` or `master`, from the value stored at `repo add`).
-2. **Skips** repos with uncommitted changes (stash or commit first).
-3. **Skips** repos already on their default branch (use `gitm update` to pull instead).
-4. Fetches the latest default branch from `origin`, then merges `origin/<default>` into the current branch (falls back to the local default branch when there is no remote).
+1. Determines the target branch: the repository's default branch (`main` or `master`, from the value stored at `repo add`) unless a `[branch]` argument is given, in which case that branch is used for every repo.
+2. **Skips** repos with uncommitted tracked changes (stash or commit first). Untracked files do not block the sync.
+3. **Skips** repos already on the target branch (use `gitm update` to pull instead).
+4. Fetches the latest target branch from `origin`, then merges `origin/<branch>` into the current branch (falls back to the local branch when there is no remote). Repos where the branch is missing both locally and on `origin` are **skipped**.
 5. **Merge conflicts are left in place** — the repo is reported and kept in its merging state so you can resolve the conflicts and commit. A conflict is not treated as a failure; the command still exits 0.
 6. Streams results live with a summary, followed by a list of any repos left with conflicts.
 
-**Use case:** Your feature branch has drifted behind `master`/`main` across several repos and you want to merge the latest changes into each one in a single step.
+**Use case:** Your feature branch has drifted behind `master`/`main` (or a long-lived integration branch like `master-raw`) across several repos and you want to merge the latest changes into each one in a single step.
 
 **Examples:**
 
 ```bash
-# Interactively pick repos to sync
+# Interactively pick repos to sync with their default branch
 gitm sync
 
-# Sync every repo
+# Sync every repo with its default branch
 gitm sync --all
 
 # Sync every repo in a group
 gitm sync --all --group backend
+
+# Merge a specific branch instead of the default branch
+gitm sync master-raw
+
+# Merge a specific branch into specific repos (optionally scoped to a group)
+gitm sync master-raw --repo=api-gateway,auth-service --group backend
 
 # Sync specific repos by alias
 gitm sync --repo=api-gateway,auth-service --group backend
@@ -1096,7 +1111,7 @@ gitm sync -r api-gateway
 Merging default branch into the current branch of 3 repository(ies)…
 
 [api-gateway        ] ✓ merged main into feature/JIRA-456 — fast-forward
-[auth-service       ] ⚠ SKIPPED: currently on default branch "main" — nothing to merge (use `gitm update` to pull)
+[auth-service       ] ⚠ SKIPPED: currently on "main" — nothing to merge (use `gitm update` to pull)
 [frontend           ] ⚠ SKIPPED: merge conflict — 2 file(s) to resolve manually
 
 Done: 1 succeeded, 2 skipped
@@ -1133,13 +1148,21 @@ gitm commit [flags]
 2. **Filters** to dirty repos only — repos on their default branch are shown but marked `⛔ protected branch` and cannot be selected.
 3. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
 4. For each selected repo, **sequentially**:
-   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, dim `??`). Nothing is pre-selected.
+   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, orange `U` for conflicts, dim `??`). Nothing is pre-selected.
    - **Commit message input** — single-line text input; rejects empty messages.
    - `git add -- <selected files>`
-   - `git commit -m "<message>"`
+   - `git commit -m "<message>"` (during a merge, commits the entire index to complete the merge)
    - `git push --set-upstream origin <branch>` (skipped with `--no-push`)
    - Live result printed per repo.
 5. **Final summary** — `N committed, N skipped, N failed`.
+
+**Merge conflict resolution:**
+
+If a repository is in the middle of a merge (e.g. after `git merge` produced conflicts), `gitm commit` handles it automatically. Resolve the conflicted files, select them in the file picker, and commit — gitm detects the merge state and uses a full-index commit (no pathspec) as git requires.
+
+**Rebase / cherry-pick / revert guard:**
+
+Repos with an in-progress rebase, cherry-pick, or revert are **skipped** with a message hinting to use `git <operation> --continue` instead.
 
 **Example flow:**
 
