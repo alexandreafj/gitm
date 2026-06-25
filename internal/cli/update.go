@@ -61,7 +61,7 @@ func runUpdateWithGroup(repoAliases []string, groupName string) error {
 		return err
 	}
 	if len(repos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 
@@ -100,6 +100,16 @@ func resolveRepos(aliases []string) ([]*db.Repository, error) {
 	return resolveReposByAlias(aliases)
 }
 
+// noReposMessage returns the right empty-state message: a registration hint when
+// nothing is registered at all, or a filter hint when --repo/--group narrowed the
+// set to nothing (so we don't wrongly tell the user to add repositories).
+func noReposMessage(aliases []string, groupName string) string {
+	if len(aliases) > 0 || strings.TrimSpace(groupName) != "" {
+		return "No repositories match the given --repo/--group filters."
+	}
+	return "No repositories registered. Run `gitm repo add <path>` to add one."
+}
+
 func resolveReposWithGroup(aliases []string, groupName string) ([]*db.Repository, error) {
 	groupName = strings.TrimSpace(groupName)
 	if groupName == "" {
@@ -108,7 +118,7 @@ func resolveReposWithGroup(aliases []string, groupName string) ([]*db.Repository
 
 	groupRepos, err := database.ListRepositoriesByGroup(groupName)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, db.ErrGroupNotFound) {
 			return nil, fmt.Errorf("group %q not found — run `gitm group list` to see groups: %w", groupName, err)
 		}
 		return nil, fmt.Errorf("list repositories in group %q: %w", groupName, err)

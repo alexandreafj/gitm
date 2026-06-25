@@ -156,8 +156,8 @@ func TestGroupCRUDAndMembership(t *testing.T) {
 	if err := d.RenameGroup("backend", "api"); err != nil {
 		t.Fatalf("RenameGroup: %v", err)
 	}
-	if _, err := d.GetGroup("backend"); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("GetGroup(old) error = %v, want ErrNotFound", err)
+	if _, err := d.GetGroup("backend"); !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("GetGroup(old) error = %v, want ErrGroupNotFound", err)
 	}
 	renamed, err := d.GetGroup("api")
 	if err != nil {
@@ -170,8 +170,8 @@ func TestGroupCRUDAndMembership(t *testing.T) {
 	if err := d.DeleteGroup("api"); err != nil {
 		t.Fatalf("DeleteGroup: %v", err)
 	}
-	if _, err := d.GetGroup("api"); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("GetGroup(deleted) error = %v, want ErrNotFound", err)
+	if _, err := d.GetGroup("api"); !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("GetGroup(deleted) error = %v, want ErrGroupNotFound", err)
 	}
 }
 
@@ -204,17 +204,17 @@ func TestGroupUnknownsReturnNotFound(t *testing.T) {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 
-	if err := d.AddRepositoriesToGroup("missing", []string{"repo1"}); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("AddRepositoriesToGroup missing group error = %v, want ErrNotFound", err)
+	if err := d.AddRepositoriesToGroup("missing", []string{"repo1"}); !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("AddRepositoriesToGroup missing group error = %v, want ErrGroupNotFound", err)
 	}
 	if err := d.AddRepositoriesToGroup("backend", []string{"ghost"}); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("AddRepositoriesToGroup missing repo error = %v, want ErrNotFound", err)
 	}
-	if err := d.RemoveRepositoriesFromGroup("missing", []string{"repo1"}); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("RemoveRepositoriesFromGroup missing group error = %v, want ErrNotFound", err)
+	if err := d.RemoveRepositoriesFromGroup("missing", []string{"repo1"}); !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("RemoveRepositoriesFromGroup missing group error = %v, want ErrGroupNotFound", err)
 	}
-	if _, err := d.ListRepositoriesByGroup("missing"); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("ListRepositoriesByGroup missing group error = %v, want ErrNotFound", err)
+	if _, err := d.ListRepositoriesByGroup("missing"); !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("ListRepositoriesByGroup missing group error = %v, want ErrGroupNotFound", err)
 	}
 }
 

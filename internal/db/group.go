@@ -17,6 +17,8 @@ var (
 	ErrReservedGroup = errors.New("reserved group")
 	// ErrInvalidGroupName is returned when a group name is empty or unsupported.
 	ErrInvalidGroupName = errors.New("invalid group name")
+	// ErrGroupNotFound is returned when a group lookup finds no matching group.
+	ErrGroupNotFound = errors.New("group not found")
 )
 
 // Group represents a repository group.
@@ -92,7 +94,7 @@ func (db *DB) RenameGroup(oldName, newName string) error {
 		return fmt.Errorf("count renamed groups: %w", err)
 	}
 	if n == 0 {
-		return ErrNotFound
+		return ErrGroupNotFound
 	}
 	return nil
 }
@@ -127,7 +129,7 @@ func (db *DB) DeleteGroup(name string) error {
 		return fmt.Errorf("count deleted groups: %w", err)
 	}
 	if n == 0 {
-		return ErrNotFound
+		return ErrGroupNotFound
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit delete group: %w", err)
@@ -257,7 +259,7 @@ func scanGroup(s scanner) (*Group, error) {
 	var createdAt string
 	err := s.Scan(&group.ID, &group.Name, &group.RepoCount, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, ErrGroupNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan group: %w", err)
@@ -303,7 +305,7 @@ func groupIDByName(q queryer, name string) (int64, error) {
 	var id int64
 	err := q.QueryRow(`SELECT id FROM groups WHERE name = ?`, name).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
+		return 0, ErrGroupNotFound
 	}
 	if err != nil {
 		return 0, fmt.Errorf("lookup group %q: %w", name, err)

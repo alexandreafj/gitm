@@ -162,7 +162,7 @@ func runResetWithUIAndGroup(ui ui, mode resetMode, numCommits int, repoAliases [
 		return err
 	}
 	if len(allRepos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 

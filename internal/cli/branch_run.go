@@ -21,7 +21,7 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 		return err
 	}
 	if len(allRepos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 
@@ -94,7 +94,7 @@ func runBranchRenameWithUIAndGroup(ui ui, oldName, newName string, selectAll, no
 		return err
 	}
 	if len(allRepos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 
@@ -165,7 +165,7 @@ func runBranchDeleteWithUIAndGroup(ui ui, branchName string, selectAll, force, n
 		return err
 	}
 	if len(allRepos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 

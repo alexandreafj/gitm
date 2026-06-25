@@ -647,8 +647,8 @@ func TestRepoAddWithGroupRejectsMissingGroup(t *testing.T) {
 		t.Fatalf("set group: %v", err)
 	}
 	err := cmd.RunE(cmd, []string{repoDir})
-	if !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("RunE error = %v, want ErrNotFound", err)
+	if !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("RunE error = %v, want ErrGroupNotFound", err)
 	}
 }
 

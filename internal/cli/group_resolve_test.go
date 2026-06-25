@@ -82,8 +82,8 @@ func TestResolveReposWithGroup_UnknownGroupErrors(t *testing.T) {
 	addRepoRecord(t, "repo1")
 
 	_, err := resolveReposWithGroup(nil, "missing")
-	if !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("resolveReposWithGroup missing group error = %v, want ErrNotFound", err)
+	if !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("resolveReposWithGroup missing group error = %v, want ErrGroupNotFound", err)
 	}
 }
 

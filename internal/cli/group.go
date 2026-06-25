@@ -202,8 +202,8 @@ func groupError(action, name string, err error) error {
 		return fmt.Errorf("%s %q: %w", action, groupName, err)
 	case errors.Is(err, db.ErrInvalidGroupName):
 		return fmt.Errorf("%s %q: group names cannot be empty, contain spaces, or contain commas: %w", action, groupName, err)
-	case errors.Is(err, db.ErrNotFound):
-		return fmt.Errorf("%s %q: not found: %w", action, groupName, err)
+	case errors.Is(err, db.ErrGroupNotFound):
+		return fmt.Errorf("%s %q: %w", action, groupName, err)
 	default:
 		return fmt.Errorf("%s %q: %w", action, groupName, err)
 	}

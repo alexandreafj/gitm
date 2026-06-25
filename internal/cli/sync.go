@@ -86,7 +86,7 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 		return err
 	}
 	if len(allRepos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 

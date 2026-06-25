@@ -74,8 +74,8 @@ func TestRunGroupCreateAddRemoveDelete(t *testing.T) {
 	if err := runGroupDelete("api"); err != nil {
 		t.Fatalf("runGroupDelete: %v", err)
 	}
-	if _, err := database.GetGroup("api"); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("GetGroup(api) error = %v, want ErrNotFound", err)
+	if _, err := database.GetGroup("api"); !errors.Is(err, db.ErrGroupNotFound) {
+		t.Fatalf("GetGroup(api) error = %v, want ErrGroupNotFound", err)
 	}
 }
 

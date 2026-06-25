@@ -8,6 +8,12 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// schema is the base table created before incremental migrations run. The
+// groups and group_repositories tables are intentionally NOT created here: they
+// must be created by the v3 migration, which runs AFTER the v2 rebuild of the
+// repositories table. Creating group_repositories up front lets v2's
+// `ALTER TABLE repositories RENAME TO repositories_old` rewrite its foreign key
+// to point at the soon-to-be-dropped repositories_old table.
 const schema = `
 CREATE TABLE IF NOT EXISTS repositories (
     id             INTEGER  PRIMARY KEY AUTOINCREMENT,
@@ -16,20 +22,6 @@ CREATE TABLE IF NOT EXISTS repositories (
     path           TEXT     NOT NULL UNIQUE,
     default_branch TEXT     NOT NULL DEFAULT 'main',
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS groups (
-    id         INTEGER  PRIMARY KEY AUTOINCREMENT,
-    name       TEXT     NOT NULL UNIQUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS group_repositories (
-    group_id      INTEGER NOT NULL,
-    repository_id INTEGER NOT NULL,
-    PRIMARY KEY (group_id, repository_id),
-    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
-    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
 );
 `
 
@@ -108,21 +100,37 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
-// migrate runs the schema creation and all incremental migrations.
-// Migrations are idempotent: ALTER TABLE on an existing column returns an
-// "duplicate column" error which we silently ignore.
+// migrate runs the base schema then any not-yet-applied incremental migrations.
+// PRAGMA user_version records how many migration statements have been applied so
+// each runs exactly once. This matters because some migrations (e.g. the v2
+// table rebuild) are destructive and must not re-run on every startup. Existing
+// databases predate version tracking and start at user_version 0, so the first
+// run with this code re-applies all statements — the statements are idempotent
+// (duplicate-column / already-exists errors are ignored), so that is safe.
 func (db *DB) migrate() error {
 	if _, err := db.conn.Exec(schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	for _, stmt := range migrations {
-		if _, err := db.conn.Exec(stmt); err != nil {
+
+	var version int
+	if err := db.conn.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+
+	for i := version; i < len(migrations); i++ {
+		if _, err := db.conn.Exec(migrations[i]); err != nil {
 			// SQLite returns "duplicate column name" when ADD COLUMN is re-run;
 			// ignore that specific error so migrations stay idempotent.
 			if !isDuplicateColumn(err) && !isIndexAlreadyExists(err) {
 				return fmt.Errorf("migrate: %w", err)
 			}
 		}
+	}
+
+	// PRAGMA user_version does not accept bound parameters; len(migrations) is a
+	// trusted integer, so formatting it directly is safe.
+	if _, err := db.conn.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations))); err != nil {
+		return fmt.Errorf("set schema version: %w", err)
 	}
 	return nil
 }

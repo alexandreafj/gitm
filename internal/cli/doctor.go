@@ -98,7 +98,7 @@ func runDoctorWithGroup(repoAliases []string, groupName string) error {
 		return err
 	}
 	if len(repos) == 0 {
-		fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
 
