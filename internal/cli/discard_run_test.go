@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +96,48 @@ func TestRunDiscard_FileSelection(t *testing.T) {
 	// new2.txt should survive (not selected).
 	if _, statErr := os.Stat(filepath.Join(repoDir, "new2.txt")); statErr != nil {
 		t.Error("new2.txt should still exist — it was not selected")
+	}
+}
+
+func TestRunDiscard_DryRunLeavesSelectedFilesUntouched(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	_, err := database.AddRepository("repo1", "repo1", repoDir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	writeFile(t, repoDir, "README.md", "modified readme\n")
+	writeFile(t, repoDir, "new1.txt", "new file 1\n")
+
+	ui := fakeUI{
+		fileSelect: []string{
+			" M README.md",
+			"?? new1.txt",
+		},
+	}
+
+	output := captureOutput(t, func() {
+		if err := runDiscardWithUIDryRun(ui, nil, true); err != nil {
+			t.Fatalf("runDiscard dry-run: %v", err)
+		}
+	})
+
+	content, readErr := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	if readErr != nil {
+		t.Fatalf("read README.md: %v", readErr)
+	}
+	if string(content) != "modified readme\n" {
+		t.Fatalf("README.md = %q, want modified content to survive", string(content))
+	}
+	if _, statErr := os.Stat(filepath.Join(repoDir, "new1.txt")); statErr != nil {
+		t.Fatal("new1.txt should survive dry-run")
+	}
+	if !strings.Contains(output, "DRY RUN: no changes made") {
+		t.Fatalf("expected dry-run output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "git clean -fd -- new1.txt") {
+		t.Fatalf("expected clean command preview, got:\n%s", output)
 	}
 }
 

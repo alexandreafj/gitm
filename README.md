@@ -21,6 +21,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
 
 - **Parallel by default** — 10 concurrent git ops, live-streamed output.
 - **Safe** — never force-resets your work; dirty repos are skipped, not clobbered.
+- **Dry-run previews** — inspect dangerous branch/delete/reset/sync/checkout/discard operations before they change anything.
 - **Interactive TUI** — multi-select repos and files with bubbletea.
 - **Self-updating (manual installs)** — `gitm upgrade` pulls signed binaries from GitHub Releases on macOS/Linux manual installs.
 - **Zero config** — single SQLite file at `~/.gitm/gitm.db`, no daemons.
@@ -486,7 +487,7 @@ frontend                  1           custom
 Switch repositories to a branch and pull. Three modes of operation. Runs in **parallel**.
 
 ```
-gitm checkout [branch] [--repo alias1,alias2] [--group name]
+gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 ```
 
 **Modes:**
@@ -503,12 +504,14 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name]
 |---|---|---|
 | `--repo` | `-r` | Limit checkout to specific repository aliases (comma-separated) |
 | `--group` | `-g` | Limit checkout to repositories in a group. Combines with `--repo` as an intersection. |
+| `--dry-run` | — | Preview checkout/fetch/pull commands without changing branches or fetching remote-only branches. |
 
 **Behaviour (all modes):**
 
 - Repositories with uncommitted **tracked** changes are skipped (untracked files like `AGENTS.md` are safely ignored).
 - Branch existence is checked locally first, then on the remote — skipped with a warning if neither has it.
 - After checkout, runs `git pull --ff-only`.
+- With `--dry-run`, gitm prints the planned commands and known skips, but does not fetch, checkout, pull, or mutate repositories. Checkout conflicts that Git only detects during checkout are shown as risk notes.
 - Streams results live with a final summary.
 
 **Example — default branch:**
@@ -560,6 +563,23 @@ Checking out branch "feature/JIRA-12345" in 4 repositories…
 [payment-svc        ] ⚠ SKIPPED: uncommitted changes (1 file(s))
 
 Done: 2 succeeded, 2 skipped
+```
+
+**Example — dry-run preview:**
+
+```
+$ gitm checkout feature/JIRA-12345 --dry-run
+
+DRY RUN: no changes made
+
+Branch "feature/JIRA-12345" checkout preview for 4 repository(ies)
+
+[api-gateway] /home/user/work/api-gateway
+  Would run:
+    - git checkout feature/JIRA-12345
+    - git pull --ff-only
+
+No changes made.
 ```
 
 **Example — interactive:**
@@ -753,6 +773,7 @@ gitm branch delete <branch-name> [flags]
 | `--all` | `-a` | false | Apply to all repositories that have the branch. |
 | `--force` | `-f` | false | Force-delete branches with unmerged commits (`git branch -D` instead of `-d`). |
 | `--no-remote` | — | false | Only delete the local branch. Skip deleting the branch on origin. |
+| `--dry-run` | — | false | Preview local and remote delete commands without deleting anything or asking for confirmation. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
 | `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
@@ -762,10 +783,11 @@ gitm branch delete <branch-name> [flags]
 2. Selects repositories:
    - Interactive: opens the multi-select UI showing only the matching repositories.
    - `--all` / `--repo`: skips the UI and asks for a single `y/N` confirmation listing the target repositories.
-3. For each selected repo (in parallel):
+3. With `--dry-run`, prints the local and remote delete commands that would run, including known skips for default/current/unmerged branches, then exits without confirmation or deletion.
+4. For each selected repo (in parallel):
    - `git branch -d <branch-name>` — deletes locally (`-D` when `--force`).
    - `git push origin --delete <branch-name>` — deletes the remote branch if it exists (skipped with `--no-remote`).
-4. Streams results live.
+5. Streams results live.
 
 **Safety:**
 
@@ -790,6 +812,9 @@ gitm branch delete feature/JIRA-123 --force
 
 # Delete only the local branch, keep it on origin
 gitm branch delete feature/JIRA-123 --no-remote
+
+# Preview local and remote deletion without deleting anything
+gitm branch delete feature/JIRA-123 --all --dry-run
 ```
 
 **Example output:**
@@ -892,6 +917,7 @@ gitm discard [flags]
 |---|---|---|---|
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive repo selection. |
 | `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
+| `--dry-run` | — | false | Run the same repo/file selection flow, then preview reset/checkout/clean commands without discarding files. |
 
 **What it does per selected file (based on status):**
 
@@ -907,8 +933,9 @@ gitm discard [flags]
 2. If **none** are dirty, prints `Nothing to discard — all repositories are clean.` and exits.
 3. If some are dirty, shows a summary of how many files each has modified, then opens the interactive multi-select showing **only the dirty repos** (skipped when `--repo` is used).
 4. For each selected repo, opens a **file picker** where you choose exactly which files to discard. **No files are pre-selected** — you must explicitly pick every file you want gone.
-5. Discards only the selected files in each repo.
-6. Prints a per-repo summary.
+5. With `--dry-run`, prints the selected files and the `git reset`, `git checkout`, and `git clean` commands that would run, then exits without changing files.
+6. Otherwise, discards only the selected files in each repo.
+7. Prints a per-repo summary.
 
 **Example flow:**
 
@@ -964,6 +991,7 @@ Summary
 $ gitm discard --repo api-gateway
 $ gitm discard -r api-gateway,auth-service --group backend
 $ gitm discard --group backend
+$ gitm discard --repo api-gateway --dry-run
 ```
 
 **Example when nothing to discard:**
@@ -1057,6 +1085,7 @@ gitm sync [branch] [flags]
 | `--repo` | `-r` | _(prompt)_ | Sync only the listed repository aliases (comma-separated). Skips the interactive picker. |
 | `--all` | `-a` | `false` | Sync every registered repository without prompting. |
 | `--group` | `-g` | _(all repos)_ | Limit sync candidates to repositories in a group. Combines with `--repo` as an intersection. |
+| `--dry-run` | — | `false` | Preview fetch/merge commands and known skips without fetching or merging. |
 
 **Selection modes:**
 
@@ -1068,6 +1097,7 @@ gitm sync [branch] [flags]
 | `gitm sync <branch> --repo a,b` | Merge `<branch>` into repos `a` and `b` (no prompt). |
 | `gitm sync --all` | Sync every registered repository (no prompt). |
 | `gitm sync --group backend` | Interactive — pick from repositories in `backend`. |
+| `gitm sync --all --dry-run` | Preview sync for every registered repository without fetching or merging. |
 
 **Behaviour (per repository, in parallel):**
 
@@ -1075,8 +1105,9 @@ gitm sync [branch] [flags]
 2. **Skips** repos with uncommitted tracked changes (stash or commit first). Untracked files do not block the sync.
 3. **Skips** repos already on the target branch (use `gitm update` to pull instead).
 4. Fetches the latest target branch from `origin`, then merges `origin/<branch>` into the current branch (falls back to the local branch when there is no remote). Repos where the branch is missing both locally and on `origin` are **skipped**.
-5. **Merge conflicts are left in place** — the repo is reported and kept in its merging state so you can resolve the conflicts and commit. A conflict is not treated as a failure; the command still exits 0.
-6. Streams results live with a summary, followed by a list of any repos left with conflicts.
+5. With `--dry-run`, prints the planned `git fetch` and `git merge --no-edit` commands, but does not fetch or merge. Merge conflicts cannot be predicted without running `git merge`, so they are shown as risk notes.
+6. **Merge conflicts are left in place** — the repo is reported and kept in its merging state so you can resolve the conflicts and commit. A conflict is not treated as a failure; the command still exits 0.
+7. Streams results live with a summary, followed by a list of any repos left with conflicts.
 
 **Use case:** Your feature branch has drifted behind `master`/`main` (or a long-lived integration branch like `master-raw`) across several repos and you want to merge the latest changes into each one in a single step.
 
@@ -1100,6 +1131,9 @@ gitm sync master-raw --repo=api-gateway,auth-service --group backend
 
 # Sync specific repos by alias
 gitm sync --repo=api-gateway,auth-service --group backend
+
+# Preview all sync operations without changing refs or files
+gitm sync --all --dry-run
 
 # Short form
 gitm sync -r api-gateway
@@ -1347,6 +1381,7 @@ gitm reset [flags]
 | `--commits` | — | 1 | Number of commits to undo (reset back N commits) |
 | `--soft` | — | false | Keep changes staged after reset |
 | `--hard` | — | false | Discard all changes (irreversible) |
+| `--dry-run` | — | false | Preview selected reset and force-push operations without moving HEAD or rewriting remote history. |
 | `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated), bypasses interactive selection. |
 | `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
@@ -1359,7 +1394,8 @@ Before applying the reset:
    - Each repository and the commits that will be undone (by hash + message)
    - Which commits are already pushed to origin (⚠️ red flag)
 2. Opens the interactive multi-select UI to choose which repos to reset
-3. If any commits are already pushed, you'll be prompted once: **"Force-push to clean remote history? [y/N]"**
+3. With `--dry-run`, prints the exact `git reset --<mode> HEAD~N` command for each selected repo and whether a force-push prompt would appear, then exits with no changes.
+4. If any commits are already pushed, you'll be prompted once: **"Force-push to clean remote history? [y/N]"**
    - `--force-with-lease` is used (the safest form) to rewrite history safely
    - Only offered if you own those branches (careful: shared branches will break teammates' clones!)
 
@@ -1389,6 +1425,9 @@ gitm reset --commits 3
 
 # Undo last 2 commits, discard all changes (IRREVERSIBLE)
 gitm reset --hard --commits 2
+
+# Preview the hard reset and force-push implications first
+gitm reset --hard --commits 2 --dry-run
 
 # Reset specific repos by alias (no selection prompt)
 gitm reset -r api-gateway
@@ -1845,6 +1884,7 @@ cli-git-commands/
 ├── internal/
 │   ├── cli/
 │   │   ├── root.go              # Root cobra command
+│   │   ├── dry_run.go           # Shared dry-run preview output helpers
 │   │   ├── repo.go              # repo add/list/remove/rename
 │   │   ├── group.go             # group list/show/create/rename/delete/add/remove
 │   │   ├── checkout.go          # checkout master

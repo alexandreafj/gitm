@@ -15,6 +15,7 @@ func discardCmd() *cobra.Command {
 	var (
 		repoAliases []string
 		groupName   string
+		dryRun      bool
 	)
 
 	cmd := &cobra.Command{
@@ -36,22 +37,26 @@ Use --repo / -r to target specific repositories by alias, bypassing the
 interactive multi-select UI entirely. Non-dirty repos are silently skipped.
 Use --group / -g to limit candidates to repositories in a group.
 When both are provided, only matching aliases inside that group are targeted.
+Use --dry-run to go through the same repo and file selection flow, then print
+the reset/checkout/clean commands that would run without discarding files.
 
 WARNING: This operation is irreversible. Discarded changes cannot be recovered.`,
 		Example: `  gitm discard
   gitm discard --group backend
   gitm discard --repo my-api
-  gitm discard -r api-gateway,auth-service -g backend`,
+  gitm discard -r api-gateway,auth-service -g backend
+  gitm discard --repo my-api --dry-run`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if groupName == "" {
-				return runDiscard(repoAliases)
+				return runDiscardDryRun(repoAliases, dryRun)
 			}
-			return runDiscardWithGroup(repoAliases, groupName)
+			return runDiscardWithGroupDryRun(repoAliases, groupName, dryRun)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview selected discard operations without changing files")
 	addGroupFlag(cmd, &groupName)
 
 	return cmd
@@ -65,12 +70,12 @@ type discardResult struct {
 	err     error
 }
 
-func runDiscard(repoAliases []string) error {
-	return runDiscardWithGroup(repoAliases, "")
+func runDiscardDryRun(repoAliases []string, dryRun bool) error {
+	return runDiscardWithGroupDryRun(repoAliases, "", dryRun)
 }
 
-func runDiscardWithGroup(repoAliases []string, groupName string) error {
-	return runDiscardWithUIAndGroup(liveUI{}, repoAliases, groupName)
+func runDiscardWithGroupDryRun(repoAliases []string, groupName string, dryRun bool) error {
+	return runDiscardWithUIAndGroupDryRun(liveUI{}, repoAliases, groupName, dryRun)
 }
 
 func runDiscardWithUI(ui ui, repoAliases []string) error {
@@ -78,6 +83,14 @@ func runDiscardWithUI(ui ui, repoAliases []string) error {
 }
 
 func runDiscardWithUIAndGroup(ui ui, repoAliases []string, groupName string) error {
+	return runDiscardWithUIAndGroupDryRun(ui, repoAliases, groupName, false)
+}
+
+func runDiscardWithUIDryRun(ui ui, repoAliases []string, dryRun bool) error {
+	return runDiscardWithUIAndGroupDryRun(ui, repoAliases, "", dryRun)
+}
+
+func runDiscardWithUIAndGroupDryRun(ui ui, repoAliases []string, groupName string, dryRun bool) error {
 	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
@@ -139,6 +152,7 @@ func runDiscardWithUIAndGroup(ui ui, repoAliases []string, groupName string) err
 
 	// Step 2: Sequential per-repo file selection + discard.
 	results := make([]discardResult, 0, len(chosen))
+	var dryRunItems []dryRunItem
 
 	for _, repo := range chosen {
 		fmt.Printf("\n%s\n", color.CyanString("━━━ %s ━━━", repo.Alias))
@@ -165,10 +179,23 @@ func runDiscardWithUIAndGroup(ui ui, repoAliases []string, groupName string) err
 			if selectErr.Error() == "canceled" || selectErr.Error() == "no files selected" {
 				color.Yellow("  ⚠  Skipped (no files selected)")
 				results = append(results, discardResult{alias: repo.Alias, skipped: true})
+				if dryRun {
+					dryRunItems = append(dryRunItems, dryRunItem{repo: repo, skipReason: "no files selected"})
+				}
 				continue
 			}
 			color.Red("  ✗ File selection error: %v", selectErr)
 			results = append(results, discardResult{alias: repo.Alias, err: selectErr})
+			continue
+		}
+
+		if dryRun {
+			dryRunItems = append(dryRunItems, dryRunItem{
+				repo:    repo,
+				actions: discardDryRunActions(selectedFiles),
+				warning: "discard is irreversible when run without --dry-run",
+			})
+			results = append(results, discardResult{alias: repo.Alias, files: len(selectedFiles)})
 			continue
 		}
 
@@ -193,6 +220,14 @@ func runDiscardWithUIAndGroup(ui ui, repoAliases []string, groupName string) err
 		fmt.Print(sb.String())
 
 		results = append(results, discardResult{alias: repo.Alias, files: len(selectedFiles)})
+	}
+
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("Discard preview for %d repository(ies)", len(dryRunItems)),
+			dryRunItems,
+		)
+		return nil
 	}
 
 	// Step 3: Summary.

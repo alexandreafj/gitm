@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/alexandreafj/gitm/internal/git"
@@ -377,6 +379,39 @@ func TestBranchDelete_ConfirmationDeclined(t *testing.T) {
 	}
 	if !git.RemoteBranchExists(repoDir, "feature/x") {
 		t.Error("expected remote feature/x to survive when confirmation is declined")
+	}
+}
+
+func TestBranchDelete_DryRunDoesNotDeleteOrConfirm(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/x")
+	mustRunGit(t, repoDir, "push", "origin", "feature/x")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	ui := fakeUI{confirmErr: fmt.Errorf("Confirm should not be called in dry-run")}
+	output := captureOutput(t, func() {
+		if err := runBranchDeleteWithUIDryRun(ui, "feature/x", false, false, false, []string{"repo1"}, true); err != nil {
+			t.Fatalf("branch delete dry-run: %v", err)
+		}
+	})
+
+	if !git.BranchExists(repoDir, "feature/x") {
+		t.Error("expected local feature/x to survive dry-run")
+	}
+	if !git.RemoteBranchExists(repoDir, "feature/x") {
+		t.Error("expected remote feature/x to survive dry-run")
+	}
+	if !strings.Contains(output, "DRY RUN: no changes made") {
+		t.Fatalf("expected dry-run output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "git branch -d feature/x") {
+		t.Fatalf("expected local delete command in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "git push origin --delete feature/x") {
+		t.Fatalf("expected remote delete command in output, got:\n%s", output)
 	}
 }
 

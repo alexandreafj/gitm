@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -177,4 +179,31 @@ func gitCurrentBranch(t *testing.T, dir string) string {
 		t.Fatalf("CurrentBranch: %v", err)
 	}
 	return branch
+}
+
+func captureOutput(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = originalStdout
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	fn()
+
+	_ = w.Close()
+
+	var output bytes.Buffer
+	if _, err := io.Copy(&output, r); err != nil {
+		t.Fatalf("io.Copy: %v", err)
+	}
+
+	return output.String()
 }

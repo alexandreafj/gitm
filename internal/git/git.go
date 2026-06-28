@@ -3,6 +3,7 @@ package git
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -319,6 +320,19 @@ func DeleteLocalBranch(path, branch string, force bool) error {
 	}
 	_, err := run(path, "branch", flag, branch)
 	return err
+}
+
+// BranchMerged reports whether branch is already reachable from HEAD.
+func BranchMerged(path, branch string) (bool, error) {
+	_, err := run(path, "merge-base", "--is-ancestor", branch, "HEAD")
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
 }
 
 // PushBranch pushes a local branch to origin and sets upstream tracking.

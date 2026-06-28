@@ -67,6 +67,17 @@ func TestDetermineResetMode(t *testing.T) {
 	}
 }
 
+func TestResetCmdHasDryRunFlag(t *testing.T) {
+	cmd := resetCmd()
+	f := cmd.Flags().Lookup("dry-run")
+	if f == nil {
+		t.Fatal("resetCmd missing --dry-run flag")
+	}
+	if f.Shorthand != "" {
+		t.Errorf("--dry-run shorthand = %q, want empty", f.Shorthand)
+	}
+}
+
 func TestResetModeName(t *testing.T) {
 	tests := []struct {
 		mode resetMode

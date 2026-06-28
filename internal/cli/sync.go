@@ -16,6 +16,7 @@ func syncCmd() *cobra.Command {
 	var (
 		repoAliases []string
 		selectAll   bool
+		dryRun      bool
 		groupName   string
 	)
 
@@ -54,6 +55,10 @@ Selection:
   gitm sync --all
       Sync every registered repository (no prompt).
 
+  gitm sync --dry-run
+      Preview the fetch and merge commands without fetching, merging, or
+      leaving conflicts in any repository.
+
 Repositories are skipped when:
   - they have uncommitted tracked changes (stash or commit first),
   - they are already on the branch being merged (use "gitm update" to pull), or
@@ -69,14 +74,15 @@ reported and kept in its merging state — resolve the conflicts and commit.`,
   gitm sync --group backend
   gitm sync master-raw --group backend
   gitm sync --repo=api-gateway,auth-service
-  gitm sync master-raw -r api-gateway -g backend`,
+  gitm sync master-raw -r api-gateway -g backend
+  gitm sync --all --dry-run`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			branch := ""
 			if len(args) > 0 {
 				branch = strings.TrimSpace(args[0])
 			}
-			return runSyncWithUIAndGroup(liveUI{}, selectAll, repoAliases, groupName, branch)
+			return runSyncWithUIAndGroupDryRun(liveUI{}, selectAll, repoAliases, groupName, branch, dryRun)
 		},
 	}
 
@@ -84,6 +90,8 @@ reported and kept in its merging state — resolve the conflicts and commit.`,
 		"Limit sync to specific repository aliases (comma-separated)")
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false,
 		"Sync all registered repositories without prompting")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
+		"Preview fetch and merge operations without changing repositories")
 	addGroupFlag(cmd, &groupName)
 
 	return cmd
@@ -94,6 +102,14 @@ func runSyncWithUI(ui ui, selectAll bool, repoAliases []string, branch string) e
 }
 
 func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupName, branch string) error {
+	return runSyncWithUIAndGroupDryRun(ui, selectAll, repoAliases, groupName, branch, false)
+}
+
+func runSyncWithUIDryRun(ui ui, selectAll bool, repoAliases []string, branch string, dryRun bool) error {
+	return runSyncWithUIAndGroupDryRun(ui, selectAll, repoAliases, "", branch, dryRun)
+}
+
+func runSyncWithUIAndGroupDryRun(ui ui, selectAll bool, repoAliases []string, groupName, branch string, dryRun bool) error {
 	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
@@ -131,6 +147,14 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 	}
 
 	if len(chosen) == 0 {
+		return nil
+	}
+
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("Sync %s preview for %d repository(ies)", branchLabel, len(chosen)),
+			syncDryRunItems(chosen, branch),
+		)
 		return nil
 	}
 
@@ -206,6 +230,61 @@ func runSyncWithUIAndGroup(ui ui, selectAll bool, repoAliases []string, groupNam
 		return fmt.Errorf("%d repository(ies) failed to sync", runner.ErrorCount(results))
 	}
 	return nil
+}
+
+func syncDryRunItems(repos []*db.Repository, branch string) []dryRunItem {
+	items := make([]dryRunItem, 0, len(repos))
+	for _, repo := range repos {
+		item := dryRunItem{repo: repo}
+
+		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
+		if err != nil {
+			item.skipReason = fmt.Sprintf("git status: %v", err)
+			items = append(items, item)
+			continue
+		}
+		if dirty {
+			item.skipReason = "uncommitted changes — stash or commit first"
+			items = append(items, item)
+			continue
+		}
+
+		current, err := git.CurrentBranch(repo.Path)
+		if err != nil {
+			item.skipReason = fmt.Sprintf("current branch: %v", err)
+			items = append(items, item)
+			continue
+		}
+
+		target := repo.DefaultBranch
+		if branch != "" {
+			target = branch
+		}
+		if current == target {
+			item.skipReason = fmt.Sprintf("currently on %q — nothing to merge (use `gitm update` to pull)", target)
+			items = append(items, item)
+			continue
+		}
+
+		localExists := git.BranchExists(repo.Path, target)
+		remoteExists := git.RemoteBranchExists(repo.Path, target)
+		switch {
+		case remoteExists:
+			item.actions = append(item.actions,
+				fmt.Sprintf("git fetch origin -- %s", target),
+				fmt.Sprintf("git merge --no-edit origin/%s", target),
+			)
+			item.warning = "merge conflicts cannot be predicted without running git merge"
+		case localExists:
+			item.actions = append(item.actions, fmt.Sprintf("git merge --no-edit %s", target))
+			item.warning = "merge conflicts cannot be predicted without running git merge"
+		default:
+			item.skipReason = fmt.Sprintf("branch %q not found locally or on origin", target)
+		}
+
+		items = append(items, item)
+	}
+	return items
 }
 
 type conflictedRepo struct {

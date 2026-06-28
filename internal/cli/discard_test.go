@@ -50,6 +50,17 @@ func TestDiscardCmdHasRepoFlag(t *testing.T) {
 	}
 }
 
+func TestDiscardCmdHasDryRunFlag(t *testing.T) {
+	cmd := discardCmd()
+	f := cmd.Flags().Lookup("dry-run")
+	if f == nil {
+		t.Fatal("discardCmd missing --dry-run flag")
+	}
+	if f.Shorthand != "" {
+		t.Errorf("--dry-run shorthand = %q, want empty", f.Shorthand)
+	}
+}
+
 func TestDiscardCmdHasExample(t *testing.T) {
 	cmd := discardCmd()
 	if cmd.Example == "" {

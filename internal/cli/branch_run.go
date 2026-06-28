@@ -160,6 +160,14 @@ func runBranchDeleteWithUI(ui ui, branchName string, selectAll, force, noRemote 
 }
 
 func runBranchDeleteWithUIAndGroup(ui ui, branchName string, selectAll, force, noRemote bool, repoAliases []string, groupName string) error {
+	return runBranchDeleteWithUIAndGroupDryRun(ui, branchName, selectAll, force, noRemote, repoAliases, groupName, false)
+}
+
+func runBranchDeleteWithUIDryRun(ui ui, branchName string, selectAll, force, noRemote bool, repoAliases []string, dryRun bool) error {
+	return runBranchDeleteWithUIAndGroupDryRun(ui, branchName, selectAll, force, noRemote, repoAliases, "", dryRun)
+}
+
+func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, force, noRemote bool, repoAliases []string, groupName string, dryRun bool) error {
 	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
@@ -187,8 +195,11 @@ func runBranchDeleteWithUIAndGroup(ui ui, branchName string, selectAll, force, n
 	var chosen []*db.Repository
 	switch {
 	case len(repoAliases) > 0 || selectAll:
-		// --repo / --all: non-interactive, so confirm explicitly before deleting.
 		chosen = reposWithBranch
+		if dryRun {
+			break
+		}
+		// --repo / --all: non-interactive, so confirm explicitly before deleting.
 		fmt.Printf("Branch %q will be deleted in %d repository(ies):\n", branchName, len(chosen))
 		for _, r := range chosen {
 			fmt.Printf("  - %s\n", r.Alias)
@@ -211,6 +222,14 @@ func runBranchDeleteWithUIAndGroup(ui ui, branchName string, selectAll, force, n
 		if err != nil {
 			return err
 		}
+	}
+
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("Branch %q delete preview for %d repository(ies)", branchName, len(chosen)),
+			branchDeleteDryRunItems(chosen, branchName, force, noRemote),
+		)
+		return nil
 	}
 
 	fmt.Printf("\nDeleting %q in %d repository(ies)…\n\n", branchName, len(chosen))
@@ -254,4 +273,65 @@ func runBranchDeleteWithUIAndGroup(ui ui, branchName string, selectAll, force, n
 	})
 
 	return nil
+}
+
+func branchDeleteDryRunItems(repos []*db.Repository, branchName string, force, noRemote bool) []dryRunItem {
+	items := make([]dryRunItem, 0, len(repos))
+	for _, repo := range repos {
+		item := dryRunItem{repo: repo}
+
+		if branchName == repo.DefaultBranch {
+			item.skipReason = fmt.Sprintf("refusing to delete the default branch %q", branchName)
+			items = append(items, item)
+			continue
+		}
+
+		current, err := git.CurrentBranch(repo.Path)
+		if err != nil {
+			item.skipReason = fmt.Sprintf("current branch: %v", err)
+			items = append(items, item)
+			continue
+		}
+		if current == branchName {
+			item.skipReason = "branch is currently checked out — switch away first"
+			items = append(items, item)
+			continue
+		}
+
+		localExists := git.BranchExists(repo.Path, branchName)
+		remoteExists := false
+		if !noRemote {
+			remoteExists = git.RemoteBranchExists(repo.Path, branchName)
+		}
+		if !localExists && !remoteExists {
+			item.skipReason = fmt.Sprintf("branch %q not found", branchName)
+			items = append(items, item)
+			continue
+		}
+
+		if localExists && !force {
+			merged, mergeErr := git.BranchMerged(repo.Path, branchName)
+			if mergeErr != nil {
+				item.warning = fmt.Sprintf("could not confirm whether %q is merged: %v", branchName, mergeErr)
+			} else if !merged {
+				item.skipReason = "branch has unmerged commits — re-run with --force to delete anyway"
+				items = append(items, item)
+				continue
+			}
+		}
+
+		if localExists {
+			flag := "-d"
+			if force {
+				flag = "-D"
+			}
+			item.actions = append(item.actions, fmt.Sprintf("git branch %s %s", flag, branchName))
+		}
+		if remoteExists {
+			item.actions = append(item.actions, fmt.Sprintf("git push origin --delete %s", branchName))
+		}
+
+		items = append(items, item)
+	}
+	return items
 }

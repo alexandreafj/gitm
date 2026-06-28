@@ -122,6 +122,7 @@ func TestBranchDeleteCmdFlags(t *testing.T) {
 		{"force", "f"},
 		{"no-remote", ""},
 		{"repo", "r"},
+		{"dry-run", ""},
 	}
 
 	for _, f := range flags {

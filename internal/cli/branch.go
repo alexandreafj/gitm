@@ -105,6 +105,7 @@ func branchDeleteCmd() *cobra.Command {
 		selectAll   bool
 		force       bool
 		noRemote    bool
+		dryRun      bool
 		repoAliases []string
 		groupName   string
 	)
@@ -127,6 +128,8 @@ Safety:
   - A branch that is currently checked out is skipped — switch away first.
 
 Use --no-remote to delete only the local branch.
+Use --dry-run to preview exactly which local and remote delete commands would
+run without deleting anything or asking for confirmation.
 Use --repo to target specific repositories by alias, bypassing the interactive
 selection UI. Non-interactive runs (--all or --repo) ask for confirmation
 before deleting.
@@ -137,19 +140,21 @@ When both are provided, only matching aliases inside that group are targeted.`,
   gitm branch delete feature/JIRA-123 --group backend
   gitm branch delete feature/JIRA-123 --repo api-gateway,auth-service
   gitm branch delete feature/JIRA-123 --force
-  gitm branch delete feature/JIRA-123 --no-remote -g backend`,
+  gitm branch delete feature/JIRA-123 --no-remote -g backend
+  gitm branch delete feature/JIRA-123 --all --dry-run`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if groupName == "" {
-				return runBranchDeleteWithUI(liveUI{}, args[0], selectAll, force, noRemote, repoAliases)
+				return runBranchDeleteWithUIDryRun(liveUI{}, args[0], selectAll, force, noRemote, repoAliases, dryRun)
 			}
-			return runBranchDeleteWithUIAndGroup(liveUI{}, args[0], selectAll, force, noRemote, repoAliases, groupName)
+			return runBranchDeleteWithUIAndGroupDryRun(liveUI{}, args[0], selectAll, force, noRemote, repoAliases, groupName, dryRun)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all repositories that have the branch")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force-delete branches with unmerged commits (git branch -D)")
 	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only delete locally, skip the remote branch")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the branches that would be deleted without changing anything")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 	addGroupFlag(cmd, &groupName)
 
