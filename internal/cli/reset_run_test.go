@@ -56,6 +56,41 @@ func TestRunReset_Mixed(t *testing.T) {
 	}
 }
 
+func TestRunReset_DryRunDoesNotMoveHead(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	writeFile(t, repoDir, "a.txt", "a\n")
+	mustRunGit(t, repoDir, "add", "a.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "commit a")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	before := mustRunGit(t, repoDir, "rev-parse", "HEAD")
+
+	repo, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	ui := fakeUI{selectRepos: []*db.Repository{repo}}
+	output := captureOutput(t, func() {
+		if err := runResetWithUIDryRun(ui, resetModeMixed, 1, nil, true); err != nil {
+			t.Fatalf("runResetWithUIDryRun: %v", err)
+		}
+	})
+
+	after := mustRunGit(t, repoDir, "rev-parse", "HEAD")
+	if after != before {
+		t.Fatalf("HEAD moved during dry-run: before %s after %s", before, after)
+	}
+	log := mustRunGit(t, repoDir, "log", "--oneline")
+	if !strings.Contains(log, "commit a") {
+		t.Fatal("commit a should still exist after dry-run")
+	}
+	if !strings.Contains(output, "git reset --mixed HEAD~1") {
+		t.Fatalf("expected reset command preview, got:\n%s", output)
+	}
+}
+
 func TestRunReset_SelectionError(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir := initRepo(t)

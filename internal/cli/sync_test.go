@@ -67,6 +67,16 @@ func TestSyncCmdHasAllFlag(t *testing.T) {
 	}
 }
 
+func TestSyncCmdHasDryRunFlag(t *testing.T) {
+	f := syncCmd().Flags().Lookup("dry-run")
+	if f == nil {
+		t.Fatal("syncCmd missing --dry-run flag")
+	}
+	if f.Shorthand != "" {
+		t.Errorf("--dry-run shorthand = %q, want empty", f.Shorthand)
+	}
+}
+
 // advanceOriginMain pushes a new commit to origin's main branch by cloning the
 // bare origin, committing, and pushing — simulating master moving ahead.
 func advanceOriginMain(t *testing.T, originDir, filename, content string) {
@@ -118,6 +128,43 @@ func TestRunSync_MergesDefaultIntoCurrent(t *testing.T) {
 	}
 	if head := gitCurrentBranch(t, dir); head != "feature/x" {
 		t.Fatalf("expected to stay on feature/x, got %q", head)
+	}
+}
+
+func TestRunSync_DryRunDoesNotFetchOrMerge(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+
+	mustRunGit(t, dir, "checkout", "-b", "feature/x")
+	beforeOriginMain := mustRunGit(t, dir, "rev-parse", "origin/main")
+	advanceOriginMain(t, originDir, "frommain.go", "package main\n")
+
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	output := captureOutput(t, func() {
+		if err := runSyncWithUIDryRun(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "", true); err != nil {
+			t.Fatalf("runSyncWithUIDryRun: %v", err)
+		}
+	})
+
+	if _, statErr := os.Stat(filepath.Join(dir, "frommain.go")); statErr == nil {
+		t.Error("dry-run should not merge origin/main into the working tree")
+	}
+	if head := gitCurrentBranch(t, dir); head != "feature/x" {
+		t.Fatalf("expected to stay on feature/x, got %q", head)
+	}
+	afterOriginMain := mustRunGit(t, dir, "rev-parse", "origin/main")
+	if afterOriginMain != beforeOriginMain {
+		t.Fatalf("dry-run fetched origin/main: before %s after %s", beforeOriginMain, afterOriginMain)
+	}
+	if !strings.Contains(output, "git fetch origin -- main") {
+		t.Fatalf("expected fetch preview, got:\n%s", output)
+	}
+	if !strings.Contains(output, "git merge --no-edit origin/main") {
+		t.Fatalf("expected merge preview, got:\n%s", output)
 	}
 }
 

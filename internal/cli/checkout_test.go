@@ -42,3 +42,14 @@ func TestCheckoutCmdHasRepoFlag(t *testing.T) {
 		t.Errorf("--repo shorthand = %q, want %q", f.Shorthand, "r")
 	}
 }
+
+func TestCheckoutCmdHasDryRunFlag(t *testing.T) {
+	cmd := checkoutCmd()
+	f := cmd.Flags().Lookup("dry-run")
+	if f == nil {
+		t.Fatal("checkoutCmd missing --dry-run flag")
+	}
+	if f.Shorthand != "" {
+		t.Errorf("--dry-run shorthand = %q, want empty", f.Shorthand)
+	}
+}

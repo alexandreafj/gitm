@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alexandreafj/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/git"
 )
 
 func TestRunCheckoutWithUI_NoRepos(t *testing.T) {
@@ -266,6 +267,43 @@ func TestRunCheckoutBranch_RemoteOnly(t *testing.T) {
 
 	if head := gitCurrentBranch(t, dir); head != "feature/remote-only" {
 		t.Fatalf("head = %q, want %q", head, "feature/remote-only")
+	}
+}
+
+func TestRunCheckoutBranch_DryRunRemoteOnlyDoesNotFetchOrSwitch(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	clone2Dir := cloneRepo(t, originDir)
+	mustRunGit(t, clone2Dir, "config", "user.email", "test@example.com")
+	mustRunGit(t, clone2Dir, "config", "user.name", "Test User")
+	mustRunGit(t, clone2Dir, "checkout", "-b", "feature/remote-only")
+	writeFile(t, clone2Dir, "remote.txt", "from remote\n")
+	mustRunGit(t, clone2Dir, "add", ".")
+	mustRunGit(t, clone2Dir, "commit", "-m", "remote commit")
+	mustRunGit(t, clone2Dir, "push", "--set-upstream", "origin", "feature/remote-only")
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutBranchDryRun([]*db.Repository{repo}, "feature/remote-only", true); err != nil {
+			t.Fatalf("runCheckoutBranchDryRun: %v", err)
+		}
+	})
+
+	if head := gitCurrentBranch(t, dir); head != "main" {
+		t.Fatalf("head = %q, want main after dry-run", head)
+	}
+	if git.BranchExists(dir, "feature/remote-only") {
+		t.Fatal("dry-run should not fetch/create the remote-only branch locally")
+	}
+	if !strings.Contains(output, "git fetch origin -- feature/remote-only") {
+		t.Fatalf("expected fetch preview, got:\n%s", output)
+	}
+	if !strings.Contains(output, "git checkout feature/remote-only") {
+		t.Fatalf("expected checkout preview, got:\n%s", output)
 	}
 }
 

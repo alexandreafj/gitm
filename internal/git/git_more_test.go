@@ -252,6 +252,33 @@ func TestDeleteLocalBranch(t *testing.T) {
 	}
 }
 
+func TestBranchMerged(t *testing.T) {
+	repo := initRepo(t)
+
+	mustRunGit(t, repo, "branch", "feature/merged")
+	merged, err := git.BranchMerged(repo, "feature/merged")
+	if err != nil {
+		t.Fatalf("BranchMerged(merged): %v", err)
+	}
+	if !merged {
+		t.Fatal("feature/merged should be reported as merged into HEAD")
+	}
+
+	mustRunGit(t, repo, "checkout", "-b", "feature/unmerged")
+	writeFile(t, repo, "extra.txt", "extra\n")
+	mustRunGit(t, repo, "add", "extra.txt")
+	mustRunGit(t, repo, "commit", "-m", "unmerged commit")
+	mustRunGit(t, repo, "checkout", "main")
+
+	merged, err = git.BranchMerged(repo, "feature/unmerged")
+	if err != nil {
+		t.Fatalf("BranchMerged(unmerged): %v", err)
+	}
+	if merged {
+		t.Fatal("feature/unmerged should not be reported as merged into HEAD")
+	}
+}
+
 func TestRenameBranch(t *testing.T) {
 	repo := initRepo(t)
 	mustRunGit(t, repo, "branch", "old-name")

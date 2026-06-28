@@ -37,6 +37,7 @@ func resetCmd() *cobra.Command {
 		soft        bool
 		hard        bool
 		commits     int
+		dryRun      bool
 		repoAliases []string
 		groupName   string
 	)
@@ -58,6 +59,8 @@ Three modes are available:
 
 Before applying, a preview of each affected commit is shown so you can confirm
 exactly what will be undone.
+Use --dry-run to stop after selection and print the reset and force-push
+operations that would run without moving HEAD or rewriting remote history.
 
 If any of the commits to be undone have already been pushed to origin, you will
 be offered the option to force-push (--force-with-lease) to clean the remote
@@ -74,7 +77,8 @@ When both are provided, only matching aliases inside that group are targeted.`,
   gitm reset --soft --commits 2
   gitm reset -g backend
   gitm reset -r api-gateway
-  gitm reset --soft -r api-gateway,auth-service -g backend`,
+  gitm reset --soft -r api-gateway,auth-service -g backend
+  gitm reset --hard --commits 2 --dry-run`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode, err := determineResetMode(soft, hard)
@@ -82,14 +86,15 @@ When both are provided, only matching aliases inside that group are targeted.`,
 				return err
 			}
 			if groupName == "" {
-				return runReset(mode, commits, repoAliases)
+				return runResetDryRun(mode, commits, repoAliases, dryRun)
 			}
-			return runResetWithGroup(mode, commits, repoAliases, groupName)
+			return runResetWithGroupDryRun(mode, commits, repoAliases, groupName, dryRun)
 		},
 	}
 
 	cmd.Flags().BoolVar(&soft, "soft", false, "Keep changes staged (git reset --soft)")
 	cmd.Flags().BoolVar(&hard, "hard", false, "Discard all changes — irreversible (git reset --hard)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the reset without moving HEAD or force-pushing")
 	cmd.Flags().IntVar(&commits, "commits", 1, "Number of commits to undo (default: 1)")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 	addGroupFlag(cmd, &groupName)
@@ -145,7 +150,15 @@ func runReset(mode resetMode, numCommits int, repoAliases []string) error {
 }
 
 func runResetWithGroup(mode resetMode, numCommits int, repoAliases []string, groupName string) error {
-	return runResetWithUIAndGroup(liveUI{}, mode, numCommits, repoAliases, groupName)
+	return runResetWithGroupDryRun(mode, numCommits, repoAliases, groupName, false)
+}
+
+func runResetDryRun(mode resetMode, numCommits int, repoAliases []string, dryRun bool) error {
+	return runResetWithGroupDryRun(mode, numCommits, repoAliases, "", dryRun)
+}
+
+func runResetWithGroupDryRun(mode resetMode, numCommits int, repoAliases []string, groupName string, dryRun bool) error {
+	return runResetWithUIAndGroupDryRun(liveUI{}, mode, numCommits, repoAliases, groupName, dryRun)
 }
 
 func runResetWithUI(ui ui, mode resetMode, numCommits int, repoAliases []string) error {
@@ -153,6 +166,14 @@ func runResetWithUI(ui ui, mode resetMode, numCommits int, repoAliases []string)
 }
 
 func runResetWithUIAndGroup(ui ui, mode resetMode, numCommits int, repoAliases []string, groupName string) error {
+	return runResetWithUIAndGroupDryRun(ui, mode, numCommits, repoAliases, groupName, false)
+}
+
+func runResetWithUIDryRun(ui ui, mode resetMode, numCommits int, repoAliases []string, dryRun bool) error {
+	return runResetWithUIAndGroupDryRun(ui, mode, numCommits, repoAliases, "", dryRun)
+}
+
+func runResetWithUIAndGroupDryRun(ui ui, mode resetMode, numCommits int, repoAliases []string, groupName string, dryRun bool) error {
 	if numCommits < 1 {
 		return fmt.Errorf("--commits must be at least 1")
 	}
@@ -204,6 +225,14 @@ func runResetWithUIAndGroup(ui ui, mode resetMode, numCommits int, repoAliases [
 		infoByPath[infos[i].repo.Path] = &infos[i]
 	}
 
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("%s reset preview for %d repository(ies)", resetModeName(mode), len(chosen)),
+			resetDryRunItems(chosen, infoByPath, mode),
+		)
+		return nil
+	}
+
 	modeName := resetModeName(mode)
 	fmt.Printf("\nApplying %s reset (%s) to %d repository(ies)…\n\n",
 		color.CyanString(modeName), resetRef, len(chosen))
@@ -247,6 +276,32 @@ func runResetWithUIAndGroup(ui ui, mode resetMode, numCommits int, repoAliases [
 	}
 
 	return nil
+}
+
+func resetDryRunItems(repos []*db.Repository, infoByPath map[string]*repoResetInfo, mode resetMode) []dryRunItem {
+	items := make([]dryRunItem, 0, len(repos))
+	for _, repo := range repos {
+		info := infoByPath[repo.Path]
+		if info == nil {
+			items = append(items, dryRunItem{repo: repo, skipReason: "reset preview information is unavailable"})
+			continue
+		}
+
+		item := dryRunItem{
+			repo:    repo,
+			actions: []string{resetDryRunCommand(mode, info.resetRef)},
+		}
+		if info.pushedCount > 0 {
+			item.warning = fmt.Sprintf("%d already-pushed commit(s) would trigger the force-push prompt", info.pushedCount)
+			item.actions = append(item.actions, "git push --force-with-lease")
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func resetDryRunCommand(mode resetMode, ref string) string {
+	return fmt.Sprintf("git reset --%s %s", resetModeName(mode), ref)
 }
 
 // buildResetRef constructs the git ref string for N commits back.

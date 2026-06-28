@@ -21,6 +21,7 @@ func checkoutCmd() *cobra.Command {
 	var (
 		repoAliases []string
 		groupName   string
+		dryRun      bool
 	)
 
 	cmd := &cobra.Command{
@@ -45,24 +46,29 @@ Repositories are skipped when uncommitted changes conflict with the target branc
 
 Use --repo to limit the operation to specific repositories by alias.
 Use --group to limit the operation to repositories in a group.
+Use --dry-run to preview the checkout, fetch, and pull commands without
+changing branches or fetching remote-only branches.
 When both are provided, gitm checks out only aliases that also belong to the group.`,
 		Example: `  gitm checkout
   gitm checkout master
   gitm checkout feature/JIRA-12345
   gitm checkout master --group backend
   gitm checkout master --repo=api-gateway,auth-service
-  gitm checkout feature/JIRA-12345 -r api-gateway -g backend`,
+  gitm checkout feature/JIRA-12345 -r api-gateway -g backend
+  gitm checkout feature/JIRA-12345 --dry-run`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if groupName == "" {
-				return runCheckoutWithUI(liveUI{}, args, repoAliases)
+				return runCheckoutWithUIDryRun(liveUI{}, args, repoAliases, dryRun)
 			}
-			return runCheckoutWithUIAndGroup(liveUI{}, args, repoAliases, groupName)
+			return runCheckoutWithUIAndGroupDryRun(liveUI{}, args, repoAliases, groupName, dryRun)
 		},
 	}
 
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil,
 		"Limit checkout to specific repository aliases (comma-separated)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
+		"Preview checkout and pull operations without changing repositories")
 	addGroupFlag(cmd, &groupName)
 
 	return cmd
@@ -73,6 +79,14 @@ func runCheckoutWithUI(ui ui, args []string, repoAliases []string) error {
 }
 
 func runCheckoutWithUIAndGroup(ui ui, args []string, repoAliases []string, groupName string) error {
+	return runCheckoutWithUIAndGroupDryRun(ui, args, repoAliases, groupName, false)
+}
+
+func runCheckoutWithUIDryRun(ui ui, args []string, repoAliases []string, dryRun bool) error {
+	return runCheckoutWithUIAndGroupDryRun(ui, args, repoAliases, "", dryRun)
+}
+
+func runCheckoutWithUIAndGroupDryRun(ui ui, args []string, repoAliases []string, groupName string, dryRun bool) error {
 	repos, err := resolveReposWithGroup(repoAliases, groupName)
 	if err != nil {
 		return err
@@ -91,20 +105,32 @@ func runCheckoutWithUIAndGroup(ui ui, args []string, repoAliases []string, group
 	switch {
 	case arg == "":
 		// Interactive mode.
-		return runCheckoutInteractive(repos, ui)
+		return runCheckoutInteractiveDryRun(repos, ui, dryRun)
 
 	case defaultBranchKeywords[strings.ToLower(arg)]:
 		// Default branch mode.
-		return runCheckoutDefault(repos)
+		return runCheckoutDefaultDryRun(repos, dryRun)
 
 	default:
 		// Specific branch mode.
-		return runCheckoutBranch(repos, arg)
+		return runCheckoutBranchDryRun(repos, arg, dryRun)
 	}
 }
 
 // runCheckoutDefault switches all repos to their configured default branch and pulls.
 func runCheckoutDefault(repos []*db.Repository) error {
+	return runCheckoutDefaultDryRun(repos, false)
+}
+
+func runCheckoutDefaultDryRun(repos []*db.Repository, dryRun bool) error {
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("Default branch checkout preview for %d repository(ies)", len(repos)),
+			checkoutDefaultDryRunItems(repos),
+		)
+		return nil
+	}
+
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
@@ -132,6 +158,18 @@ func runCheckoutDefault(repos []*db.Repository) error {
 // runCheckoutBranch checks out a specific branch in all repos, skipping those
 // where the branch does not exist locally or remotely.
 func runCheckoutBranch(repos []*db.Repository, branch string) error {
+	return runCheckoutBranchDryRun(repos, branch, false)
+}
+
+func runCheckoutBranchDryRun(repos []*db.Repository, branch string, dryRun bool) error {
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("Branch %q checkout preview for %d repository(ies)", branch, len(repos)),
+			checkoutBranchDryRunItems(repos, branch),
+		)
+		return nil
+	}
+
 	fmt.Printf("Checking out branch %q in %d repositories…\n\n", branch, len(repos))
 
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
@@ -147,6 +185,10 @@ func runCheckoutBranch(repos []*db.Repository, branch string) error {
 // runCheckoutInteractive lets the user pick repos via TUI, type a branch name,
 // then checks out that branch in the selected repos.
 func runCheckoutInteractive(repos []*db.Repository, ui ui) error {
+	return runCheckoutInteractiveDryRun(repos, ui, false)
+}
+
+func runCheckoutInteractiveDryRun(repos []*db.Repository, ui ui, dryRun bool) error {
 	chosen, err := ui.MultiSelect(repos, "Select repositories to checkout", false, nil)
 	if err != nil {
 		fmt.Println(err)
@@ -156,6 +198,14 @@ func runCheckoutInteractive(repos []*db.Repository, ui ui) error {
 	branch, err := ui.BranchNameInput()
 	if err != nil {
 		fmt.Println(err)
+		return nil
+	}
+
+	if dryRun {
+		printDryRunPreview(
+			fmt.Sprintf("Branch %q checkout preview for %d repository(ies)", branch, len(chosen)),
+			checkoutBranchDryRunItems(chosen, branch),
+		)
 		return nil
 	}
 
@@ -206,6 +256,60 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 	}
 
 	return fmt.Sprintf("on %s — %s", branch, summarisePull(out)), "", nil
+}
+
+func checkoutDefaultDryRunItems(repos []*db.Repository) []dryRunItem {
+	items := make([]dryRunItem, 0, len(repos))
+	for _, repo := range repos {
+		item := dryRunItem{
+			repo: repo,
+			actions: []string{
+				fmt.Sprintf("git checkout %s", repo.DefaultBranch),
+				"git pull --ff-only",
+			},
+			warning: "checkout conflicts cannot be predicted without running git checkout",
+		}
+		if dirty, err := git.IsDirtyTrackedOnly(repo.Path); err == nil && dirty {
+			item.warning = "tracked changes exist; checkout may be skipped if Git reports a conflict"
+		} else if err != nil {
+			item.warning = fmt.Sprintf("could not inspect tracked changes: %v", err)
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunItem {
+	items := make([]dryRunItem, 0, len(repos))
+	for _, repo := range repos {
+		item := dryRunItem{repo: repo}
+		localExists := git.BranchExists(repo.Path, branch)
+		remoteExists := false
+		if !localExists {
+			remoteExists = git.RemoteBranchExists(repo.Path, branch)
+		}
+		if !localExists && !remoteExists {
+			item.skipReason = fmt.Sprintf("branch %q not found (local or remote)", branch)
+			items = append(items, item)
+			continue
+		}
+
+		if !localExists && remoteExists {
+			item.actions = append(item.actions, fmt.Sprintf("git fetch origin -- %s", branch))
+		}
+		item.actions = append(item.actions,
+			fmt.Sprintf("git checkout %s", branch),
+			"git pull --ff-only",
+		)
+		item.warning = "checkout conflicts cannot be predicted without running git checkout"
+		if dirty, err := git.IsDirtyTrackedOnly(repo.Path); err == nil && dirty {
+			item.warning = "tracked changes exist; checkout may be skipped if Git reports a conflict"
+		} else if err != nil {
+			item.warning = fmt.Sprintf("could not inspect tracked changes: %v", err)
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func isCheckoutConflict(err error) bool {
