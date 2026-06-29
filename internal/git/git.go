@@ -290,6 +290,14 @@ func RemoteBranchExists(path, branch string) bool {
 	return err == nil
 }
 
+// Fetch refreshes all remote-tracking refs from origin (git fetch). The branch
+// dashboard calls it once per repo under --fetch so that remote branch existence
+// and ahead/behind numbers reflect the current remote state.
+func Fetch(path string) error {
+	_, err := run(path, "fetch")
+	return err
+}
+
 // FetchBranch fetches a single branch from origin so that git checkout can
 // create a local tracking branch from the remote ref.
 // The -- separator ensures the branch name is always treated as a refspec
@@ -324,7 +332,16 @@ func DeleteLocalBranch(path, branch string, force bool) error {
 
 // BranchMerged reports whether branch is already reachable from HEAD.
 func BranchMerged(path, branch string) (bool, error) {
-	_, err := run(path, "merge-base", "--is-ancestor", branch, "HEAD")
+	return BranchMergedInto(path, branch, "HEAD")
+}
+
+// BranchMergedInto reports whether branch is reachable from target — i.e. every
+// commit on branch is already contained in target. Both arguments may be any ref
+// (branch name, refs/heads/…, refs/remotes/origin/…). git merge-base exits 1 when
+// branch is not an ancestor, which is a clean "not merged" answer rather than an
+// error.
+func BranchMergedInto(path, branch, target string) (bool, error) {
+	_, err := run(path, "merge-base", "--is-ancestor", branch, target)
 	if err == nil {
 		return true, nil
 	}
@@ -363,6 +380,47 @@ func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
 	_, _ = fmt.Sscanf(parts[1], "%d", &behind)
 	return ahead, behind, nil
+}
+
+// AheadBehindOf returns how many commits ref is ahead/behind its upstream. Unlike
+// AheadBehind, ref may be any branch — not just the checked-out one — so the branch
+// dashboard can report on a target branch without checking it out. ref must resolve
+// to a local branch for ref@{upstream} to exist; when there is no upstream the
+// counts are 0/0. Run Fetch first if up-to-date remote numbers are needed.
+func AheadBehindOf(path, ref string) (ahead, behind int, err error) {
+	out, err := run(path, "rev-list", "--left-right", "--count", ref+"..."+ref+"@{upstream}")
+	if err != nil {
+		// No upstream tracking branch — treat as 0/0.
+		return 0, 0, nil
+	}
+	parts := strings.Fields(out)
+	if len(parts) != 2 {
+		return 0, 0, nil
+	}
+	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
+	_, _ = fmt.Sscanf(parts[0], "%d", &ahead)
+	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
+	_, _ = fmt.Sscanf(parts[1], "%d", &behind)
+	return ahead, behind, nil
+}
+
+// Upstream returns the upstream tracking ref of branch (e.g. "origin/feature/x"),
+// or an empty string when branch has no upstream configured. A missing upstream is
+// a normal state, not an error, so the same tolerant message matching as HasUpstream
+// is used to distinguish it from a real failure.
+func Upstream(path, branch string) (string, error) {
+	out, err := run(path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "no upstream configured") ||
+			strings.Contains(msg, "HEAD does not point to a branch") ||
+			strings.Contains(msg, "ambiguous argument") ||
+			strings.Contains(msg, "does not point to a branch") {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // TrackedFiles returns all tracked files in the repository as porcelain-style

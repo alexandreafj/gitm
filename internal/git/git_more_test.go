@@ -787,3 +787,152 @@ func TestDiscardFiles_UntrackedDirectory(t *testing.T) {
 		t.Errorf("README.md = %q, want %q (should survive)", content, "modified\n")
 	}
 }
+
+func TestBranchMergedInto(t *testing.T) {
+	repo := initRepo(t)
+
+	// "release" marks a point; anything reachable from it is merged into it.
+	mustRunGit(t, repo, "branch", "release")
+
+	// A branch at the same commit as release is merged into release.
+	mustRunGit(t, repo, "branch", "feature/done")
+	merged, err := git.BranchMergedInto(repo, "feature/done", "release")
+	if err != nil {
+		t.Fatalf("BranchMergedInto(done): %v", err)
+	}
+	if !merged {
+		t.Fatal("feature/done should be merged into release")
+	}
+
+	// A branch with an extra commit is not merged into release.
+	mustRunGit(t, repo, "checkout", "-b", "feature/wip")
+	writeFile(t, repo, "wip.txt", "wip\n")
+	mustRunGit(t, repo, "add", "wip.txt")
+	mustRunGit(t, repo, "commit", "-m", "wip commit")
+	mustRunGit(t, repo, "checkout", "main")
+
+	merged, err = git.BranchMergedInto(repo, "feature/wip", "release")
+	if err != nil {
+		t.Fatalf("BranchMergedInto(wip): %v", err)
+	}
+	if merged {
+		t.Fatal("feature/wip should not be merged into release")
+	}
+}
+
+func TestUpstream(t *testing.T) {
+	repo, _ := initRepoWithRemote(t)
+
+	branch, err := git.CurrentBranch(repo)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+
+	up, err := git.Upstream(repo, branch)
+	if err != nil {
+		t.Fatalf("Upstream: %v", err)
+	}
+	if up != "origin/"+branch {
+		t.Errorf("Upstream = %q, want %q", up, "origin/"+branch)
+	}
+
+	// A local-only branch has no upstream and must not be reported as an error.
+	mustRunGit(t, repo, "branch", "local-only")
+	up, err = git.Upstream(repo, "local-only")
+	if err != nil {
+		t.Fatalf("Upstream(local-only): %v", err)
+	}
+	if up != "" {
+		t.Errorf("Upstream(local-only) = %q, want empty", up)
+	}
+}
+
+func TestAheadBehindOf(t *testing.T) {
+	repo1, origin := initRepoWithRemote(t)
+	repo2 := cloneRepo(t, origin)
+	mustRunGit(t, repo2, "config", "user.email", "test@example.com")
+	mustRunGit(t, repo2, "config", "user.name", "Test User")
+
+	// Create a feature branch on repo1 and push it (sets upstream origin/feature).
+	mustRunGit(t, repo1, "checkout", "-b", "feature")
+	writeFile(t, repo1, "f.txt", "base\n")
+	mustRunGit(t, repo1, "add", "f.txt")
+	mustRunGit(t, repo1, "commit", "-m", "feature base")
+	mustRunGit(t, repo1, "push", "--set-upstream", "origin", "feature")
+
+	// repo2 advances origin/feature by one commit.
+	mustRunGit(t, repo2, "fetch")
+	mustRunGit(t, repo2, "checkout", "feature")
+	writeFile(t, repo2, "remote.txt", "remote\n")
+	mustRunGit(t, repo2, "add", "remote.txt")
+	mustRunGit(t, repo2, "commit", "-m", "remote feature commit")
+	mustRunGit(t, repo2, "push")
+
+	// repo1 adds a local commit to feature, then switches away so feature is not current.
+	writeFile(t, repo1, "local.txt", "local\n")
+	mustRunGit(t, repo1, "add", "local.txt")
+	mustRunGit(t, repo1, "commit", "-m", "local feature commit")
+	mustRunGit(t, repo1, "checkout", "main")
+
+	// Refresh remote-tracking refs so origin/feature reflects repo2's push.
+	if err := git.Fetch(repo1); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	ahead, behind, err := git.AheadBehindOf(repo1, "feature")
+	if err != nil {
+		t.Fatalf("AheadBehindOf: %v", err)
+	}
+	if ahead != 1 || behind != 1 {
+		t.Errorf("AheadBehindOf = ahead %d behind %d, want 1/1", ahead, behind)
+	}
+
+	// A local-only branch (no upstream) reports 0/0 rather than an error.
+	mustRunGit(t, repo1, "branch", "orphan")
+	ahead, behind, err = git.AheadBehindOf(repo1, "orphan")
+	if err != nil {
+		t.Fatalf("AheadBehindOf(orphan): %v", err)
+	}
+	if ahead != 0 || behind != 0 {
+		t.Errorf("AheadBehindOf(orphan) = ahead %d behind %d, want 0/0", ahead, behind)
+	}
+}
+
+func TestFetch(t *testing.T) {
+	repo1, origin := initRepoWithRemote(t)
+	repo2 := cloneRepo(t, origin)
+	mustRunGit(t, repo2, "config", "user.email", "test@example.com")
+	mustRunGit(t, repo2, "config", "user.name", "Test User")
+
+	branch, err := git.CurrentBranch(repo1)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+
+	// repo2 pushes a new commit to origin.
+	writeFile(t, repo2, "new.txt", "new\n")
+	mustRunGit(t, repo2, "add", "new.txt")
+	mustRunGit(t, repo2, "commit", "-m", "remote commit")
+	mustRunGit(t, repo2, "push")
+
+	// Before fetch, repo1's remote-tracking ref is stale, so it sees nothing behind.
+	_, behind, err := git.AheadBehindOf(repo1, branch)
+	if err != nil {
+		t.Fatalf("AheadBehindOf(before): %v", err)
+	}
+	if behind != 0 {
+		t.Errorf("behind before fetch = %d, want 0 (stale)", behind)
+	}
+
+	if err := git.Fetch(repo1); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	_, behind, err = git.AheadBehindOf(repo1, branch)
+	if err != nil {
+		t.Fatalf("AheadBehindOf(after): %v", err)
+	}
+	if behind != 1 {
+		t.Errorf("behind after fetch = %d, want 1", behind)
+	}
+}

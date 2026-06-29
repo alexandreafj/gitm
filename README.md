@@ -22,6 +22,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
 - **Parallel by default** — 10 concurrent git ops, live-streamed output.
 - **Safe** — never force-resets your work; dirty repos are skipped, not clobbered.
 - **Dry-run previews** — inspect dangerous branch/delete/reset/sync/checkout/discard operations before they change anything.
+- **Branch dashboard** — `gitm branches feature/JIRA-123` shows, per repo, where a feature branch exists, its tracking/ahead-behind state, and whether it has merged into default.
 - **Interactive TUI** — multi-select repos and files with bubbletea.
 - **Self-updating (manual installs)** — `gitm upgrade` pulls signed binaries from GitHub Releases on macOS/Linux manual installs.
 - **Zero config** — single SQLite file at `~/.gitm/gitm.db`, no daemons.
@@ -44,6 +45,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [branch rename](#gitm-branch-rename)
   - [branch delete](#gitm-branch-delete)
   - [status](#gitm-status)
+  - [branches](#gitm-branches)
   - [update](#gitm-update)
   - [sync](#gitm-sync)
   - [discard](#gitm-discard)
@@ -75,6 +77,7 @@ When working across many repositories, daily git operations become repetitive:
 | Manually `cd` into 6 repos to create a feature branch | `gitm branch create feature/JIRA-123` |
 | Manually rename a branch in each repo + update remote | `gitm branch rename old-name new-name` |
 | Forget which repos are dirty or behind origin | `gitm status` |
+| Check which repos have a feature branch and how each stands vs default | `gitm branches feature/JIRA-123` |
 | Manually `cd` into each repo to stage + commit + push | `gitm commit` |
 | Stash changes in specific repos before switching branches | `gitm stash` |
 | Re-apply stashed work after switching back | `gitm stash pop` |
@@ -898,6 +901,100 @@ gitm status --group backend
 ```
 
 > **Performance note:** By default, `gitm status` is near-instant because it doesn't fetch from origin. The ahead/behind numbers reflect the last known state of remote branches. Use `--fetch` if you need up-to-the-second accuracy from the remote.
+
+---
+
+### `gitm branches`
+
+A branch dashboard across all registered repositories. Answers, at a glance: which branch is each repo on, does a given feature branch exist in each repo, is it tracked/pushed, how far ahead/behind origin is it, and has it already merged into the default branch. Runs in **parallel** with no network calls by default. Purpose-built for multi-repo feature work.
+
+```
+gitm branches [target-branch] [flags]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|---|---|
+| `[target-branch]` | _(optional)_ Focus the dashboard on a specific branch (e.g. `feature/JIRA-123`). Without it, each row describes the branch the repository is currently on. |
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--fetch` | — | false | Run `git fetch` on each repo first so remote branch existence and ahead/behind numbers are up to date (slower, requires network). |
+| `--repo` | `-r` | _(all repos)_ | Limit output to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit output to repositories in a group. Combines with `--repo` as an intersection. |
+
+**Two modes:**
+
+| Invocation | Subject of each row |
+|---|---|
+| `gitm branches` | The branch each repo is **currently on**. |
+| `gitm branches <target>` | The **target branch** across every repo (with a `CURRENT` column showing where each repo actually is). |
+
+**Behaviour:**
+
+- **Offline by default**, like `gitm status`: remote branch existence and ahead/behind come from the last-fetched `origin` refs. Pass `--fetch` to refresh first.
+- In target mode, the `TARGET` column reports existence: `local+remote`, `local only`, `remote only`, or `missing`. A green `●` marks repos currently checked out **on** the target.
+- `UPSTREAM` and `AHEAD/BEHIND` describe the subject branch; they require the branch to exist **locally**, so they show `—` for a `remote only` or `missing` target.
+- `MERGED` reports whether the subject branch has merged into the repository's default branch (`merged` / `not merged`). It shows `(default)` when the subject **is** the default branch, and `—` when it cannot be determined (e.g. a missing target).
+
+**Column descriptions:**
+
+| Column | Description |
+|---|---|
+| `REPO` | Repository alias. |
+| `TARGET` _(target mode)_ | Whether the target branch exists locally and/or on origin; `●` marks the repo if it is checked out on it. |
+| `BRANCH` / `CURRENT` | The branch the repository is currently on. |
+| `UPSTREAM` | The subject branch's upstream tracking ref, or `none`. |
+| `AHEAD/BEHIND` | Commits the subject branch is ahead/behind its upstream. |
+| `MERGED` | Whether the subject branch has merged into the repository's default branch. |
+
+**Examples:**
+
+```bash
+# Dashboard of the branch each repo is currently on
+gitm branches
+
+# Track a feature branch across every repo
+gitm branches feature/JIRA-123
+
+# Refresh remote state first for accurate existence + ahead/behind
+gitm branches feature/JIRA-123 --fetch
+
+# Scope to specific repos or a group
+gitm branches feature/JIRA-123 -r api-gateway,auth-service
+gitm branches -g backend
+```
+
+**Example output — no argument:**
+
+```
+$ gitm branches
+
+Collecting branch info for 3 repositories…
+
+REPO                    BRANCH                      UPSTREAM                AHEAD/BEHIND    MERGED
+────────────────────────────────────────────────────────────────────────────────────────────
+api-gateway             feature/JIRA-123            origin/feature/JIRA-1…  ↑2              not merged
+auth-service            master                      origin/master           up to date      (default)
+frontend                develop                     none                    —               not merged
+```
+
+**Example output — target branch:**
+
+```
+$ gitm branches feature/JIRA-123
+
+Collecting branch info for "feature/JIRA-123" across 3 repositories…
+
+REPO                    TARGET              CURRENT                   UPSTREAM                AHEAD/BEHIND    MERGED
+────────────────────────────────────────────────────────────────────────────────────────────────────────────
+api-gateway             ● local+remote      feature/JIRA-123          origin/feature/JIRA-1…  up to date      not merged
+auth-service              remote only       master                    —                       —               not merged
+frontend                  missing           master                    —                       —               —
+```
 
 ---
 
@@ -1890,6 +1987,7 @@ cli-git-commands/
 │   │   ├── checkout.go          # checkout master
 │   │   ├── branch.go            # branch create/rename/delete
 │   │   ├── status.go            # status
+│   │   ├── branches.go          # branches (multi-repo branch dashboard)
 │   │   ├── update.go            # update
 │   │   ├── sync.go              # sync (merge default branch into current branch)
 │   │   ├── discard.go           # discard

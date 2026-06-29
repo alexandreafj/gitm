@@ -56,6 +56,7 @@ All multi-repo operations run concurrently for speed.`,
 	root.AddCommand(checkoutCmd())
 	root.AddCommand(branchCmd())
 	root.AddCommand(statusCmd())
+	root.AddCommand(branchesCmd())
 	root.AddCommand(updateCmd())
 	root.AddCommand(syncCmd())
 	root.AddCommand(discardCmd())
