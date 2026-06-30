@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,9 +21,17 @@ import (
 
 const (
 	releaseAPIURL = "https://api.github.com/repos/alexandreafj/gitm/releases/latest"
-	httpTimeout   = 60 * time.Second
+	httpTimeout   = 120 * time.Second
 	userAgent     = "gitm-upgrade"
 	maxBundleSize = 32 << 10 // 32 KiB — real bundles are ~8 KB
+
+	// tlsHandshakeTimeout overrides the stdlib default of 10s. GitHub's release
+	// asset CDN can be slow to complete the TLS handshake on high-latency or
+	// proxied connections, surfacing as "TLS handshake timeout" mid-download.
+	tlsHandshakeTimeout = 30 * time.Second
+
+	maxDownloadRetries  = 3
+	defaultRetryBackoff = 2 * time.Second
 )
 
 type ghRelease struct {
@@ -135,24 +144,99 @@ type upgradeClient interface {
 }
 
 type httpUpgradeClient struct {
-	client *http.Client
+	client       *http.Client
+	maxRetries   int
+	retryBackoff time.Duration
 }
 
 func newHTTPUpgradeClient() *httpUpgradeClient {
+	transport := &http.Transport{}
+	if def, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = def.Clone()
+	}
+	transport.TLSHandshakeTimeout = tlsHandshakeTimeout
+
 	return &httpUpgradeClient{
-		client: &http.Client{Timeout: httpTimeout},
+		client:       &http.Client{Timeout: httpTimeout, Transport: transport},
+		maxRetries:   maxDownloadRetries,
+		retryBackoff: defaultRetryBackoff,
 	}
 }
 
-func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
-	req, err := http.NewRequest("GET", releaseAPIURL, nil)
-	if err != nil {
-		return nil, err
+// isRetryableNetErr reports whether err is a transient network failure worth
+// retrying — timeouts (including the TLS handshake timeout), dropped
+// connections, and truncated reads — rather than a definitive failure.
+func isRetryableNetErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := h.client.Do(req)
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	msg := err.Error()
+	for _, transient := range []string{
+		"TLS handshake timeout",
+		"i/o timeout",
+		"connection reset",
+		"connection refused",
+		"unexpected EOF",
+	} {
+		if strings.Contains(msg, transient) {
+			return true
+		}
+	}
+	return false
+}
+
+// doGet issues a GET request, retrying on transient network errors and 5xx/429
+// responses with exponential backoff. The returned response body is open and
+// must be closed by the caller.
+func (h *httpUpgradeClient) doGet(url, accept string) (*http.Response, error) {
+	attempts := h.maxRetries
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(h.retryBackoff * time.Duration(1<<(attempt-2)))
+		}
+
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		if accept != "" {
+			req.Header.Set("Accept", accept)
+		}
+
+		resp, err := h.client.Do(req)
+		if err != nil {
+			lastErr = err
+			if isRetryableNetErr(err) {
+				continue
+			}
+			return nil, err
+		}
+
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("server returned %d", resp.StatusCode)
+			resp.Body.Close()
+			continue
+		}
+
+		return resp, nil
+	}
+	return nil, lastErr
+}
+
+func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
+	resp, err := h.doGet(releaseAPIURL, "application/vnd.github+json")
 	if err != nil {
 		return nil, fmt.Errorf("fetch latest release: %w", err)
 	}
@@ -173,13 +257,7 @@ func (h *httpUpgradeClient) fetchLatestRelease() (*ghRelease, error) {
 }
 
 func (h *httpUpgradeClient) downloadToFile(url, path string) error {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := h.client.Do(req)
+	resp, err := h.doGet(url, "")
 	if err != nil {
 		return err
 	}
@@ -206,13 +284,7 @@ func (h *httpUpgradeClient) downloadToFile(url, path string) error {
 }
 
 func (h *httpUpgradeClient) downloadBytes(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := h.client.Do(req)
+	resp, err := h.doGet(url, "")
 	if err != nil {
 		return nil, err
 	}

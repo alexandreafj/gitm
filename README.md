@@ -1890,6 +1890,8 @@ scoop update gitm          # Scoop (Windows)
 5. Atomically replaces the current binary (backs up the old one, swaps in the new one).
 6. Sets executable permissions on Linux/macOS (`chmod 755`).
 
+Downloads tolerate slow or proxied connections: the TLS handshake is given up to 30s (the Go default of 10s is too aggressive for GitHub's asset CDN behind some networks), and transient failures — TLS handshake timeouts, dropped connections, and 5xx/429 responses — are retried up to 3 times with exponential backoff before giving up.
+
 **Supported platforms:**
 
 | Platform | Binary |
