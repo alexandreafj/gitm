@@ -240,6 +240,19 @@ func Pull(path string) (string, error) {
 	return run(path, "pull", "--ff-only")
 }
 
+// PullRebase fetches origin/<branch> and rebases the current branch onto it,
+// autostashing any uncommitted changes around the rebase. It is used to recover
+// a branch whose push was rejected because the remote advanced (a
+// non-fast-forward): rebasing the local commits onto the fetched remote tip
+// leaves the branch strictly ahead so a subsequent Push fast-forwards origin.
+//
+// On rebase conflicts git exits non-zero and leaves the working tree in a
+// rebasing state; callers detect that with UnmergedFiles rather than treating
+// it as a hard failure (mirrors Merge).
+func PullRebase(path, branch string) (string, error) {
+	return run(path, "pull", "--rebase", "--autostash", "origin", branch)
+}
+
 // Merge merges ref (e.g. "origin/main" or "main") into the current branch and
 // returns git's output. --no-edit suppresses the merge-commit message editor,
 // which would otherwise hang the non-interactive multi-repo runner. On a merge

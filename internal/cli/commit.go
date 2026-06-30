@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -279,16 +280,30 @@ repoLoop:
 		}
 		color.Green("  ✓ Committed: %s", firstLine(out))
 
-		// 3f. Push (unless --no-push).
+		// 3f. Push (unless --no-push). pushRepo auto-recovers from a diverged
+		// remote (a rejected non-fast-forward push) by rebasing the new commit
+		// onto origin and retrying, so a stale remote no longer strands the
+		// commit. The commit already succeeded locally, so a push problem here
+		// never loses work.
 		pushed := false
 		if !noPush {
-			if err := git.Push(repo.Path); err != nil {
-				color.Red("  ✗ git push failed: %v", err)
-				results = append(results, repoCommitResult{alias: repo.Alias, err: err})
+			out, pushErr := pushRepo(repo)
+			switch {
+			case pushErr != nil:
+				color.Red("  ✗ git push failed: %v", pushErr)
+				results = append(results, repoCommitResult{alias: repo.Alias, err: pushErr})
 				continue
+			case len(out.conflict) > 0:
+				color.Red("  ✗ remote diverged; rebase hit conflicts — resolve them, then `gitm push`")
+				results = append(results, repoCommitResult{
+					alias: repo.Alias,
+					err:   fmt.Errorf("rebase conflict after diverged push (%d file(s))", len(out.conflict)),
+				})
+				continue
+			default:
+				color.Green("  ✓ %s", capitalizeFirst(out.message))
+				pushed = true
 			}
-			color.Green("  ✓ Pushed")
-			pushed = true
 		} else {
 			color.Yellow("  ⚠  Push skipped (--no-push)")
 		}
@@ -340,4 +355,15 @@ func firstLine(s string) string {
 		}
 	}
 	return s
+}
+
+// capitalizeFirst upper-cases the first letter of s so a lower-case status
+// detail (e.g. "pushed main") matches the "✓ Pushed"/"✓ Staged" inline style.
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }

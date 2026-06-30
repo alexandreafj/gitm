@@ -48,6 +48,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [sync](#gitm-sync)
   - [discard](#gitm-discard)
   - [commit](#gitm-commit)
+  - [push](#gitm-push)
   - [stash](#gitm-stash)
   - [reset](#gitm-reset)
   - [track](#gitm-track)
@@ -1186,7 +1187,7 @@ gitm commit [flags]
    - **Commit message input** — single-line text input; rejects empty messages.
    - `git add -- <selected files>`
    - `git commit -m "<message>"` (during a merge, commits the entire index to complete the merge)
-   - `git push --set-upstream origin <branch>` (skipped with `--no-push`)
+   - `git push --set-upstream origin <branch>` (skipped with `--no-push`). If the push is rejected because the remote branch advanced (a non-fast-forward), gitm automatically rebases the new commit onto origin and retries — see [`gitm push`](#gitm-push). A rebase conflict is left in place and reported so you can resolve it and run `gitm push`.
    - Live result printed per repo.
 5. **Final summary** — `N committed, N skipped, N failed`.
 
@@ -1265,6 +1266,76 @@ gitm commit --repo api-gateway,auth-service --group backend
 
 # Commit specific repos and skip push
 gitm commit --repo api-gateway --group backend --no-push
+```
+
+---
+
+### `gitm push`
+
+Push the current branch of one or more repositories to origin **in parallel**, automatically recovering when the remote has diverged. Unlike `gitm commit`, this only pushes what is already committed — useful when a commit exists but was never pushed (after `gitm commit --no-push`, or after a push was rejected).
+
+```
+gitm push [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to push. Bypasses the interactive multi-select UI. |
+| `--all` | `-a` | false | Push every registered repository without prompting. |
+| `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
+
+**What it does:**
+
+1. **Selects** repositories — interactive multi-select by default, or all matches when `--repo` / `--all` is given.
+2. For each selected repo, in parallel:
+   - Skips the repo when it already tracks a remote and has nothing new to push (`nothing to push — <branch> is up to date`).
+   - Runs `git push --set-upstream origin <branch>`.
+   - **Diverged-remote recovery:** if the push is rejected because the remote branch advanced (a non-fast-forward `! [rejected] … (fetch first)`), gitm fetches origin and runs `git pull --rebase --autostash origin <branch>` to replay your local commits on top of the remote, then retries the push once. History stays linear and you never have to `cd` into the repo to pull by hand.
+3. **Summary** — `N succeeded, N skipped, N failed`.
+
+**Rebase conflicts:**
+
+If the recovery rebase hits conflicts, the repository is **left in its rebasing state** (not aborted) and reported. Resolve the conflicts, run `git rebase --continue`, then re-run `gitm push`.
+
+**Protected branches:** unlike `gitm commit`, `gitm push` does **not** protect the default branch — pushing a `main`/`master` that has local commits is a valid operation.
+
+**Example output:**
+
+```
+Pushing the current branch of 2 repository(ies)…
+
+[auth-service        ] ✓ remote had diverged — rebased onto origin/feature/JIRA-456 and pushed
+[api-gateway         ] ⚠ SKIPPED: nothing to push — main is up to date
+
+Done: 1 succeeded, 1 skipped
+```
+
+When a rebase conflict is left behind:
+
+```
+1 repository(ies) have rebase conflicts left for you to resolve:
+  - auth-service (/home/user/work/auth-service)
+      conflict: src/auth/login.go
+
+Resolve the conflicts in each repo, then `git rebase --continue` and `gitm push` (or `git rebase --abort`).
+```
+
+**Examples:**
+
+```bash
+# Interactive push
+gitm push
+
+# Push every registered repository
+gitm push --all
+
+# Push specific repos by alias (no selection prompt)
+gitm push --repo api-gateway,auth-service
+
+# Push only repos in a group
+gitm push --group backend
 ```
 
 ---
@@ -1894,6 +1965,7 @@ cli-git-commands/
 │   │   ├── sync.go              # sync (merge default branch into current branch)
 │   │   ├── discard.go           # discard
 │   │   ├── commit.go            # commit
+│   │   ├── push.go              # push (with diverged-remote rebase recovery)
 │   │   ├── stash.go             # stash / stash apply / stash pop / stash list
 │   │   ├── reset.go             # reset --soft / --hard with force-push support
 │   │   ├── track.go             # start tracking untracked files
