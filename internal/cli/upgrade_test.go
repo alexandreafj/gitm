@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestAssetName(t *testing.T) {
@@ -748,5 +751,132 @@ func TestHTTPDownloadBytesNonOKStatusRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "download returned 404") {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestDoGetRetriesOnServerError(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := w.Write([]byte("ok")); err != nil {
+			t.Errorf("write payload: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	uc := &httpUpgradeClient{
+		client:       newTestHTTPClient(srv),
+		maxRetries:   3,
+		retryBackoff: time.Millisecond,
+	}
+
+	got, err := uc.downloadBytes(srv.URL + "/bundle")
+	if err != nil {
+		t.Fatalf("expected success after retries, got: %v", err)
+	}
+	if string(got) != "ok" {
+		t.Errorf("got %q, want %q", got, "ok")
+	}
+	if n := atomic.LoadInt32(&calls); n != 3 {
+		t.Errorf("expected 3 attempts, got %d", n)
+	}
+}
+
+func TestDoGetExhaustsRetriesOnPersistentServerError(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	uc := &httpUpgradeClient{
+		client:       newTestHTTPClient(srv),
+		maxRetries:   3,
+		retryBackoff: time.Millisecond,
+	}
+
+	_, err := uc.downloadBytes(srv.URL + "/bundle")
+	if err == nil {
+		t.Fatal("expected error after exhausting retries, got nil")
+	}
+	if !strings.Contains(err.Error(), "server returned 503") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 3 {
+		t.Errorf("expected 3 attempts, got %d", n)
+	}
+}
+
+func TestDoGetDoesNotRetryClientError(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	uc := &httpUpgradeClient{
+		client:       newTestHTTPClient(srv),
+		maxRetries:   3,
+		retryBackoff: time.Millisecond,
+	}
+
+	resp, err := uc.doGet(srv.URL+"/bundle", "")
+	if err != nil {
+		t.Fatalf("doGet returned error for 404: %v", err)
+	}
+	resp.Body.Close()
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("expected 1 attempt for non-retryable 404, got %d", n)
+	}
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "simulated timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+func TestIsRetryableNetErr(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "net.Error timeout", err: timeoutError{}, want: true},
+		{name: "tls handshake timeout", err: errors.New(`Get "https://x": net/http: TLS handshake timeout`), want: true},
+		{name: "connection reset", err: errors.New("read tcp: connection reset by peer"), want: true},
+		{name: "connection refused", err: errors.New("dial tcp: connection refused"), want: true},
+		{name: "unexpected EOF", err: errors.New("unexpected EOF"), want: true},
+		{name: "wrapped timeout", err: fmt.Errorf("download: %w", timeoutError{}), want: true},
+		{name: "permanent 404 text", err: errors.New("download returned 404"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRetryableNetErr(tt.err); got != tt.want {
+				t.Errorf("isRetryableNetErr(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewHTTPUpgradeClientConfiguresTransport(t *testing.T) {
+	uc := newHTTPUpgradeClient()
+
+	transport, ok := uc.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", uc.client.Transport)
+	}
+	if transport.TLSHandshakeTimeout != tlsHandshakeTimeout {
+		t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, tlsHandshakeTimeout)
+	}
+	if uc.maxRetries != maxDownloadRetries {
+		t.Errorf("maxRetries = %d, want %d", uc.maxRetries, maxDownloadRetries)
 	}
 }
