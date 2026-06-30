@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/fatih/color"
+
+	"github.com/alexandreafj/gitm/internal/git"
 )
 
 func TestRunCommit_NoRepos(t *testing.T) {
@@ -172,6 +174,49 @@ func TestRunCommit_BranchLookupFailureWarnsAndContinues(t *testing.T) {
 
 	if !strings.Contains(output.String(), "Cannot detect current branch") {
 		t.Fatalf("expected warning in output, got %q", output.String())
+	}
+}
+
+func TestRunCommit_PushRecoversDivergedRemote(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+
+	// Work on a feature branch that tracks origin.
+	mustRunGit(t, dir, "checkout", "-b", "AA-200")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "AA-200")
+
+	// The remote AA-200 advances behind our back → the next push is rejected.
+	advanceOriginBranch(t, originDir, "AA-200", "fromremote.go", "package remote\n")
+
+	// A local change to commit and push through the normal commit flow.
+	writeFile(t, dir, "README.md", "diverged change\n")
+
+	if _, err := database.AddRepository("repo1", "repo1", dir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	// noPush=false → commit then push, which must self-heal the diverged remote.
+	ui := fakeUI{commitMsg: "adjust readme"}
+	if err := runCommitWithUI(ui, false, []string{"repo1"}); err != nil {
+		t.Fatalf("runCommitWithUI: %v", err)
+	}
+
+	// Origin AA-200 now contains both the remote advance and our rebased commit.
+	log := mustRunGit(t, originDir, "log", "AA-200", "--format=%s")
+	if !strings.Contains(log, "AA-200 adjust readme") {
+		t.Errorf("expected our commit pushed to origin AA-200, got log:\n%s", log)
+	}
+	if !strings.Contains(log, "advance AA-200") {
+		t.Errorf("expected the remote advance preserved in origin AA-200 history, got log:\n%s", log)
+	}
+
+	// Locally the branch must be fully in sync — the push really landed.
+	ahead, behind, err := git.AheadBehind(dir, true)
+	if err != nil {
+		t.Fatalf("AheadBehind: %v", err)
+	}
+	if ahead != 0 || behind != 0 {
+		t.Errorf("expected branch in sync after self-heal, got ahead=%d behind=%d", ahead, behind)
 	}
 }
 
