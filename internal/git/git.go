@@ -15,6 +15,11 @@ import (
 func run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	// Force the C locale so git's messages stay in English regardless of the
+	// user's LANG/LC_ALL: several callers match on message text (e.g. "no
+	// upstream configured", "Your local changes", "Already up to date").
+	// os/exec keeps the last duplicate key, so this append wins.
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
