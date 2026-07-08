@@ -514,7 +514,7 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 
 - Repositories with uncommitted **tracked** changes are skipped (untracked files like `AGENTS.md` are safely ignored).
 - Branch existence is checked locally first, then on the remote — skipped with a warning if neither has it.
-- After checkout, runs `git pull --ff-only`.
+- After checkout, runs `git pull --ff-only`. If the branch has no upstream (a local-only branch), the pull is skipped with a note — the checkout still succeeds.
 - With `--dry-run`, gitm prints the planned commands and known skips, but does not fetch, checkout, pull, or mutate repositories. Checkout conflicts that Git only detects during checkout are shown as risk notes.
 - Streams results live with a final summary.
 
@@ -612,7 +612,7 @@ Checking out branch "feature/JIRA-12345" in 2 repositories…
 
 ### `gitm branch create`
 
-Create a new branch in selected repositories. An interactive multi-select UI lets you choose which repositories to apply the operation to. Use `--repo` to skip the UI entirely and target specific repositories by alias.
+Create a new branch in selected repositories and push it to origin with upstream tracking, so later pulls and pushes (`gitm update`, `gitm checkout`, `gitm push`) work without extra setup. An interactive multi-select UI lets you choose which repositories to apply the operation to. Use `--repo` to skip the UI entirely and target specific repositories by alias.
 
 ```
 gitm branch create <branch-name> [flags]
@@ -630,6 +630,7 @@ gitm branch create <branch-name> [flags]
 |---|---|---|---|
 | `--all` | `-a` | false | Skip the selection UI and apply to all registered repositories. |
 | `--from` | `-f` | _(repo default branch)_ | Base branch to create from instead of the repo's default branch. |
+| `--no-remote` | — | false | Only create the branch locally. Skip pushing it to origin and setting upstream tracking. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
 | `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
@@ -667,6 +668,7 @@ Select repositories for new branch: feature/JIRA-123
    - Checks out the base branch and pulls latest.
    - Creates and checks out the new branch (`git checkout -b <branch-name>`).
    - If the branch already exists, checks it out instead of failing.
+   - Pushes the branch to origin and sets upstream tracking (`git push --set-upstream origin <branch-name>`), so `gitm update` / `gitm checkout` never fail with "no tracking information" later. Skipped with `--no-remote` or when the repository has no `origin` remote; branches that already track a remote are left untouched.
 2. Streams results live.
 
 **Examples:**
@@ -677,6 +679,9 @@ gitm branch create feature/JIRA-456
 
 # Create in all repos without prompting
 gitm branch create feature/JIRA-456 --all
+
+# Create locally only — skip the push to origin
+gitm branch create feature/JIRA-456 --no-remote
 
 # Create in every repo from a group
 gitm branch create feature/JIRA-456 --all --group backend
@@ -1122,6 +1127,7 @@ gitm update [flags]
 2. For each repository (in parallel):
    - Checks for uncommitted changes — skips if dirty.
    - Runs `git pull --ff-only` on the current branch.
+   - If the branch has no upstream (never pushed), the repo is skipped with a note — there is nothing to pull yet.
    - If the remote branch no longer exists (e.g. deleted after a PR merge), automatically switches to the default branch and pulls that instead.
 3. Streams results live with a summary.
 4. If a `--repo` alias doesn't match any registered repository, the command exits with an error before pulling anything.

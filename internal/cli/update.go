@@ -29,6 +29,8 @@ If the remote branch no longer exists (e.g. deleted after a PR merge), the
 repository is automatically switched to its default branch and pulled.
 
 Repositories with uncommitted changes are skipped.
+Branches with no upstream are skipped — there is nothing to pull until the
+branch is pushed (gitm push sets the upstream).
 
 Use --repo to limit the update to specific repositories by alias.
 Use --group to limit the update to repositories in a group.
@@ -86,6 +88,11 @@ func runUpdateWithGroup(repoAliases []string, groupName string) error {
 
 		out, pullErr := git.Pull(repo.Path)
 		if pullErr != nil {
+			// A branch with no upstream has nothing to pull — a normal state
+			// for branches not yet pushed, not a failure.
+			if git.IsNoUpstreamError(pullErr) {
+				return "", fmt.Sprintf("on %s — no upstream, nothing to pull (`gitm push` sets one)", branch), nil
+			}
 			if strings.Contains(pullErr.Error(), "no such ref was fetched") {
 				def := repo.DefaultBranch
 				if err := git.Checkout(repo.Path, def); err != nil {

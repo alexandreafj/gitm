@@ -163,6 +163,106 @@ func TestBranchCreate_TrackedChangesBlocked(t *testing.T) {
 	}
 }
 
+func TestBranchCreate_PushesUpstream(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"feature/upstream-test"}); err != nil {
+		t.Fatalf("branch create: %v", err)
+	}
+
+	upstream := mustRunGit(t, repoDir, "rev-parse", "--abbrev-ref", "feature/upstream-test@{upstream}")
+	if upstream != "origin/feature/upstream-test" {
+		t.Errorf("upstream = %q, want origin/feature/upstream-test", upstream)
+	}
+	if !git.RemoteBranchExists(repoDir, "feature/upstream-test") {
+		t.Error("expected feature/upstream-test to exist on origin")
+	}
+}
+
+func TestBranchCreate_NoRemoteFlagSkipsPush(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	if err := cmd.Flags().Set("no-remote", "true"); err != nil {
+		t.Fatalf("set flag no-remote: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"feature/local-test"}); err != nil {
+		t.Fatalf("branch create: %v", err)
+	}
+
+	if !git.BranchExists(repoDir, "feature/local-test") {
+		t.Fatal("expected feature/local-test to exist locally")
+	}
+	if git.RemoteBranchExists(repoDir, "feature/local-test") {
+		t.Error("expected feature/local-test NOT to exist on origin with --no-remote")
+	}
+}
+
+func TestBranchCreate_NoOriginRemoteStillSucceeds(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	output := captureOutput(t, func() {
+		if err := cmd.RunE(cmd, []string{"feature/no-origin"}); err != nil {
+			t.Fatalf("branch create: %v", err)
+		}
+	})
+
+	if !git.BranchExists(repoDir, "feature/no-origin") {
+		t.Fatal("expected feature/no-origin to exist locally")
+	}
+	if !strings.Contains(output, "not pushed") {
+		t.Errorf("expected output to note the branch was not pushed, got:\n%s", output)
+	}
+}
+
+func TestBranchCreate_ExistingBranchGainsUpstream(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/pre-existing")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	if err := cmd.RunE(cmd, []string{"feature/pre-existing"}); err != nil {
+		t.Fatalf("branch create: %v", err)
+	}
+
+	if branch := gitCurrentBranch(t, repoDir); branch != "feature/pre-existing" {
+		t.Fatalf("expected to be on feature/pre-existing, got %s", branch)
+	}
+	upstream := mustRunGit(t, repoDir, "rev-parse", "--abbrev-ref", "@{upstream}")
+	if upstream != "origin/feature/pre-existing" {
+		t.Errorf("upstream = %q, want origin/feature/pre-existing", upstream)
+	}
+}
+
 func TestBranchRename_NoReposWithBranch(t *testing.T) {
 	database = setupTestDB(t)
 	_, _ = newRepo(t, database, "repo1")

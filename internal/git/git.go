@@ -240,6 +240,14 @@ func Pull(path string) (string, error) {
 	return run(path, "pull", "--ff-only")
 }
 
+// IsNoUpstreamError reports whether err came from a git command that failed
+// because the current branch has no upstream tracking information (e.g.
+// `git pull` on a branch that was never pushed). Callers treat this as a
+// normal state — there is simply nothing to pull — rather than a failure.
+func IsNoUpstreamError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no tracking information")
+}
+
 // PullRebase fetches origin/<branch> and rebases the current branch onto it,
 // autostashing any uncommitted changes around the rebase. It is used to recover
 // a branch whose push was rejected because the remote advanced (a

@@ -19,16 +19,23 @@ func branchCreateCmd() *cobra.Command {
 	var (
 		selectAll   bool
 		fromBranch  string
+		noRemote    bool
 		repoAliases []string
 		groupName   string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "create <branch-name>",
-		Short: "Create a new branch in selected repositories",
+		Short: "Create a new branch in selected repositories and push it to origin",
 		Long: `Interactively select repositories, then create a new branch in each one.
 The branch is created from the repository's default branch (main/master)
-unless --from is specified. All operations run in parallel.
+unless --from is specified, then pushed to origin with upstream tracking so
+that later pulls and pushes (gitm update, gitm checkout, gitm push) work
+without extra setup. All operations run in parallel.
+
+Use --no-remote to keep the new branch local and skip the push. Repositories
+without an origin remote skip the push automatically, and branches that
+already track a remote are left untouched.
 
 Use --repo to target specific repositories by alias, bypassing the interactive
 selection UI entirely.
@@ -36,20 +43,22 @@ Use --group to limit candidates to repositories in a group.
 When both are provided, only matching aliases inside that group are targeted.`,
 		Example: `  gitm branch create feature/JIRA-123
   gitm branch create feature/JIRA-123 --all
+  gitm branch create feature/JIRA-123 --no-remote
   gitm branch create feature/JIRA-123 --group backend
   gitm branch create feature/JIRA-123 --repo api-gateway,auth-service
   gitm branch create hotfix/bug --from develop -g backend`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if groupName == "" {
-				return runBranchCreateWithUI(liveUI{}, args, selectAll, fromBranch, repoAliases)
+				return runBranchCreateWithUI(liveUI{}, args, selectAll, fromBranch, repoAliases, noRemote)
 			}
-			return runBranchCreateWithUIAndGroup(liveUI{}, args, selectAll, fromBranch, repoAliases, groupName)
+			return runBranchCreateWithUIAndGroup(liveUI{}, args, selectAll, fromBranch, repoAliases, groupName, noRemote)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&selectAll, "all", "a", false, "Apply to all registered repositories without prompting")
 	cmd.Flags().StringVarP(&fromBranch, "from", "f", "", "Base branch to create from (default: repo's default branch)")
+	cmd.Flags().BoolVar(&noRemote, "no-remote", false, "Only create locally, skip pushing the new branch to origin")
 	cmd.Flags().StringSliceVarP(&repoAliases, "repo", "r", nil, "Limit to specific repository aliases (comma-separated), bypasses interactive selection")
 	addGroupFlag(cmd, &groupName)
 
