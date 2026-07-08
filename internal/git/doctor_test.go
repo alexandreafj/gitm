@@ -58,6 +58,24 @@ func TestHasUpstreamDetectsMissingUpstream(t *testing.T) {
 	}
 }
 
+func TestHasUpstreamMissingUpstreamNonEnglishLocale(t *testing.T) {
+	// HasUpstream matches on git's English "no upstream configured" message.
+	// run() forces LC_ALL=C on the git subprocess so a localized environment
+	// cannot turn this normal state into an error.
+	t.Setenv("LC_ALL", "pt_BR.UTF-8")
+	t.Setenv("LANG", "pt_BR.UTF-8")
+
+	repo := initRepo(t)
+
+	ok, err := git.HasUpstream(repo)
+	if err != nil {
+		t.Fatalf("HasUpstream: %v", err)
+	}
+	if ok {
+		t.Fatal("expected upstream to be missing")
+	}
+}
+
 func TestInProgressOperationsCleanRepo(t *testing.T) {
 	repo := initRepo(t)
 

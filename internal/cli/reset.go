@@ -244,6 +244,9 @@ func runResetWithUIAndGroupDryRun(ui ui, mode resetMode, numCommits int, repoAli
 	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		info := infoByPath[repo.Path]
 
+		// err must be local to the closure: runner.Run invokes it from many
+		// goroutines, and writing the enclosing function's err would race.
+		var err error
 		switch mode {
 		case resetModeSoft:
 			err = git.ResetSoft(repo.Path, resetRef)
@@ -344,6 +347,12 @@ func gatherResetInfo(repos []*db.Repository, numCommits int, resetRef string) ([
 		//   pushed = max(0, M - ahead)  i.e. commits beyond what's local-only
 		pushedCount := numCommits - ahead
 		if pushedCount < 0 {
+			pushedCount = 0
+		}
+		// AheadBehind reports 0/0 for a branch with no upstream, which would
+		// make every commit look pushed. A never-pushed branch has nothing on
+		// origin to rewrite, so it must not trigger the force-push prompt.
+		if hasUpstream, upErr := git.HasUpstream(repo.Path); upErr == nil && !hasUpstream {
 			pushedCount = 0
 		}
 

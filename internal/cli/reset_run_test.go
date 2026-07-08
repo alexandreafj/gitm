@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -158,6 +159,72 @@ func TestRunReset_RepoFlag_TargetsOnlySpecifiedRepos(t *testing.T) {
 	log2 := mustRunGit(t, repo2Dir, "log", "--oneline")
 	if !strings.Contains(log2, "commit b") {
 		t.Error("repo2: commit b should still exist (not in --repo list)")
+	}
+}
+
+// Enough repos that runner.Run's goroutines genuinely overlap: this test
+// exists to fail under -race if the reset closure ever shares state with the
+// enclosing function again.
+func TestRunReset_ManyReposParallel(t *testing.T) {
+	database = setupTestDB(t)
+
+	dirs := make([]string, 8)
+	for i := range dirs {
+		_, dir := newRepo(t, database, fmt.Sprintf("repo%d", i))
+		writeFile(t, dir, "a.txt", "a\n")
+		mustRunGit(t, dir, "add", "a.txt")
+		mustRunGit(t, dir, "commit", "-m", "commit to reset")
+		dirs[i] = dir
+	}
+
+	if err := runResetWithUI(fakeUI{}, resetModeMixed, 1, nil); err != nil {
+		t.Fatalf("runResetWithUI: %v", err)
+	}
+
+	for i, dir := range dirs {
+		log := mustRunGit(t, dir, "log", "--oneline")
+		if strings.Contains(log, "commit to reset") {
+			t.Errorf("repo%d: commit should have been reset", i)
+		}
+	}
+}
+
+func TestGatherResetInfo_NoUpstreamNothingPushed(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "a\n")
+	mustRunGit(t, dir, "add", "a.txt")
+	mustRunGit(t, dir, "commit", "-m", "local commit")
+	repo := &db.Repository{Alias: "local-only", Path: dir, DefaultBranch: "main"}
+
+	infos, skipped := gatherResetInfo([]*db.Repository{repo}, 1, "HEAD~1")
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skips: %v", skipped)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 info, got %d", len(infos))
+	}
+	if infos[0].pushedCount != 0 {
+		t.Errorf("branch has no upstream, so nothing can be pushed; pushedCount = %d, want 0", infos[0].pushedCount)
+	}
+}
+
+func TestGatherResetInfo_PushedCommitCounted(t *testing.T) {
+	repoDir, _, branch := initRepoWithRemote(t)
+	writeFile(t, repoDir, "a.txt", "a\n")
+	mustRunGit(t, repoDir, "add", "a.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "pushed commit")
+	mustRunGit(t, repoDir, "push", "origin", branch)
+	repo := &db.Repository{Alias: "with-remote", Path: repoDir, DefaultBranch: branch}
+
+	infos, skipped := gatherResetInfo([]*db.Repository{repo}, 1, "HEAD~1")
+	if len(skipped) != 0 {
+		t.Fatalf("unexpected skips: %v", skipped)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 info, got %d", len(infos))
+	}
+	if infos[0].pushedCount != 1 {
+		t.Errorf("commit is on origin; pushedCount = %d, want 1", infos[0].pushedCount)
 	}
 }
 
