@@ -190,3 +190,21 @@ func pushRemoteChange(t *testing.T, origin, filename string) {
 	mustRunGit(t, clone, "commit", "-m", "add "+filename)
 	mustRunGit(t, clone, "push")
 }
+
+func TestUpdate_NoUpstreamSkippedNotFailed(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	// A branch with no upstream — e.g. created locally and never pushed.
+	mustRunGit(t, repoDir, "checkout", "-b", "feature/no-upstream")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runUpdate(nil); err != nil {
+		t.Fatalf("update of a branch with no upstream should skip, not fail: %v", err)
+	}
+
+	if branch := gitCurrentBranch(t, repoDir); branch != "feature/no-upstream" {
+		t.Errorf("update must not switch branches; expected feature/no-upstream, got %q", branch)
+	}
+}

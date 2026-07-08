@@ -43,6 +43,8 @@ Three modes of operation:
       Repos where the branch is not found are skipped with a warning.
 
 Repositories are skipped when uncommitted changes conflict with the target branch.
+If the branch has no upstream, the pull after checkout is skipped with a note
+instead of failing (gitm push sets the upstream).
 
 Use --repo to limit the operation to specific repositories by alias.
 Use --group to limit the operation to repositories in a group.
@@ -143,6 +145,11 @@ func runCheckoutDefaultDryRun(repos []*db.Repository, dryRun bool) error {
 
 		out, err := git.Pull(repo.Path)
 		if err != nil {
+			// A default branch with no upstream (local-only repo) has nothing
+			// to pull; the checkout itself succeeded.
+			if git.IsNoUpstreamError(err) {
+				return fmt.Sprintf("on %s — no upstream, pull skipped", repo.DefaultBranch), "", nil
+			}
 			return "", "", fmt.Errorf("pull: %w", err)
 		}
 
@@ -252,6 +259,10 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 
 	out, err := git.Pull(repo.Path)
 	if err != nil {
+		// A local-only branch has nothing to pull; the checkout itself succeeded.
+		if git.IsNoUpstreamError(err) {
+			return fmt.Sprintf("on %s — no upstream, pull skipped (`gitm push` sets one)", branch), "", nil
+		}
 		return "", "", fmt.Errorf("pull: %w", err)
 	}
 

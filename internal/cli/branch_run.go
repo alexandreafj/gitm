@@ -9,11 +9,11 @@ import (
 	"github.com/alexandreafj/gitm/internal/runner"
 )
 
-func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string) error {
-	return runBranchCreateWithUIAndGroup(ui, args, selectAll, fromBranch, repoAliases, "")
+func runBranchCreateWithUI(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string, noRemote bool) error {
+	return runBranchCreateWithUIAndGroup(ui, args, selectAll, fromBranch, repoAliases, "", noRemote)
 }
 
-func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string, groupName string) error {
+func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBranch string, repoAliases []string, groupName string, noRemote bool) error {
 	branchName := args[0]
 
 	allRepos, err := resolveReposWithGroup(repoAliases, groupName)
@@ -71,17 +71,51 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 			if err := git.Checkout(repo.Path, branchName); err != nil {
 				return "", "", fmt.Errorf("checkout existing branch: %w", err)
 			}
-			return fmt.Sprintf("branch %s already exists — checked out", branchName), "", nil
+			note, err := ensureBranchUpstream(repo.Path, branchName, noRemote)
+			if err != nil {
+				return "", "", err
+			}
+			return fmt.Sprintf("branch %s already exists — checked out%s", branchName, note), "", nil
 		}
 
 		if err := git.CreateBranch(repo.Path, branchName); err != nil {
 			return "", "", fmt.Errorf("create branch: %w", err)
 		}
 
-		return fmt.Sprintf("created %s from %s", branchName, base), "", nil
+		note, err := ensureBranchUpstream(repo.Path, branchName, noRemote)
+		if err != nil {
+			return "", "", err
+		}
+		return fmt.Sprintf("created %s from %s%s", branchName, base, note), "", nil
 	})
 
 	return nil
+}
+
+// ensureBranchUpstream pushes branch to origin with upstream tracking so that
+// later pulls (gitm update, gitm checkout) don't fail with "no tracking
+// information". Without it a branch created by gitm only gains an upstream
+// once gitm commit pushes it. Branches that already track a remote are left
+// untouched, and repositories without an origin remote skip the push.
+// The returned note is appended to the runner's per-repo success message.
+func ensureBranchUpstream(path, branch string, noRemote bool) (string, error) {
+	if noRemote {
+		return " (local only)", nil
+	}
+	hasOrigin, err := git.RemoteConfigured(path, "origin")
+	if err != nil {
+		return "", fmt.Errorf("check origin remote: %w", err)
+	}
+	if !hasOrigin {
+		return " (no origin remote — not pushed)", nil
+	}
+	if hasUpstream, upErr := git.HasUpstream(path); upErr == nil && hasUpstream {
+		return "", nil
+	}
+	if err := git.PushBranch(path, branch); err != nil {
+		return "", fmt.Errorf("push %s to origin: %w", branch, err)
+	}
+	return fmt.Sprintf(" — tracking origin/%s", branch), nil
 }
 
 func runBranchRenameWithUI(ui ui, oldName, newName string, selectAll, noRemote bool, repoAliases []string) error {

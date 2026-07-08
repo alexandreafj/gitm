@@ -543,3 +543,38 @@ func TestCheckoutConflictSkip_NonConflictError(t *testing.T) {
 		t.Error("should not skip for non-conflict errors")
 	}
 }
+
+func TestCheckoutBranch_NoUpstreamPullSkipped(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	// A branch that exists only locally — created outside gitm, never pushed.
+	mustRunGit(t, repoDir, "branch", "feature/local-only")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runCheckoutWithUI(fakeUI{}, []string{"feature/local-only"}, nil); err != nil {
+		t.Fatalf("checkout of a local-only branch should not fail on the pull: %v", err)
+	}
+
+	if branch := gitCurrentBranch(t, repoDir); branch != "feature/local-only" {
+		t.Errorf("expected to be on feature/local-only, got %q", branch)
+	}
+}
+
+func TestCheckoutDefault_NoRemotePullSkipped(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	mustRunGit(t, repoDir, "checkout", "-b", "feature/elsewhere")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	if err := runCheckoutWithUI(fakeUI{}, []string{"master"}, nil); err != nil {
+		t.Fatalf("default checkout in a repo without a remote should not fail on the pull: %v", err)
+	}
+
+	if branch := gitCurrentBranch(t, repoDir); branch != "main" {
+		t.Errorf("expected to be on main, got %q", branch)
+	}
+}
