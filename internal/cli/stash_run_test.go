@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,6 +28,25 @@ func TestRunStashPush_Stashes(t *testing.T) {
 
 	if err := runStashPushWithUI(fakeUI{}, nil); err != nil {
 		t.Fatalf("runStashPush: %v", err)
+	}
+}
+
+func TestRunStashPush_ReturnsErrorAfterRunnerFailure(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	writeFile(t, repoDir, "stash.txt", "stash\n")
+
+	ui := fakeUI{multiSelectHook: func() {
+		if err := os.Rename(filepath.Join(repoDir, ".git"), filepath.Join(repoDir, ".git-disabled")); err != nil {
+			t.Fatalf("disable repository: %v", err)
+		}
+	}}
+	err := runStashPushWithUI(ui, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 repository") {
+		t.Fatalf("runStashPushWithUI() error = %v, want one failed repository", err)
 	}
 }
 
@@ -58,8 +79,8 @@ func TestRunStashApplyAndPop(t *testing.T) {
 	if err := runStashApplyOrPopWithUI(fakeUI{}, false, nil); err != nil {
 		t.Fatalf("runStashApply: %v", err)
 	}
-	if err := runStashApplyOrPopWithUI(fakeUI{}, true, nil); err != nil {
-		t.Fatalf("runStashPop: %v", err)
+	if err := runStashApplyOrPopWithUI(fakeUI{}, true, nil); err == nil {
+		t.Fatal("runStashPop should return the conflict failure")
 	}
 }
 

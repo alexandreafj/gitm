@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -125,7 +126,63 @@ func TestOfferForcePush_SkipOnNoInput(t *testing.T) {
 	}
 	os.Stdin = f
 
-	offerForcePush([]*db.Repository{{Alias: "repo1", Path: "/tmp/repo"}}, 1)
+	if err := offerForcePush([]*db.Repository{{Alias: "repo1", Path: "/tmp/repo"}}, 1); err != nil {
+		t.Fatalf("offerForcePush: %v", err)
+	}
+}
+
+func TestRunReset_ReturnsErrorAfterRunnerFailure(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	writeFile(t, repoDir, "a.txt", "a\n")
+	mustRunGit(t, repoDir, "add", "a.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "commit a")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	ui := fakeUI{multiSelectHook: func() {
+		if err := os.Rename(filepath.Join(repoDir, ".git"), filepath.Join(repoDir, ".git-disabled")); err != nil {
+			t.Fatalf("disable repository: %v", err)
+		}
+	}}
+	err := runResetWithUI(ui, resetModeMixed, 1, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 repository") {
+		t.Fatalf("runResetWithUI() error = %v, want one failed repository", err)
+	}
+}
+
+func TestOfferForcePush_ReturnsErrorAfterRejectedPush(t *testing.T) {
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	repoDir, originDir, branch := initRepoWithRemote(t)
+	writeFile(t, repoDir, "a.txt", "a\n")
+	mustRunGit(t, repoDir, "add", "a.txt")
+	mustRunGit(t, repoDir, "commit", "-m", "local commit")
+	hookPath := filepath.Join(originDir, "hooks", "pre-receive")
+	if err := os.WriteFile(hookPath, []byte("#!/bin/sh\necho rejected >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write pre-receive hook: %v", err)
+	}
+
+	f, err := os.CreateTemp("", "gitm-force-push-input")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err := f.WriteString("y\n"); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+	os.Stdin = f
+
+	err = offerForcePush([]*db.Repository{{Alias: "repo1", Path: repoDir, DefaultBranch: branch}}, 1)
+	if err == nil || !strings.Contains(err.Error(), "1 repository") {
+		t.Fatalf("offerForcePush() error = %v, want one failed repository", err)
+	}
 }
 
 func TestRunReset_RepoFlag_TargetsOnlySpecifiedRepos(t *testing.T) {

@@ -109,7 +109,7 @@ func runStashPushWithUIAndGroup(ui ui, repoAliases []string, groupName string) e
 
 	fmt.Printf("\nStashing changes in %d repository(ies)…\n\n", len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		branch, err := git.CurrentBranch(repo.Path)
 		if err != nil {
 			branch = "unknown"
@@ -121,6 +121,9 @@ func runStashPushWithUIAndGroup(ui ui, repoAliases []string, groupName string) e
 		return fmt.Sprintf("stashed (%s)", msg), "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to stash", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -226,7 +229,7 @@ func runStashApplyOrPopWithUIAndGroup(ui ui, pop bool, repoAliases []string, gro
 
 	fmt.Printf("\nRunning stash %s in %d repository(ies)…\n\n", verb, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		var opErr error
 		if pop {
 			opErr = git.StashPop(repo.Path)
@@ -239,6 +242,9 @@ func runStashApplyOrPopWithUIAndGroup(ui ui, pop bool, repoAliases []string, gro
 		return fmt.Sprintf("stash %s applied", verb), "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to stash %s", runner.ErrorCount(results), verb)
+	}
 	return nil
 }
 

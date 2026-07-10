@@ -262,6 +262,9 @@ func runResetWithUIAndGroupDryRun(ui ui, mode resetMode, numCommits int, repoAli
 		msg := buildResetResultMessage(info, mode)
 		return msg, "", nil
 	})
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to reset", runner.ErrorCount(results))
+	}
 
 	var pushCandidates []*db.Repository
 	for _, r := range results {
@@ -275,7 +278,9 @@ func runResetWithUIAndGroupDryRun(ui ui, mode resetMode, numCommits int, repoAli
 	}
 
 	if len(pushCandidates) > 0 {
-		offerForcePush(pushCandidates, numCommits)
+		if err := offerForcePush(pushCandidates, numCommits); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -424,7 +429,7 @@ func buildResetResultMessage(info *repoResetInfo, mode resetMode) string {
 
 // offerForcePush prompts the user once and, if confirmed, force-pushes all
 // candidate repos in parallel via runner.Run.
-func offerForcePush(repos []*db.Repository, undoneCommits int) {
+func offerForcePush(repos []*db.Repository, undoneCommits int) error {
 	fmt.Println()
 	color.Red("┌─────────────────────────────────────────────────────────────────┐")
 	color.Red("│  CAUTION: Remote history rewrite                                │")
@@ -449,20 +454,19 @@ func offerForcePush(repos []*db.Repository, undoneCommits int) {
 	reader := bufio.NewReader(os.Stdin)
 	answer, readErr := reader.ReadString('\n')
 	if readErr != nil {
-		color.Yellow("Skipped — could not read confirmation input: %v", readErr)
-		return
+		return fmt.Errorf("read force-push confirmation: %w", readErr)
 	}
 	answer = strings.TrimSpace(strings.ToLower(answer))
 
 	if answer != "y" && answer != "yes" {
 		color.Yellow("Skipped — remote history unchanged. Your local branch is now behind origin.")
 		color.Yellow("Run `git push --force-with-lease` manually when ready.")
-		return
+		return nil
 	}
 
 	fmt.Printf("\nForce-pushing %d repository(ies)…\n\n", len(repos))
 
-	runner.Run(repos, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
 		if err := git.ForcePush(repo.Path); err != nil {
 			return "", "", fmt.Errorf("force-push failed: %w", err)
 		}
@@ -472,4 +476,8 @@ func offerForcePush(repos []*db.Repository, undoneCommits int) {
 		}
 		return fmt.Sprintf("force-pushed branch %s to origin", color.CyanString(branch)), "", nil
 	})
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to force-push", runner.ErrorCount(results))
+	}
+	return nil
 }

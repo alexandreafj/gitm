@@ -14,17 +14,18 @@ import (
 )
 
 type fakeUI struct {
-	selectRepos []*db.Repository
-	selectErr   error
-	fileErr     error
-	fileSelect  []string
-	commitErr   error
-	commitMsg   string
-	branchSeen  *string
-	branchErr   error
-	branchName  string
-	confirm     bool
-	confirmErr  error
+	selectRepos     []*db.Repository
+	selectErr       error
+	multiSelectHook func()
+	fileErr         error
+	fileSelect      []string
+	commitErr       error
+	commitMsg       string
+	branchSeen      *string
+	branchErr       error
+	branchName      string
+	confirm         bool
+	confirmErr      error
 }
 
 func (f fakeUI) FileSelect(porcelainLines []string, title string) ([]string, error) {
@@ -40,6 +41,9 @@ func (f fakeUI) FileSelect(porcelainLines []string, title string) ([]string, err
 func (f fakeUI) MultiSelect(repos []*db.Repository, title string, preSelectAll bool, disabledIdxs []int) ([]*db.Repository, error) {
 	if f.selectErr != nil {
 		return nil, f.selectErr
+	}
+	if f.multiSelectHook != nil {
+		f.multiSelectHook()
 	}
 	if f.selectRepos != nil {
 		return f.selectRepos, nil
