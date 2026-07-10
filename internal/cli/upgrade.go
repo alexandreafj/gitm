@@ -376,7 +376,6 @@ type upgradeOpts struct {
 func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier, opts *upgradeOpts) error {
 	bold := color.New(color.Bold)
 	green := color.New(color.FgGreen, color.Bold)
-	yellow := color.New(color.FgYellow)
 
 	bold.Print("Checking for updates... ")
 
@@ -402,8 +401,17 @@ func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier, o
 		return fmt.Errorf("no binary %q in release %s", name, rel.TagName)
 	}
 
-	checksumURL, hasChecksum := findAssetURL(rel.Assets, "checksums.txt")
-	bundleURL, hasBundle := findAssetURL(rel.Assets, "checksums.txt.bundle")
+	checksumURL, ok := findAssetURL(rel.Assets, "checksums.txt")
+	if !ok {
+		return fmt.Errorf("release %s is missing required asset %q", rel.TagName, "checksums.txt")
+	}
+	bundleURL, ok := findAssetURL(rel.Assets, "checksums.txt.bundle")
+	if !ok {
+		return fmt.Errorf("release %s is missing required asset %q", rel.TagName, "checksums.txt.bundle")
+	}
+	if sv == nil {
+		return fmt.Errorf("release %s cannot be verified: no verifier is available", rel.TagName)
+	}
 
 	tmpFile, err := os.CreateTemp("", "gitm-upgrade-*")
 	if err != nil {
@@ -419,60 +427,49 @@ func runUpgrade(currentVersion string, uc upgradeClient, sv signatureVerifier, o
 	}
 	fmt.Println("done")
 
-	if hasChecksum {
-		csFile, err := os.CreateTemp("", "gitm-checksums-*")
-		if err != nil {
-			return fmt.Errorf("create checksum temp file: %w", err)
-		}
-		csPath := csFile.Name()
-		csFile.Close()
-		defer os.Remove(csPath)
-
-		if err := uc.downloadToFile(checksumURL, csPath); err != nil {
-			return fmt.Errorf("download checksums: %w", err)
-		}
-
-		csData, err := os.ReadFile(csPath)
-		if err != nil {
-			return fmt.Errorf("read checksums: %w", err)
-		}
-
-		// Signature verification: if the bundle is present, verify the checksums
-		// file's signature BEFORE trusting it for SHA-256 verification.
-		if hasBundle && sv != nil {
-			bold.Print("Verifying signature... ")
-			bundleBytes, err := uc.downloadBytes(bundleURL)
-			if err != nil {
-				return fmt.Errorf("download signature bundle: %w", err)
-			}
-
-			if err := sv.Verify(csData, bundleBytes); err != nil {
-				return fmt.Errorf("signature verification failed: %w", err)
-			}
-			green.Println("ok")
-		} else if hasBundle && sv == nil {
-			return fmt.Errorf("release %s includes a signature bundle but no verifier is available; refusing to proceed without verification", rel.TagName)
-		} else if sv != nil {
-			yellow.Println("⚠ release predates signing — verifying SHA-256 only")
-		}
-
-		fmt.Print("Verifying checksum... ")
-		checksums := parseChecksums(string(csData))
-		expected, ok := checksums[name]
-		if !ok {
-			return fmt.Errorf("no checksum entry for %s", name)
-		}
-
-		actual, err := fileSHA256(tmpPath)
-		if err != nil {
-			return fmt.Errorf("hash downloaded binary: %w", err)
-		}
-
-		if actual != expected {
-			return fmt.Errorf("checksum mismatch: expected %s, got %s", expected, actual)
-		}
-		green.Println("ok")
+	csFile, err := os.CreateTemp("", "gitm-checksums-*")
+	if err != nil {
+		return fmt.Errorf("create checksum temp file: %w", err)
 	}
+	csPath := csFile.Name()
+	csFile.Close()
+	defer os.Remove(csPath)
+
+	if err := uc.downloadToFile(checksumURL, csPath); err != nil {
+		return fmt.Errorf("download checksums: %w", err)
+	}
+
+	csData, err := os.ReadFile(csPath)
+	if err != nil {
+		return fmt.Errorf("read checksums: %w", err)
+	}
+
+	bold.Print("Verifying signature... ")
+	bundleBytes, err := uc.downloadBytes(bundleURL)
+	if err != nil {
+		return fmt.Errorf("download signature bundle: %w", err)
+	}
+	if err := sv.Verify(csData, bundleBytes); err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
+	green.Println("ok")
+
+	fmt.Print("Verifying checksum... ")
+	checksums := parseChecksums(string(csData))
+	expected, ok := checksums[name]
+	if !ok {
+		return fmt.Errorf("no checksum entry for %s", name)
+	}
+
+	actual, err := fileSHA256(tmpPath)
+	if err != nil {
+		return fmt.Errorf("hash downloaded binary: %w", err)
+	}
+
+	if actual != expected {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", expected, actual)
+	}
+	green.Println("ok")
 
 	var execPath string
 	if opts != nil && opts.execPath != "" {
