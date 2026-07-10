@@ -545,6 +545,18 @@ func Push(path string) error {
 	return err
 }
 
+// IsNonFastForwardError reports whether a push failed because the remote branch
+// advanced and rejected a non-fast-forward update. Git output is forced to the
+// C locale by run, so these markers are stable across user locales.
+func IsNonFastForwardError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "non-fast-forward") ||
+		(strings.Contains(msg, "[rejected]") && strings.Contains(msg, "fetch first"))
+}
+
 // IsDefaultBranch reports whether the current branch equals the repo's default branch.
 func IsDefaultBranch(path, defaultBranch string) (bool, error) {
 	current, err := CurrentBranch(path)

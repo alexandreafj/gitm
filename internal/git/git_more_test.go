@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,29 @@ import (
 
 	"github.com/alexandreafj/gitm/internal/git"
 )
+
+func TestIsNonFastForwardError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "fetch first", err: errors.New("! [rejected] main -> main (fetch first)"), want: true},
+		{name: "non fast forward", err: errors.New("Updates were rejected because the tip is non-fast-forward"), want: true},
+		{name: "authentication", err: errors.New("Authentication failed"), want: false},
+		{name: "missing remote", err: errors.New("'origin' does not appear to be a git repository"), want: false},
+		{name: "hook", err: errors.New("pre-push hook declined"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := git.IsNonFastForwardError(tt.err); got != tt.want {
+				t.Fatalf("IsNonFastForwardError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func initBareRepo(t *testing.T) string {
 	t.Helper()
