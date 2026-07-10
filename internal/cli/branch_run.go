@@ -46,7 +46,7 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 
 	fmt.Printf("\nCreating branch %q in %d repository(ies)…\n\n", branchName, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		base := repo.DefaultBranch
 		if fromBranch != "" {
 			base = fromBranch
@@ -63,8 +63,17 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 		if err := git.Checkout(repo.Path, base); err != nil {
 			return "", "", fmt.Errorf("checkout %s: %w", base, err)
 		}
-		if _, err := git.Pull(repo.Path); err != nil {
-			fmt.Printf("  warning: pull failed on %s: %v\n", repo.Alias, err)
+		baseNote := ""
+		hasUpstream, err := git.HasUpstream(repo.Path)
+		if err != nil {
+			return "", "", fmt.Errorf("check upstream for %s: %w", base, err)
+		}
+		if hasUpstream {
+			if _, err := git.Pull(repo.Path); err != nil {
+				return "", "", fmt.Errorf("refresh base %s: %w", base, err)
+			}
+		} else {
+			baseNote = " (base has no upstream; used local state)"
 		}
 
 		if git.BranchExists(repo.Path, branchName) {
@@ -75,7 +84,7 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 			if err != nil {
 				return "", "", err
 			}
-			return fmt.Sprintf("branch %s already exists — checked out%s", branchName, note), "", nil
+			return fmt.Sprintf("branch %s already exists — checked out%s%s", branchName, note, baseNote), "", nil
 		}
 
 		if err := git.CreateBranch(repo.Path, branchName); err != nil {
@@ -86,9 +95,12 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 		if err != nil {
 			return "", "", err
 		}
-		return fmt.Sprintf("created %s from %s%s", branchName, base, note), "", nil
+		return fmt.Sprintf("created %s from %s%s%s", branchName, base, note, baseNote), "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to create branch", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -164,7 +176,7 @@ func runBranchRenameWithUIAndGroup(ui ui, oldName, newName string, selectAll, no
 
 	fmt.Printf("\nRenaming %q → %q in %d repository(ies)…\n\n", oldName, newName, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		if err := git.RenameBranch(repo.Path, oldName, newName); err != nil {
 			return "", "", fmt.Errorf("local rename: %w", err)
 		}
@@ -173,19 +185,22 @@ func runBranchRenameWithUIAndGroup(ui ui, oldName, newName string, selectAll, no
 			return fmt.Sprintf("renamed %s → %s (local only)", oldName, newName), "", nil
 		}
 
-		if git.RemoteBranchExists(repo.Path, oldName) {
-			if err := git.DeleteRemoteBranch(repo.Path, oldName); err != nil {
-				return "", "", fmt.Errorf("delete remote branch %s: %w", oldName, err)
-			}
-		}
-
+		oldRemoteExists := git.RemoteBranchExists(repo.Path, oldName)
 		if err := git.PushBranch(repo.Path, newName); err != nil {
 			return "", "", fmt.Errorf("push %s: %w", newName, err)
+		}
+		if oldRemoteExists {
+			if err := git.DeleteRemoteBranch(repo.Path, oldName); err != nil {
+				return "", "", fmt.Errorf("new branch %s is published, but delete old remote branch %s: %w", newName, oldName, err)
+			}
 		}
 
 		return fmt.Sprintf("renamed %s → %s (local + remote)", oldName, newName), "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to rename branch", runner.ErrorCount(results))
+	}
 	return nil
 }
 
@@ -268,7 +283,7 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 
 	fmt.Printf("\nDeleting %q in %d repository(ies)…\n\n", branchName, len(chosen))
 
-	runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
+	results := runner.Run(chosen, func(repo *db.Repository) (string, string, error) {
 		if branchName == repo.DefaultBranch {
 			return "", fmt.Sprintf("refusing to delete the default branch %q", branchName), nil
 		}
@@ -306,6 +321,9 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 		return fmt.Sprintf("deleted %s (%s)", branchName, strings.Join(deleted, " + ")), "", nil
 	})
 
+	if runner.HasErrors(results) {
+		return fmt.Errorf("%d repository(ies) failed to delete branch", runner.ErrorCount(results))
+	}
 	return nil
 }
 

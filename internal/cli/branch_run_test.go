@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -238,6 +240,31 @@ func TestBranchCreate_NoOriginRemoteStillSucceeds(t *testing.T) {
 	}
 }
 
+func TestBranchCreate_PullFailureDoesNotCreateFromStaleBase(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, _, _ := initRepoWithRemote(t)
+	missingOrigin := filepath.Join(t.TempDir(), "missing-origin.git")
+	mustRunGit(t, repoDir, "remote", "set-url", "origin", missingOrigin)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	cmd := branchCreateCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	err := cmd.RunE(cmd, []string{"feature/stale-base"})
+	if err == nil {
+		t.Fatal("expected base refresh failure to be returned")
+	}
+	if git.BranchExists(repoDir, "feature/stale-base") {
+		t.Fatal("branch should not be created from an unrefreshed base")
+	}
+	if branch := gitCurrentBranch(t, repoDir); branch != "main" {
+		t.Fatalf("current branch = %q, want main", branch)
+	}
+}
+
 func TestBranchCreate_ExistingBranchGainsUpstream(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir, _, _ := initRepoWithRemote(t)
@@ -322,6 +349,45 @@ func TestBranchRename_Remote(t *testing.T) {
 	}
 	if !git.RemoteBranchExists(repoDir, "new") {
 		t.Fatal("expected new remote branch to exist")
+	}
+}
+
+func TestBranchRename_FailedNewPushPreservesOldRemote(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, originDir, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "checkout", "-b", "old")
+	mustRunGit(t, repoDir, "push", "--set-upstream", "origin", "old")
+
+	hook := `#!/bin/sh
+while read old_oid new_oid ref_name; do
+	if [ "$ref_name" = "refs/heads/new" ]; then
+		echo "new branch rejected" >&2
+		exit 1
+	fi
+done
+exit 0
+`
+	hookPath := filepath.Join(originDir, "hooks", "pre-receive")
+	if err := os.WriteFile(hookPath, []byte(hook), 0o755); err != nil {
+		t.Fatalf("write pre-receive hook: %v", err)
+	}
+
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	cmd := branchRenameCmd()
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatalf("set flag all: %v", err)
+	}
+	err := cmd.RunE(cmd, []string{"old", "new"})
+	if err == nil {
+		t.Fatal("expected rejected new remote branch to fail rename")
+	}
+	if !git.RemoteBranchExists(repoDir, "old") {
+		t.Fatal("old remote branch must remain when publishing the new name fails")
+	}
+	if git.RemoteBranchExists(repoDir, "new") {
+		t.Fatal("rejected new remote branch should not exist")
 	}
 }
 
@@ -417,6 +483,39 @@ func TestBranchDelete_RepoFlag_LocalAndRemote(t *testing.T) {
 	}
 	if git.RemoteBranchExists(repoDir, "feature/x") {
 		t.Error("expected remote feature/x to be deleted")
+	}
+}
+
+func TestBranchDelete_RemoteFailureIsReturned(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir, originDir, _ := initRepoWithRemote(t)
+	mustRunGit(t, repoDir, "branch", "feature/x")
+	mustRunGit(t, repoDir, "push", "origin", "feature/x")
+
+	hook := `#!/bin/sh
+while read old_oid new_oid ref_name; do
+	if [ "$ref_name" = "refs/heads/feature/x" ] && [ "$new_oid" = "0000000000000000000000000000000000000000" ]; then
+		echo "branch deletion rejected" >&2
+		exit 1
+	fi
+done
+exit 0
+`
+	hookPath := filepath.Join(originDir, "hooks", "pre-receive")
+	if err := os.WriteFile(hookPath, []byte(hook), 0o755); err != nil {
+		t.Fatalf("write pre-receive hook: %v", err)
+	}
+
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/x", false, false, false, []string{"repo1"})
+	if err == nil {
+		t.Fatal("expected rejected remote deletion to be returned")
+	}
+	if !git.RemoteBranchExists(repoDir, "feature/x") {
+		t.Fatal("expected rejected remote deletion to preserve the branch")
 	}
 }
 
