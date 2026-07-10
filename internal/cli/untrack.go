@@ -208,5 +208,8 @@ func runUntrackWithUIAndGroup(ui ui, repoAliases []string, groupName string, pat
 		color.RedString("%d failed", failed),
 	)
 
+	if failed > 0 {
+		return fmt.Errorf("%d repository(ies) failed to untrack files", failed)
+	}
 	return nil
 }

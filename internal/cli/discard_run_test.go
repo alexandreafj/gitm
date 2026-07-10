@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -213,6 +214,20 @@ func TestRunDiscard_NoFilesSelected(t *testing.T) {
 	// dirty.txt should still exist.
 	if _, statErr := os.Stat(filepath.Join(repoDir, "dirty.txt")); statErr != nil {
 		t.Error("dirty.txt should still exist when no files selected")
+	}
+}
+
+func TestRunDiscard_FileSelectErrorIsReturned(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	writeFile(t, repoDir, "dirty.txt", "should survive\n")
+
+	err := runDiscardWithUI(fakeUI{fileErr: errors.New("picker failed")}, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 repository") {
+		t.Fatalf("runDiscardWithUI() error = %v, want one failed repository", err)
 	}
 }
 

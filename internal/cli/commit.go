@@ -344,6 +344,9 @@ repoLoop:
 		color.RedString("%d failed", failed),
 	)
 
+	if failed > 0 {
+		return fmt.Errorf("%d repository(ies) failed to commit", failed)
+	}
 	return nil
 }
 

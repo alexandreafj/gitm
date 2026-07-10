@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/alexandreafj/gitm/internal/db"
@@ -75,6 +76,17 @@ func TestRunTrackWithUntrackedFiles(t *testing.T) {
 	out := mustRunGit(t, dir, "status", "--porcelain")
 	if out == "" {
 		t.Error("expected staged file after track")
+	}
+}
+
+func TestRunTrackFileSelectErrorIsReturned(t *testing.T) {
+	d := setupTestDB(t)
+	_, dir := newRepo(t, d, "test-repo")
+	writeFile(t, dir, "newfile.txt", "untracked content\n")
+
+	err := runTrackWithUI(fakeUI{fileErr: errors.New("picker failed")}, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 repository") {
+		t.Fatalf("runTrackWithUI() error = %v, want one failed repository", err)
 	}
 }
 
