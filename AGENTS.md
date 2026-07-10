@@ -25,13 +25,16 @@ mockGit.On("ResetSoft", ...).Return(nil)
 
 ### 2. **Dependencies are locked. Adding new ones requires discussion.**
 
-This project has exactly 6 external dependencies:
+This project has exactly 9 direct external dependencies:
 - `github.com/spf13/cobra` — CLI framework
 - `modernc.org/sqlite` — SQLite (pure Go, no CGo)
 - `github.com/charmbracelet/bubbletea` — TUI
+- `github.com/charmbracelet/bubbles` — TUI components
+- `github.com/charmbracelet/lipgloss` — TUI styling
 - `github.com/fatih/color` — Colored output
 - `golang.org/x/sync` — `errgroup`
 - `github.com/sigstore/sigstore-go` — Signature verification for `gitm upgrade`. Required to honour the "signed binaries" claim. Verifies cosign keyless signatures against the public-good Sigstore TUF root in-process so users don't need a separate cosign install.
+- `github.com/sigstore/protobuf-specs` — Sigstore bundle and verification message types used by `gitm upgrade`.
 
 Before adding anything else, ask: *Can this be done with stdlib?* If no, get explicit approval.
 
@@ -45,7 +48,7 @@ Database connections, config, and loggers must be **passed explicitly** via Depe
 
 No exceptions. Tests must use the real tools (git, filesystem, etc.), not mocks. Run with race detection:
 ```bash
-go test ./... -v -race -timeout 60s
+go test ./... -v -race -timeout 180s
 ```
 
 ### 5. **Error handling: never suppress, always wrap with context.**

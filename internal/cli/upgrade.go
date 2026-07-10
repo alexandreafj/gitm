@@ -530,8 +530,9 @@ func newUpgradeCmd(currentVersion, goos string, channel installChannel) *cobra.C
 		Long: `Download and install the latest gitm binary from GitHub releases.
 
 The binary's checksums file is verified against a Sigstore signature bundle
-produced by this repository's release workflow. When upgrading from a release
-that predates signing, verification falls back to SHA-256 only with a warning.
+produced by this repository's release workflow. The binary, checksums file,
+signature bundle, and verifier are all required; a missing trust asset aborts
+the upgrade before the installed executable is changed.
 
 For Homebrew and Scoop installs, use your package manager to update gitm.
 Self-upgrade is currently disabled on Windows.`,

@@ -138,4 +138,3 @@ Every behavior change follows red-green-refactor development:
 Final verification requires formatting, direct lint, module tidy verification,
 the full race suite, the coverage threshold, a clean Git diff review, and a
 successful build before commit and PR creation.
-
