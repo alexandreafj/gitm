@@ -1,5 +1,8 @@
 name: Release
 
+env:
+  GOLANGCI_LINT_VERSION: v1.64.8
+
 on:
   push:
     tags:
@@ -26,6 +29,9 @@ jobs:
 
       - name: Check format
         run: make format-check
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
 
       - name: Run linting
         run: make lint-check

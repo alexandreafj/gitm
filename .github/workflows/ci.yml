@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  GOLANGCI_LINT_VERSION: v1.64.8
+
 on:
   push:
     branches: [master]
@@ -44,10 +47,11 @@ jobs:
         run: make format-check
         id: format
 
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+
       - name: Run linting
-        run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-          golangci-lint run ./...
+        run: make lint-check
         id: lint
 
       - name: Run unit tests
