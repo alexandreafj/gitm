@@ -185,5 +185,8 @@ func runTrackWithUIAndGroup(ui ui, repoAliases []string, groupName string) error
 		color.RedString("%d failed", failed),
 	)
 
+	if failed > 0 {
+		return fmt.Errorf("%d repository(ies) failed to track files", failed)
+	}
 	return nil
 }

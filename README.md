@@ -181,8 +181,8 @@ gitm --help
 On manual macOS/Linux installs, `gitm upgrade` verifies the signature on `checksums.txt` against this repo's release workflow before installing any new binary:
 
 - The release workflow signs `checksums.txt` with [cosign](https://github.com/sigstore/cosign) in keyless mode (OIDC-bound to `release.yml` on a tagged push). The signature, certificate, and Rekor transparency-log proof are bundled into `checksums.txt.bundle` and uploaded with each release.
-- `gitm upgrade` downloads the bundle, verifies it against Sigstore's public-good trust root, and aborts on any failure.
-- Releases that predate signing (older than this feature) fall back to SHA-256 verification with a warning.
+- `gitm upgrade` requires the platform binary, `checksums.txt`, `checksums.txt.bundle`, and an available verifier. It verifies the signed checksums against Sigstore's public-good trust root, then verifies the binary checksum.
+- A missing verification asset or any signature/checksum failure aborts the upgrade before the installed executable is changed. There is no unsigned fallback.
 
 To verify a manually-downloaded binary outside of `gitm upgrade`:
 
@@ -665,11 +665,11 @@ Select repositories for new branch: feature/JIRA-123
 
 1. For each selected repo (in parallel):
    - Checks for uncommitted changes — skips if dirty.
-   - Checks out the base branch and pulls latest.
+   - Checks out the base branch. If it has an upstream, pulls latest and aborts branch creation in that repo if the refresh fails. If it has no upstream, explicitly uses the local base state.
    - Creates and checks out the new branch (`git checkout -b <branch-name>`).
    - If the branch already exists, checks it out instead of failing.
    - Pushes the branch to origin and sets upstream tracking (`git push --set-upstream origin <branch-name>`), so `gitm update` / `gitm checkout` never fail with "no tracking information" later. Skipped with `--no-remote` or when the repository has no `origin` remote; branches that already track a remote are left untouched.
-2. Streams results live.
+2. Streams results live. After every selected repository finishes, exits non-zero if any repository reported an operational error.
 
 **Examples:**
 
@@ -728,9 +728,9 @@ gitm branch rename <old-name> <new-name> [flags]
 2. Opens the interactive multi-select UI showing only the matching repositories.
 3. For each selected repo (in parallel):
    - `git branch -m <old-name> <new-name>` — renames locally.
-   - `git push origin --delete <old-name>` — deletes the old remote branch (if it exists).
    - `git push --set-upstream origin <new-name>` — pushes the new branch and sets tracking.
-4. Streams results live.
+   - `git push origin --delete <old-name>` — only after the new branch is published, deletes the old remote branch (if it exists). A failed new-branch push therefore preserves the old remote name.
+4. Streams results live, then exits non-zero if any repository failed.
 
 **Examples:**
 
@@ -796,7 +796,7 @@ gitm branch delete <branch-name> [flags]
 4. For each selected repo (in parallel):
    - `git branch -d <branch-name>` — deletes locally (`-D` when `--force`).
    - `git push origin --delete <branch-name>` — deletes the remote branch if it exists (skipped with `--no-remote`).
-5. Streams results live.
+5. Streams results live, then exits non-zero if any repository failed.
 
 **Safety:**
 
@@ -1038,7 +1038,7 @@ gitm discard [flags]
 4. For each selected repo, opens a **file picker** where you choose exactly which files to discard. **No files are pre-selected** — you must explicitly pick every file you want gone.
 5. With `--dry-run`, prints the selected files and the `git reset`, `git checkout`, and `git clean` commands that would run, then exits without changing files.
 6. Otherwise, discards only the selected files in each repo.
-7. Prints a per-repo summary.
+7. Prints a per-repo summary, then exits non-zero if any repository failed.
 
 **Example flow:**
 
@@ -1292,7 +1292,7 @@ gitm commit [flags]
    - `git commit -m "<message>"` (during a merge, commits the entire index to complete the merge)
    - `git push --set-upstream origin <branch>` (skipped with `--no-push`). If the push is rejected because the remote branch advanced (a non-fast-forward), gitm automatically rebases the new commit onto origin and retries — see [`gitm push`](#gitm-push). A rebase conflict is left in place and reported so you can resolve it and run `gitm push`.
    - Live result printed per repo.
-5. **Final summary** — `N committed, N skipped, N failed`.
+5. **Final summary** — `N committed, N skipped, N failed`. Operational failures produce a non-zero exit status after all selected repositories have been processed.
 
 **Merge conflict resolution:**
 
@@ -1396,6 +1396,7 @@ gitm push [flags]
    - Skips the repo when it already tracks a remote and has nothing new to push (`nothing to push — <branch> is up to date`).
    - Runs `git push --set-upstream origin <branch>`.
    - **Diverged-remote recovery:** if the push is rejected because the remote branch advanced (a non-fast-forward `! [rejected] … (fetch first)`), gitm fetches origin and runs `git pull --rebase --autostash origin <branch>` to replay your local commits on top of the remote, then retries the push once. History stays linear and you never have to `cd` into the repo to pull by hand.
+   - Authentication, network, hook, and remote-configuration failures are returned directly; they never trigger a rebase.
 3. **Summary** — `N succeeded, N skipped, N failed`.
 
 **Rebase conflicts:**
@@ -1464,6 +1465,8 @@ gitm stash list [flags]
 #### `gitm stash` _(push)_
 
 Scans repos for uncommitted changes (including untracked files), shows only dirty repos in the multi-select, then runs `git stash push --include-untracked` with an auto-generated message on each selected repo in parallel.
+
+Stash push/apply/pop finish all selected repositories and exit non-zero when any repository reports an operational failure.
 
 ```
 $ gitm stash
@@ -1585,6 +1588,8 @@ Before applying the reset:
    - Prompted once for all repos: approve or skip the force-push
    - If approved: `git push --force-with-lease` is used to rewrite remote history
 
+Reset and approved force-push batches exit non-zero after their summaries when any repository fails.
+
 **Examples:**
 
 ```bash
@@ -1688,6 +1693,8 @@ gitm track [flags]
 5. For each selected repo, opens the file picker showing only untracked files.
 6. Runs `git add` on the selected files.
 
+The command prints the complete summary, then exits non-zero if tracking failed in any selected repository.
+
 **Example flow:**
 
 ```
@@ -1757,6 +1764,8 @@ gitm untrack [flags]
 2. For each selected repo, shows tracked files in the file picker (filtered by `--path` if provided).
 3. Runs `git rm --cached` on the selected files — removes from git's index only.
 4. The files remain on disk untouched.
+
+The command prints the complete summary, then exits non-zero if untracking failed in any selected repository.
 
 > **Tip:** After untracking a file, add it to `.gitignore` to prevent it from being tracked again.
 
@@ -1874,7 +1883,7 @@ gitm doctor --group backend
 
 ### `gitm upgrade`
 
-Self-update gitm to the latest release from GitHub for manual macOS/Linux installs. Downloads the correct binary for your platform, verifies the checksum, and replaces the current binary — no manual download needed.
+Self-update gitm to the latest release from GitHub for manual macOS/Linux installs. Downloads the correct binary for your platform, verifies its signed checksums, and replaces the current binary — no manual download needed.
 
 ```
 gitm upgrade
@@ -1892,9 +1901,10 @@ scoop update gitm          # Scoop (Windows)
 1. Queries the [GitHub Releases API](https://github.com/alexandreafj/gitm/releases) for the latest version.
 2. Compares against the currently installed version (`gitm --version`).
 3. Detects your OS and architecture to download the correct binary.
-4. Downloads the binary and `checksums.txt`, then verifies SHA256 integrity.
-5. Atomically replaces the current binary (backs up the old one, swaps in the new one).
-6. Sets executable permissions on Linux/macOS (`chmod 755`).
+4. Requires and downloads the binary, `checksums.txt`, and `checksums.txt.bundle`.
+5. Verifies the Sigstore signature bundle, then verifies the binary's SHA-256 checksum. Missing trust assets or verification failures abort without changing the installed executable.
+6. Atomically replaces the current binary (backs up the old one, swaps in the new one).
+7. Sets executable permissions on Linux/macOS (`chmod 755`).
 
 Downloads tolerate slow or proxied connections: the TLS handshake is given up to 30s (the Go default of 10s is too aggressive for GitHub's asset CDN behind some networks), and transient failures — TLS handshake timeouts, dropped connections, and 5xx/429 responses — are retried up to 3 times with exponential backoff before giving up.
 
@@ -1915,6 +1925,7 @@ $ gitm upgrade
 
 Checking for updates... found v1.1.0
 Downloading gitm-macos-arm64... done
+Verifying signature... ok
 Verifying checksum... ok
 Updated gitm: v1.0.6 → v1.1.0
 ```
@@ -2029,7 +2040,7 @@ scp ~/.gitm/gitm.db newmachine:~/.gitm/gitm.db
 make test
 
 # Run tests verbosely
-go test ./... -v -race -timeout 60s
+go test ./... -v -race -timeout 180s
 
 # Run a specific package's tests
 go test ./internal/cli/... -v -race
@@ -2042,8 +2053,8 @@ go test ./internal/cli/... -v -race -run TestResetSoft
 
 | Metric | Count |
 |---|---|
-| Test files | 46 |
-| Test functions | 424 |
+| Test files | 55 |
+| Test functions | 510 |
 | Language | Go |
 
 ---

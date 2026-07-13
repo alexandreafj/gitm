@@ -91,6 +91,19 @@ func TestRunUntrackWithFiles(t *testing.T) {
 	}
 }
 
+func TestRunUntrackFileSelectErrorIsReturned(t *testing.T) {
+	d := setupTestDB(t)
+	_, dir := newRepo(t, d, "test-repo")
+	writeFile(t, dir, "secret.env", "SECRET=abc\n")
+	mustRunGit(t, dir, "add", "secret.env")
+	mustRunGit(t, dir, "commit", "-m", "add secret")
+
+	err := runUntrackWithUI(fakeUI{fileErr: errors.New("picker failed")}, nil, "")
+	if err == nil || !strings.Contains(err.Error(), "1 repository") {
+		t.Fatalf("runUntrackWithUI() error = %v, want one failed repository", err)
+	}
+}
+
 func TestRunUntrackWithRepoFlag(t *testing.T) {
 	d := setupTestDB(t)
 	_, dir := newRepo(t, d, "test-repo")

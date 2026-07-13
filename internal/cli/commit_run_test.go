@@ -88,8 +88,8 @@ func TestRunCommit_FileSelectError(t *testing.T) {
 	writeFile(t, repoDir, "README.md", "modified\n")
 
 	ui := fakeUI{fileErr: errors.New("boom")}
-	if err := runCommitWithUI(ui, true, nil); err != nil {
-		t.Fatalf("runCommitWithUI: %v", err)
+	if err := runCommitWithUI(ui, true, nil); err == nil {
+		t.Fatal("runCommitWithUI should return the file selection failure")
 	}
 }
 
@@ -118,8 +118,8 @@ func TestRunCommit_StageError(t *testing.T) {
 	writeFile(t, repoDir, "README.md", "modified\n")
 
 	ui := fakeUI{fileSelect: []string{" M missing.txt"}}
-	if err := runCommitWithUI(ui, true, nil); err != nil {
-		t.Fatalf("runCommitWithUI: %v", err)
+	if err := runCommitWithUI(ui, true, nil); err == nil {
+		t.Fatal("runCommitWithUI should return the staging failure")
 	}
 }
 

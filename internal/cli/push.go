@@ -181,9 +181,12 @@ func pushRepo(repo *db.Repository) (pushOutcome, error) {
 	if pushErr == nil {
 		return pushOutcome{message: fmt.Sprintf("pushed %s", branch)}, nil
 	}
+	if !git.IsNonFastForwardError(pushErr) {
+		return pushOutcome{}, fmt.Errorf("push %s: %w", branch, pushErr)
+	}
 
-	// The push was rejected — usually because the remote branch advanced. Fetch
-	// and rebase our local commits on top of it, then retry the push once.
+	// The remote branch advanced. Fetch and rebase our local commits on top of
+	// it, then retry the push once.
 	if _, rbErr := git.PullRebase(repo.Path, branch); rbErr != nil {
 		if unmerged, umErr := git.UnmergedFiles(repo.Path); umErr == nil && len(unmerged) > 0 {
 			return pushOutcome{conflict: unmerged}, nil

@@ -227,6 +227,15 @@ func runDiscardWithUIAndGroupDryRun(ui ui, repoAliases []string, groupName strin
 			fmt.Sprintf("Discard preview for %d repository(ies)", len(dryRunItems)),
 			dryRunItems,
 		)
+		failed := 0
+		for _, result := range results {
+			if result.err != nil {
+				failed++
+			}
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d repository(ies) failed to discard changes", failed)
+		}
 		return nil
 	}
 
@@ -259,5 +268,8 @@ func runDiscardWithUIAndGroupDryRun(ui ui, repoAliases []string, groupName strin
 		color.RedString("%d failed", failed),
 	)
 
+	if failed > 0 {
+		return fmt.Errorf("%d repository(ies) failed to discard changes", failed)
+	}
 	return nil
 }

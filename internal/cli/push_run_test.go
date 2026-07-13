@@ -200,6 +200,30 @@ func TestRunPush_ReturnsErrorOnFailure(t *testing.T) {
 	}
 }
 
+func TestPushRepoDoesNotRebaseUnrelatedFailure(t *testing.T) {
+	dir := initRepo(t)
+	mustRunGit(t, dir, "checkout", "-b", "feature/no-origin")
+	writeFile(t, dir, "feature.txt", "local work\n")
+	mustRunGit(t, dir, "add", "feature.txt")
+	mustRunGit(t, dir, "commit", "-m", "local work")
+
+	_, err := pushRepo(&db.Repository{Alias: "repo1", Path: dir, DefaultBranch: "main"})
+	if err == nil {
+		t.Fatal("expected push without origin to fail")
+	}
+	if strings.Contains(err.Error(), "auto-rebase") || strings.Contains(err.Error(), "pull") {
+		t.Fatalf("unrelated push failure entered rebase recovery: %v", err)
+	}
+	if !strings.Contains(err.Error(), "origin") {
+		t.Fatalf("error should preserve original push context: %v", err)
+	}
+	if ops, opsErr := git.InProgressOperations(dir); opsErr != nil {
+		t.Fatalf("InProgressOperations: %v", opsErr)
+	} else if len(ops) != 0 {
+		t.Fatalf("push failure left an in-progress operation: %v", ops)
+	}
+}
+
 func containsAlias(xs []string, want string) bool {
 	for _, x := range xs {
 		if x == want {

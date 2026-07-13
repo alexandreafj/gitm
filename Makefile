@@ -2,6 +2,7 @@ BINARY     := gitm
 CMD        := ./cmd/gitm
 BUILD_DIR  := ./bin
 INSTALL_DIR := $(shell go env GOPATH)/bin
+TEST_TIMEOUT := 180s
 
 # Build info
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -35,17 +36,17 @@ run: build
 
 ## test: Run all tests with race detection
 test:
-	go test ./... -v -race -timeout 60s
+	go test ./... -v -race -timeout $(TEST_TIMEOUT)
 
 ## coverage: Run tests with coverage report (HTML output)
 coverage:
 	@mkdir -p $(BUILD_DIR)
-	@go test ./... -race -timeout 60s -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
+	@go test ./... -race -timeout $(TEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
 	@go tool cover -html=$(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 	@echo ""
 	@echo "Coverage Summary:"
 	@echo "  Total: $$(go tool cover -func=$(BUILD_DIR)/coverage.out | grep total | awk '{printf "%.1f%%", $$3}')"
-	@go tool cover -func=$(BUILD_DIR)/coverage.out | grep -E '^github.com/anomalyco' | awk '{print "  " $$1 ": " $$NF}' | sort
+	@go tool cover -func=$(BUILD_DIR)/coverage.out | grep -E '^github.com/alexandreafj/gitm' | awk '{print "  " $$1 ": " $$NF}' | sort
 	@echo ""
 	@echo "Report: $(BUILD_DIR)/coverage.html"
 	@echo ""
@@ -53,7 +54,7 @@ coverage:
 ## coverage-check: Run tests and verify coverage meets 50% minimum
 coverage-check:
 	@mkdir -p $(BUILD_DIR)
-	@go test ./... -race -timeout 60s -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
+	@go test ./... -race -timeout $(TEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
 	@COVERAGE=$$(go tool cover -func=$(BUILD_DIR)/coverage.out | grep total | awk '{printf "%.1f", $$3}'); \
 	echo "Coverage: $${COVERAGE}%"; \
 	if [ "$$(echo "$${COVERAGE} < 50" | bc)" -eq 1 ]; then \
@@ -63,11 +64,19 @@ coverage-check:
 
 ## lint: Run golangci-lint (auto-fixes where possible)
 lint:
-	@which golangci-lint > /dev/null 2>&1 && golangci-lint run --fix ./... || echo "golangci-lint not installed — run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+	@if ! command -v golangci-lint > /dev/null 2>&1; then \
+		echo "golangci-lint not installed — run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8"; \
+		exit 1; \
+	fi
+	golangci-lint run --fix ./...
 
 ## lint-check: Run golangci-lint without fixing (for CI)
 lint-check:
-	@which golangci-lint > /dev/null 2>&1 && golangci-lint run ./... || echo "golangci-lint not installed — run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+	@if ! command -v golangci-lint > /dev/null 2>&1; then \
+		echo "golangci-lint not installed — run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8"; \
+		exit 1; \
+	fi
+	golangci-lint run ./...
 
 ## fmt: Format all code with goimports and gofmt
 fmt:

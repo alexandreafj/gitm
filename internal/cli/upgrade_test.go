@@ -221,11 +221,13 @@ func TestRunUpgradeChecksumMismatch(t *testing.T) {
 			Assets: []ghAsset{
 				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
 				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+				{Name: "checksums.txt.bundle", BrowserDownloadURL: "https://example.com/bundle"},
 			},
 		},
 		files: map[string][]byte{
 			"https://example.com/binary":    binaryContent,
 			"https://example.com/checksums": []byte(checksumData),
+			"https://example.com/bundle":    []byte("fake-bundle"),
 		},
 	}
 	err = runUpgrade("v1.0.0", uc, &fakeSignatureVerifier{}, nil)
@@ -535,6 +537,74 @@ func testExecPath(t *testing.T) string {
 	return p
 }
 
+func TestRunUpgradeRequiresVerificationAssets(t *testing.T) {
+	name, err := assetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		assets   []ghAsset
+		want     string
+		verifier signatureVerifier
+	}{
+		{
+			name: "missing checksums",
+			assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+			},
+			want:     "checksums.txt",
+			verifier: &fakeSignatureVerifier{},
+		},
+		{
+			name: "missing signature bundle",
+			assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+			},
+			want:     "checksums.txt.bundle",
+			verifier: &fakeSignatureVerifier{},
+		},
+		{
+			name: "missing verifier",
+			assets: []ghAsset{
+				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
+				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
+				{Name: "checksums.txt.bundle", BrowserDownloadURL: "https://example.com/bundle"},
+			},
+			want: "no verifier",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			execPath := testExecPath(t)
+			uc := &fakeUpgradeClient{
+				release: &ghRelease{TagName: "v2.0.0", Assets: tt.assets},
+				files: map[string][]byte{
+					"https://example.com/binary":    []byte("new-binary"),
+					"https://example.com/checksums": []byte("unused"),
+					"https://example.com/bundle":    []byte("unused"),
+				},
+			}
+
+			err := runUpgrade("v1.0.0", uc, tt.verifier, &upgradeOpts{execPath: execPath})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("runUpgrade() error = %v, want containing %q", err, tt.want)
+			}
+
+			got, readErr := os.ReadFile(execPath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(got) != "old-binary" {
+				t.Fatalf("executable changed to %q", got)
+			}
+		})
+	}
+}
+
 func TestRunUpgradeSignatureVerificationSuccess(t *testing.T) {
 	name, err := assetName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -612,7 +682,7 @@ func TestRunUpgradeSignatureVerificationFailure(t *testing.T) {
 	}
 }
 
-func TestRunUpgradeBundleMissingFallback(t *testing.T) {
+func TestRunUpgradeBundleMissingRefusesInstall(t *testing.T) {
 	name, err := assetName(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		t.Fatal(err)
@@ -629,7 +699,6 @@ func TestRunUpgradeBundleMissingFallback(t *testing.T) {
 			Assets: []ghAsset{
 				{Name: name, BrowserDownloadURL: "https://example.com/binary"},
 				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums"},
-				// No bundle asset — simulates an older release that predates signing
 			},
 		},
 		files: map[string][]byte{
@@ -639,14 +708,25 @@ func TestRunUpgradeBundleMissingFallback(t *testing.T) {
 	}
 
 	sv := &fakeSignatureVerifier{}
-	opts := &upgradeOpts{execPath: testExecPath(t)}
+	execPath := testExecPath(t)
+	opts := &upgradeOpts{execPath: execPath}
 
 	err = runUpgrade("v1.0.0", uc, sv, opts)
-	if err != nil {
-		t.Fatalf("expected successful fallback upgrade, got: %v", err)
+	if err == nil {
+		t.Fatal("expected missing bundle to abort upgrade")
+	}
+	if !strings.Contains(err.Error(), "checksums.txt.bundle") {
+		t.Fatalf("expected missing bundle error, got: %v", err)
 	}
 	if sv.called {
 		t.Error("verifier must not be called when bundle is absent")
+	}
+	got, readErr := os.ReadFile(execPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != "old-binary" {
+		t.Fatalf("executable changed to %q", got)
 	}
 }
 
