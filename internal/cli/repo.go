@@ -288,19 +288,43 @@ func discoverRepos(parentDir string, maxDepth int) ([]string, error) {
 	return repos, nil
 }
 
-// repoListCmd lists all registered repositories.
+// repoListCmd lists registered repositories in the active context.
 func repoListCmd() *cobra.Command {
-	return &cobra.Command{
+	var allContexts bool
+
+	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all registered repositories",
-		Args:  cobra.NoArgs,
+		Short: "List registered repositories in the active context",
+		Long: `List registered repositories.
+
+By default only repositories in the active context are shown. Use --all to
+list every registered repository across all contexts.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repos, err := database.ListRepositories()
+			if allContexts {
+				repos, err := database.ListRepositories()
+				if err != nil {
+					return err
+				}
+				if len(repos) == 0 {
+					fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+					return nil
+				}
+				printRepoTable(repos)
+				return nil
+			}
+
+			active, err := database.ActiveContext()
+			if err != nil {
+				return fmt.Errorf("read active context: %w", err)
+			}
+			repos, err := database.ListRepositoriesByContext(active.Name)
 			if err != nil {
 				return err
 			}
+			fmt.Printf("%s\n\n", color.New(color.Bold).Sprintf("Context: %s", active.Name))
 			if len(repos) == 0 {
-				fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
+				fmt.Println(noReposMessage(nil, ""))
 				return nil
 			}
 
@@ -308,6 +332,9 @@ func repoListCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&allContexts, "all", false, "List repositories from all contexts, not just the active one")
+	return cmd
 }
 
 // repoRemoveCmd removes a repository by alias.

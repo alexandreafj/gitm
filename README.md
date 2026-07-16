@@ -23,6 +23,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
 - **Safe** — never force-resets your work; dirty repos are skipped, not clobbered.
 - **Dry-run previews** — inspect dangerous branch/delete/reset/sync/checkout/discard operations before they change anything.
 - **Branch dashboard** — `gitm branches feature/JIRA-123` shows, per repo, where a feature branch exists, its tracking/ahead-behind state, and whether it has merged into default.
+- **Contexts** — isolated working sets of repos (`gitm context use company-a`); every command operates only on the active context.
 - **Interactive TUI** — multi-select repos and files with bubbletea.
 - **Self-updating (manual installs)** — `gitm upgrade` pulls signed binaries from GitHub Releases on macOS/Linux manual installs.
 - **Zero config** — single SQLite file at `~/.gitm/gitm.db`, no daemons.
@@ -40,6 +41,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [repo remove](#gitm-repo-remove)
   - [repo rename](#gitm-repo-rename)
   - [group](#gitm-group)
+  - [context](#gitm-context)
   - [checkout](#gitm-checkout)
   - [branch create](#gitm-branch-create)
   - [branch rename](#gitm-branch-rename)
@@ -350,15 +352,23 @@ Found 4 git repository(ies) in /home/user/work
 
 ### `gitm repo list`
 
-List all registered repositories.
+List registered repositories in the active context. Use `--all` to list every repository across all contexts.
 
 ```
-gitm repo list
+gitm repo list [--all]
 ```
+
+**Flags:**
+
+| Flag | Description |
+|---|---|
+| `--all` | List repositories from all contexts, not just the active one. |
 
 **Example output:**
 
 ```
+Context: default
+
 #     ALIAS                     DEFAULT BRANCH  PATH
 1     api-gateway               main            /home/user/work/api-gateway
 2     auth-service              master          /home/user/work/auth-service
@@ -482,6 +492,88 @@ GROUP                     REPOS       TYPE
 all                       5           built-in
 backend                   2           custom
 frontend                  1           custom
+```
+
+---
+
+### `gitm context`
+
+Manage repository contexts — isolated working sets of repositories. Every repository belongs to **exactly one** context (1:N), and all multi-repo commands (`checkout`, `branch`, `status`, `commit`, `push`, `stash`, `reset`, `sync`, `update`, `discard`, `track`, `untrack`, `doctor`, `branches`) operate **only** on the repositories of the currently active context.
+
+The built-in `default` context always exists: new installations start on it, and after upgrading, all previously registered repositories are migrated into it automatically. It cannot be renamed or deleted.
+
+Switching contexts is persisted in the database, so the choice survives across invocations — set it once and every following `gitm` command stays scoped to that context until you switch again.
+
+```
+gitm context list
+gitm context show [name]
+gitm context current
+gitm context create <name>
+gitm context use <name>
+gitm context rename <old-name> <new-name>
+gitm context delete <name>
+gitm context add <name> <repo-alias...>
+gitm context remove <name> <repo-alias...>
+```
+
+**Subcommands:**
+
+| Command | Description |
+|---|---|
+| `gitm context list` | List contexts with repository counts. The active one is marked with `*`. |
+| `gitm context show [name]` | Show repositories in a context. Without a name, shows the active context. |
+| `gitm context current` | Print the name of the active context (script-friendly). |
+| `gitm context create <name>` | Create a custom context. |
+| `gitm context use <name>` | Switch the active context (alias: `switch`). Persisted across invocations. |
+| `gitm context rename <old> <new>` | Rename a custom context. |
+| `gitm context delete <name>` | Delete a custom context. Its repositories move back to `default`; nothing is unregistered. |
+| `gitm context add <name> <repo-alias...>` | Move repositories into a context (alias: `assign`). Removes them from their previous context. |
+| `gitm context remove <name> <repo-alias...>` | Move repositories out of a context back to `default`. |
+
+**Behaviour:**
+
+- Context names cannot be empty, contain spaces, or contain commas.
+- A repository belongs to exactly one context; `context add` moves it, it never copies.
+- `gitm repo add` registers new repositories into the **active** context.
+- Naming a repo explicitly (`--repo`) that is outside the active context is an error, with a hint to switch or move it — commands can never reach outside the active context.
+- `--group` filters intersect with the active context: only group members that are also in the active context are used.
+- The active context cannot be deleted; switch away first. The `default` context can never be deleted or renamed.
+- `gitm context` also answers to the alias `gitm ctx`.
+
+**Examples:**
+
+```bash
+# One context per client, each with its own repos
+gitm context create company-a
+gitm context add company-a api-gateway auth-service
+
+# Switch: from now on every command only touches company-a repos
+gitm context use company-a
+gitm checkout feature/JIRA-123     # only company-a repos change branches
+gitm branch create feature/JIRA-456
+gitm status
+
+# Inspect contexts
+gitm context list
+gitm context show company-a
+gitm context current
+
+# Back to the default context
+gitm context use default
+```
+
+**Example output:**
+
+```
+$ gitm context list
+
+   CONTEXT                   REPOS       TYPE
+   default                   3           built-in
+*  company-a                 2           custom
+   company-b                 4           custom
+
+$ gitm context current
+company-a
 ```
 
 ---
@@ -1990,7 +2082,7 @@ gitm stores repository configuration in a SQLite database at:
 ~/.gitm/gitm.db
 ```
 
-The database is created automatically on first run. When gitm opens the database after an upgrade, it automatically applies missing migrations; users do not run migration commands manually. Group support creates the built-in `all` group and backfills every existing repository into it.
+The database is created automatically on first run. When gitm opens the database after an upgrade, it automatically applies missing migrations; users do not run migration commands manually. Group support creates the built-in `all` group and backfills every existing repository into it. Context support creates the built-in `default` context and moves every existing repository into it.
 
 It contains these tables:
 
@@ -2001,6 +2093,7 @@ CREATE TABLE repositories (
     alias          TEXT     NOT NULL UNIQUE,        -- display name (user-controlled)
     path           TEXT     NOT NULL UNIQUE,        -- absolute path
     default_branch TEXT     NOT NULL,               -- auto-detected: main or master
+    context_id     INTEGER REFERENCES contexts(id), -- the one context the repo belongs to
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -2016,6 +2109,17 @@ CREATE TABLE group_repositories (
     PRIMARY KEY (group_id, repository_id),
     FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
     FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+);
+
+CREATE TABLE contexts (
+    id         INTEGER  PRIMARY KEY AUTOINCREMENT,
+    name       TEXT     NOT NULL UNIQUE,             -- includes built-in "default"
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,                          -- e.g. active_context_id
+    value TEXT NOT NULL
 );
 ```
 
@@ -2074,6 +2178,7 @@ cli-git-commands/
 │   │   ├── dry_run.go           # Shared dry-run preview output helpers
 │   │   ├── repo.go              # repo add/list/remove/rename
 │   │   ├── group.go             # group list/show/create/rename/delete/add/remove
+│   │   ├── context.go           # context list/show/current/create/use/rename/delete/add/remove
 │   │   ├── checkout.go          # checkout master
 │   │   ├── branch.go            # branch create/rename/delete
 │   │   ├── status.go            # status
@@ -2094,6 +2199,7 @@ cli-git-commands/
 │   ├── db/
 │   │   ├── db.go                # SQLite connection & migrations
 │   │   ├── group.go             # Repository group CRUD and memberships
+│   │   ├── context.go           # Repository context CRUD and active-context state
 │   │   └── repository.go        # Repository CRUD
 │   ├── git/
 │   │   └── git.go               # Git operations

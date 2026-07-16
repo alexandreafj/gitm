@@ -221,7 +221,7 @@ func (db *DB) ListRepositoriesByGroup(groupName string) ([]*Repository, error) {
 	}
 
 	rows, err := db.conn.Query(
-		`SELECT r.id, r.name, r.alias, r.path, r.default_branch, r.created_at
+		`SELECT r.id, r.name, r.alias, r.path, r.default_branch, COALESCE(r.context_id, 0), r.created_at
 		 FROM repositories r
 		 JOIN group_repositories gr ON gr.repository_id = r.id
 		 WHERE gr.group_id = ?

@@ -17,6 +17,7 @@ type Repository struct {
 	Alias         string // user-facing display name (unique); defaults to Name
 	Path          string
 	DefaultBranch string
+	ContextID     int64 // context the repository belongs to (exactly one)
 	CreatedAt     time.Time
 }
 
@@ -33,9 +34,14 @@ func (db *DB) AddRepository(name, alias, path, defaultBranch string) (*Repositor
 	//nolint:errcheck // rollback is best-effort; after commit it is expected to fail.
 	defer tx.Rollback()
 
+	contextID, err := activeContextID(tx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve active context: %w", err)
+	}
+
 	res, err := tx.Exec(
-		`INSERT INTO repositories (name, alias, path, default_branch) VALUES (?, ?, ?, ?)`,
-		name, alias, path, defaultBranch,
+		`INSERT INTO repositories (name, alias, path, default_branch, context_id) VALUES (?, ?, ?, ?, ?)`,
+		name, alias, path, defaultBranch, contextID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("add repository: %w", err)
@@ -63,13 +69,14 @@ func (db *DB) AddRepository(name, alias, path, defaultBranch string) (*Repositor
 		Alias:         alias,
 		Path:          path,
 		DefaultBranch: defaultBranch,
+		ContextID:     contextID,
 	}, nil
 }
 
 // GetRepository returns a single repository by alias.
 func (db *DB) GetRepository(alias string) (*Repository, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, alias, path, default_branch, created_at FROM repositories WHERE alias = ?`,
+		`SELECT id, name, alias, path, default_branch, COALESCE(context_id, 0), created_at FROM repositories WHERE alias = ?`,
 		alias,
 	)
 	return scanRepository(row)
@@ -78,7 +85,7 @@ func (db *DB) GetRepository(alias string) (*Repository, error) {
 // GetRepositoryByPath returns a single repository by its filesystem path.
 func (db *DB) GetRepositoryByPath(path string) (*Repository, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, name, alias, path, default_branch, created_at FROM repositories WHERE path = ?`,
+		`SELECT id, name, alias, path, default_branch, COALESCE(context_id, 0), created_at FROM repositories WHERE path = ?`,
 		path,
 	)
 	return scanRepository(row)
@@ -87,7 +94,7 @@ func (db *DB) GetRepositoryByPath(path string) (*Repository, error) {
 // ListRepositories returns all registered repositories ordered by alias.
 func (db *DB) ListRepositories() ([]*Repository, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, name, alias, path, default_branch, created_at FROM repositories ORDER BY alias`,
+		`SELECT id, name, alias, path, default_branch, COALESCE(context_id, 0), created_at FROM repositories ORDER BY alias`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list repositories: %w", err)
@@ -173,7 +180,7 @@ type scanner interface {
 func scanRepository(s scanner) (*Repository, error) {
 	var r Repository
 	var createdAt string
-	err := s.Scan(&r.ID, &r.Name, &r.Alias, &r.Path, &r.DefaultBranch, &createdAt)
+	err := s.Scan(&r.ID, &r.Name, &r.Alias, &r.Path, &r.DefaultBranch, &r.ContextID, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

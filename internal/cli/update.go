@@ -129,6 +129,11 @@ func noReposMessage(aliases []string, groupName string) string {
 	if len(aliases) > 0 || strings.TrimSpace(groupName) != "" {
 		return "No repositories match the given --repo/--group filters."
 	}
+	if database != nil {
+		if active, err := database.ActiveContext(); err == nil && active.Name != db.DefaultContextName {
+			return fmt.Sprintf("No repositories in context %q. Run `gitm context add %s <alias>` to move repos in, or `gitm context use %s` to switch back.", active.Name, active.Name, db.DefaultContextName)
+		}
+	}
 	return "No repositories registered. Run `gitm repo add <path>` to add one."
 }
 
@@ -145,6 +150,19 @@ func resolveReposWithGroup(aliases []string, groupName string) ([]*db.Repository
 		}
 		return nil, fmt.Errorf("list repositories in group %q: %w", groupName, err)
 	}
+	// Groups span contexts, but commands must never reach outside the active
+	// context — keep only the group members that belong to it.
+	active, err := database.ActiveContext()
+	if err != nil {
+		return nil, fmt.Errorf("read active context: %w", err)
+	}
+	inContext := make([]*db.Repository, 0, len(groupRepos))
+	for _, repo := range groupRepos {
+		if repo.ContextID == active.ID {
+			inContext = append(inContext, repo)
+		}
+	}
+	groupRepos = inContext
 	if len(aliases) == 0 {
 		return groupRepos, nil
 	}
@@ -168,8 +186,13 @@ func resolveReposWithGroup(aliases []string, groupName string) ([]*db.Repository
 }
 
 func resolveReposByAlias(aliases []string) ([]*db.Repository, error) {
+	active, err := database.ActiveContext()
+	if err != nil {
+		return nil, fmt.Errorf("read active context: %w", err)
+	}
+
 	if len(aliases) == 0 {
-		return database.ListRepositories()
+		return database.ListRepositoriesByContext(active.Name)
 	}
 
 	seen := make(map[string]bool, len(aliases))
@@ -186,6 +209,9 @@ func resolveReposByAlias(aliases []string) ([]*db.Repository, error) {
 				return nil, fmt.Errorf("repository %q not found — run `gitm repo list` to see registered repos", alias)
 			}
 			return nil, fmt.Errorf("lookup %q: %w", alias, err)
+		}
+		if repo.ContextID != active.ID {
+			return nil, fmt.Errorf("repository %q is not in the active context %q — switch with `gitm context use <name>` or move it with `gitm context add %s %s`", alias, active.Name, active.Name, alias)
 		}
 		repos = append(repos, repo)
 	}
