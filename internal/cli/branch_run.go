@@ -292,8 +292,12 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 		if err != nil {
 			return "", "", fmt.Errorf("current branch: %w", err)
 		}
+		switchedTo := ""
 		if current == branchName {
-			return "", "branch is currently checked out — switch away first", nil
+			if err := git.Checkout(repo.Path, repo.DefaultBranch); err != nil {
+				return "", "", fmt.Errorf("checkout default branch %s: %w", repo.DefaultBranch, err)
+			}
+			switchedTo = repo.DefaultBranch
 		}
 
 		var deleted []string
@@ -318,7 +322,11 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 			return "", fmt.Sprintf("branch %q not found", branchName), nil
 		}
 
-		return fmt.Sprintf("deleted %s (%s)", branchName, strings.Join(deleted, " + ")), "", nil
+		result := fmt.Sprintf("deleted %s (%s)", branchName, strings.Join(deleted, " + "))
+		if switchedTo != "" {
+			result = fmt.Sprintf("switched to %s — %s", switchedTo, result)
+		}
+		return result, "", nil
 	})
 
 	if runner.HasErrors(results) {
@@ -345,9 +353,7 @@ func branchDeleteDryRunItems(repos []*db.Repository, branchName string, force, n
 			continue
 		}
 		if current == branchName {
-			item.skipReason = "branch is currently checked out — switch away first"
-			items = append(items, item)
-			continue
+			item.actions = append(item.actions, fmt.Sprintf("git checkout %s", repo.DefaultBranch))
 		}
 
 		localExists := git.BranchExists(repo.Path, branchName)

@@ -782,7 +782,7 @@ gitm branch delete <branch-name> [flags]
 | `--all` | `-a` | false | Apply to all repositories that have the branch. |
 | `--force` | `-f` | false | Force-delete branches with unmerged commits (`git branch -D` instead of `-d`). |
 | `--no-remote` | — | false | Only delete the local branch. Skip deleting the branch on origin. |
-| `--dry-run` | — | false | Preview local and remote delete commands without deleting anything or asking for confirmation. |
+| `--dry-run` | — | false | Preview checkout and delete commands without changing anything or asking for confirmation. |
 | `--repo` | `-r` | _(none)_ | Comma-separated list of repository aliases to target. Bypasses the interactive selection UI. Takes precedence over `--all`. |
 | `--group` | `-g` | _(all repos)_ | Limit candidates to repositories in a group. Combines with `--repo` as an intersection. |
 
@@ -792,8 +792,9 @@ gitm branch delete <branch-name> [flags]
 2. Selects repositories:
    - Interactive: opens the multi-select UI showing only the matching repositories.
    - `--all` / `--repo`: skips the UI and asks for a single `y/N` confirmation listing the target repositories.
-3. With `--dry-run`, prints the local and remote delete commands that would run, including known skips for default/current/unmerged branches, then exits without confirmation or deletion.
+3. With `--dry-run`, prints the checkout, local delete, and remote delete commands that would run, including known skips for default and unmerged branches, then exits without confirmation or changes.
 4. For each selected repo (in parallel):
+   - If the target is currently checked out, `git checkout <default-branch>` switches to that repository's configured default branch without pulling.
    - `git branch -d <branch-name>` — deletes locally (`-D` when `--force`).
    - `git push origin --delete <branch-name>` — deletes the remote branch if it exists (skipped with `--no-remote`).
 5. Streams results live, then exits non-zero if any repository failed.
@@ -802,7 +803,8 @@ gitm branch delete <branch-name> [flags]
 
 - The local delete uses `git branch -d`, which refuses branches with unmerged commits. Pass `--force` to delete them anyway.
 - The repository's default branch (`main`/`master`) is never deleted — it is skipped.
-- A branch that is currently checked out is skipped — switch away from it first.
+- A branch that is currently checked out is switched automatically to the repository's configured default branch before deletion.
+- Automatic checkout does not pull. If checkout fails, the branch is left untouched and that repository reports an error.
 
 **Examples:**
 
@@ -822,7 +824,7 @@ gitm branch delete feature/JIRA-123 --force
 # Delete only the local branch, keep it on origin
 gitm branch delete feature/JIRA-123 --no-remote
 
-# Preview local and remote deletion without deleting anything
+# Preview automatic checkout and deletion without changing anything
 gitm branch delete feature/JIRA-123 --all --dry-run
 ```
 
@@ -836,7 +838,7 @@ Delete branch "feature/JIRA-123"? [y/N] y
 
 Deleting "feature/JIRA-123" in 2 repository(ies)…
 
-[auth-service        ] ✓ deleted feature/JIRA-123 (local + remote)
+[auth-service        ] ✓ switched to main — deleted feature/JIRA-123 (local + remote)
 [frontend            ] ✓ deleted feature/JIRA-123 (local + remote)
 
 Done: 2 succeeded
