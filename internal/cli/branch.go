@@ -127,18 +127,20 @@ step, so you never have to run "git branch -d" and "git push origin --delete"
 by hand.
 
 Per repository:
-  1. git branch -d <branch-name>          (local delete; -D when --force)
-  2. git push origin --delete <branch-name>  (delete the remote branch)
+  1. If the branch is checked out, switch to the configured default branch.
+  2. git branch -d <branch-name>          (local delete; -D when --force)
+  3. git push origin --delete <branch-name>  (delete the remote branch)
 
 Safety:
   - The local delete uses "git branch -d", which refuses branches with
     unmerged commits. Pass --force to delete them anyway ("git branch -D").
   - The repository's default branch (main/master) is never deleted.
-  - A branch that is currently checked out is skipped — switch away first.
+  - Automatic checkout does not pull. If checkout fails, no deletion is
+    attempted in that repository.
 
 Use --no-remote to delete only the local branch.
-Use --dry-run to preview exactly which local and remote delete commands would
-run without deleting anything or asking for confirmation.
+Use --dry-run to preview exactly which checkout and delete commands would run
+without changing anything or asking for confirmation.
 Use --repo to target specific repositories by alias, bypassing the interactive
 selection UI. Non-interactive runs (--all or --repo) ask for confirmation
 before deleting.

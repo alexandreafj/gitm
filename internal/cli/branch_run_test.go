@@ -614,6 +614,40 @@ func TestBranchDelete_DryRunDoesNotDeleteOrConfirm(t *testing.T) {
 	}
 }
 
+func TestBranchDelete_DryRunCurrentBranchPreviewsCheckoutBeforeDelete(t *testing.T) {
+	database = setupTestDB(t)
+	repoDir := initRepo(t)
+	mustRunGit(t, repoDir, "checkout", "-b", "feature/current")
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+
+	output := captureOutput(t, func() {
+		if err := runBranchDeleteWithUIDryRun(fakeUI{}, "feature/current", false, false, true, []string{"repo1"}, true); err != nil {
+			t.Fatalf("branch delete dry-run: %v", err)
+		}
+	})
+
+	checkoutIndex := strings.Index(output, "git checkout main")
+	deleteIndex := strings.Index(output, "git branch -d feature/current")
+	if checkoutIndex < 0 || deleteIndex < 0 {
+		t.Fatalf("expected checkout and delete commands in output, got:\n%s", output)
+	}
+	if checkoutIndex > deleteIndex {
+		t.Fatalf("expected checkout before delete, got:\n%s", output)
+	}
+	current, err := git.CurrentBranch(repoDir)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if current != "feature/current" {
+		t.Errorf("current branch = %q, want %q", current, "feature/current")
+	}
+	if !git.BranchExists(repoDir, "feature/current") {
+		t.Error("expected feature/current to survive dry-run")
+	}
+}
+
 func TestBranchDelete_DefaultBranchProtected(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir, _, _ := initRepoWithRemote(t)
@@ -630,20 +664,72 @@ func TestBranchDelete_DefaultBranchProtected(t *testing.T) {
 	}
 }
 
-func TestBranchDelete_CurrentBranchSkipped(t *testing.T) {
+func TestBranchDelete_CurrentBranchSwitchesToConfiguredDefault(t *testing.T) {
+	for _, defaultBranch := range []string{"main", "master"} {
+		t.Run(defaultBranch, func(t *testing.T) {
+			database = setupTestDB(t)
+			repoDir, _, _ := initRepoWithRemote(t)
+			if defaultBranch != "main" {
+				mustRunGit(t, repoDir, "branch", "-m", defaultBranch)
+			}
+			mustRunGit(t, repoDir, "checkout", "-b", "feature/current")
+			mustRunGit(t, repoDir, "push", "origin", "feature/current")
+			if _, err := database.AddRepository("repo1", "repo1", repoDir, defaultBranch); err != nil {
+				t.Fatalf("AddRepository: %v", err)
+			}
+
+			if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/current", false, false, false, []string{"repo1"}); err != nil {
+				t.Fatalf("branch delete: %v", err)
+			}
+
+			current, err := git.CurrentBranch(repoDir)
+			if err != nil {
+				t.Fatalf("CurrentBranch: %v", err)
+			}
+			if current != defaultBranch {
+				t.Errorf("current branch = %q, want %q", current, defaultBranch)
+			}
+			if git.BranchExists(repoDir, "feature/current") {
+				t.Error("expected the previously checked-out branch to be deleted")
+			}
+			if git.RemoteBranchExists(repoDir, "feature/current") {
+				t.Error("expected the remote branch to be deleted")
+			}
+		})
+	}
+}
+
+func TestBranchDelete_CheckoutFailurePreservesCurrentBranch(t *testing.T) {
 	database = setupTestDB(t)
-	repoDir, _, _ := initRepoWithRemote(t)
+	repoDir := initRepo(t)
 	mustRunGit(t, repoDir, "checkout", "-b", "feature/current")
+	writeFile(t, repoDir, "README.md", "feature content\n")
+	mustRunGit(t, repoDir, "add", "README.md")
+	mustRunGit(t, repoDir, "commit", "-m", "change feature content")
+	mustRunGit(t, repoDir, "checkout", "main")
+	writeFile(t, repoDir, "README.md", "default content\n")
+	mustRunGit(t, repoDir, "add", "README.md")
+	mustRunGit(t, repoDir, "commit", "-m", "change default content")
+	mustRunGit(t, repoDir, "checkout", "feature/current")
+	writeFile(t, repoDir, "README.md", "uncommitted content\n")
 	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
 		t.Fatalf("AddRepository: %v", err)
 	}
 
-	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/current", false, false, true, []string{"repo1"}); err != nil {
-		t.Fatalf("branch delete: %v", err)
+	err := runBranchDeleteWithUI(fakeUI{confirm: true}, "feature/current", false, true, true, []string{"repo1"})
+	if err == nil {
+		t.Fatal("expected checkout failure to be returned")
 	}
 
+	current, currentErr := git.CurrentBranch(repoDir)
+	if currentErr != nil {
+		t.Fatalf("CurrentBranch: %v", currentErr)
+	}
+	if current != "feature/current" {
+		t.Errorf("current branch = %q, want %q", current, "feature/current")
+	}
 	if !git.BranchExists(repoDir, "feature/current") {
-		t.Error("expected the checked-out branch to be skipped, not deleted")
+		t.Error("expected the branch to survive when checkout fails")
 	}
 }
 
