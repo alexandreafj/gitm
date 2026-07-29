@@ -649,6 +649,29 @@ func TestBranchDelete_DryRunCurrentBranchPreviewsCheckoutBeforeDelete(t *testing
 	}
 }
 
+func TestBranchDelete_DryRunUsesLiveDefaultWithoutPersistingIt(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/current")
+
+	output := captureOutput(t, func() {
+		if err := runBranchDeleteWithUIDryRun(fakeUI{}, "feature/current", false, false, true, []string{"repo1"}, true); err != nil {
+			t.Fatalf("branch delete dry-run: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "git checkout master") {
+		t.Fatalf("dry-run did not preview checkout of live master default:\n%s", output)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want unchanged main", stored.DefaultBranch)
+	}
+}
+
 func TestBranchDelete_DefaultBranchProtected(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir, _, _ := initRepoWithRemote(t)

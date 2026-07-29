@@ -168,6 +168,30 @@ func TestRunSync_DryRunDoesNotFetchOrMerge(t *testing.T) {
 	}
 }
 
+func TestRunSync_DryRunUsesLiveDefaultWithoutPersistingIt(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/work")
+
+	output := captureOutput(t, func() {
+		if err := runSyncWithUIDryRun(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "", true); err != nil {
+			t.Fatalf("runSyncWithUIDryRun: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "git fetch origin -- master") || !strings.Contains(output, "git merge --no-edit origin/master") {
+		t.Fatalf("dry-run did not preview the live master default:\n%s", output)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want unchanged main", stored.DefaultBranch)
+	}
+}
+
 func TestRunSync_SkipsDirty(t *testing.T) {
 	database = setupTestDB(t)
 	dir, originDir, _ := initRepoWithRemote(t)

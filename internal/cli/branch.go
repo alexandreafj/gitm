@@ -29,9 +29,14 @@ func branchCreateCmd() *cobra.Command {
 		Short: "Create a new branch in selected repositories and push it to origin",
 		Long: `Interactively select repositories, then create a new branch in each one.
 The branch is created from the repository's default branch (main/master)
-unless --from is specified, then pushed to origin with upstream tracking so
-that later pulls and pushes (gitm update, gitm checkout, gitm push) work
-without extra setup. All operations run in parallel.
+unless --from is specified. In default-base mode, gitm performs a lightweight
+network lookup of origin's symbolic HEAD (not a full fetch), updates GitM's
+SQLite default-branch cache when it changed, and warns before using the cached
+value if the lookup fails. Supplying --from bypasses this lookup.
+
+The new branch is pushed to origin with upstream tracking so that later pulls
+and pushes (gitm update, gitm checkout, gitm push) work without extra setup.
+All repository operations run in parallel.
 
 Use --no-remote to keep the new branch local and skip the push. Repositories
 without an origin remote skip the push automatically, and branches that
@@ -127,7 +132,7 @@ step, so you never have to run "git branch -d" and "git push origin --delete"
 by hand.
 
 Per repository:
-  1. If the branch is checked out, switch to the configured default branch.
+  1. If the branch is checked out, switch to the detected default branch.
   2. git branch -d <branch-name>          (local delete; -D when --force)
   3. git push origin --delete <branch-name>  (delete the remote branch)
 
@@ -138,9 +143,16 @@ Safety:
   - Automatic checkout does not pull. If checkout fails, no deletion is
     attempted in that repository.
 
+Before applying these protections, gitm performs a lightweight network lookup
+of origin's symbolic HEAD (not a full fetch). Outside dry-run, a changed default
+updates GitM's SQLite cache; a failed lookup emits a warning and uses the cached
+value.
+
 Use --no-remote to delete only the local branch.
 Use --dry-run to preview exactly which checkout and delete commands would run
-without changing anything or asking for confirmation.
+without changing the worktree, Git metadata, or SQLite cache, or asking for
+confirmation. The live symbolic-HEAD lookup still runs so the preview uses the
+current default branch.
 Use --repo to target specific repositories by alias, bypassing the interactive
 selection UI. Non-interactive runs (--all or --repo) ask for confirmation
 before deleting.

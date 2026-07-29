@@ -33,9 +33,12 @@ on origin, which branch the repo is currently on (a ● marks repos checked out 
 the target), and the target's upstream, ahead/behind, and merged-into-default
 state. Repositories that do not have the target show — for the remaining columns.
 
-Like gitm status, this command is offline by default: remote branch existence and
-ahead/behind numbers come from the last-fetched origin refs. Pass --fetch to
-refresh from origin first for up-to-date numbers (slower, requires network).
+Without --fetch, remote branch existence and ahead/behind numbers come from the
+last-fetched origin refs. The command still performs a lightweight network
+lookup of origin's symbolic HEAD (not a full fetch) so merged-into-default state
+uses the current default. A change updates GitM's SQLite cache; a failed lookup
+emits a warning and uses the cached default. Pass --fetch to refresh all remote
+refs first for up-to-date branch numbers (slower, requires more network work).
 
 Use --repo / -r to limit output to specific repositories by alias.
 Use --group / -g to limit output to repositories in a group.

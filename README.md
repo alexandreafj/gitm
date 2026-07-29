@@ -352,11 +352,13 @@ Found 4 git repository(ies) in /home/user/work
 
 List all registered repositories.
 
-gitm reads `origin`'s symbolic `HEAD` for each repository before displaying the
-table. A successfully discovered change updates the cached default branch. If a
-remote cannot be queried, gitm prints a warning naming the affected repositories
-and continues with their cached values. Default-branch operations use the same
-live lookup; their dry-run previews never persist a refreshed value.
+gitm performs a lightweight network lookup of `origin`'s symbolic `HEAD` for
+each repository before displaying the table; this is not a full fetch and does
+not modify the worktree or Git metadata. A successfully discovered change
+updates GitM's SQLite default-branch cache. If a remote cannot be queried, gitm
+prints a warning naming the affected repositories and continues with their
+cached values. Default-branch operations use the same live lookup; their dry-run
+previews never persist a refreshed value.
 
 ```
 gitm repo list
@@ -505,7 +507,7 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 | Invocation | Behaviour |
 |---|---|
 | `gitm checkout` _(no args)_ | Interactive: multi-select repos, then type a branch name |
-| `gitm checkout master` or `gitm checkout main` | Equivalent aliases: switch **all** repos to their configured default branch + pull |
+| `gitm checkout master` or `gitm checkout main` | Equivalent aliases: detect and switch **all** repos to their default branch + pull |
 | `gitm checkout <branch-name>` | Check out `<branch-name>` in **all** repos; skip with warning where it doesn't exist |
 
 **Flags:**
@@ -671,13 +673,17 @@ Select repositories for new branch: feature/JIRA-123
 
 **Behaviour:**
 
-1. For each selected repo (in parallel):
+1. Unless `--from` is supplied, performs a lightweight network lookup of each
+   selected repository's `origin` symbolic `HEAD` (not a full fetch). A changed
+   default updates GitM's SQLite cache; a failed lookup emits one warning and
+   uses the cached default. Supplying `--from` bypasses this lookup.
+2. For each selected repo (in parallel):
    - Checks for uncommitted changes — skips if dirty.
    - Checks out the base branch. If it has an upstream, pulls latest and aborts branch creation in that repo if the refresh fails. If it has no upstream, explicitly uses the local base state.
    - Creates and checks out the new branch (`git checkout -b <branch-name>`).
    - If the branch already exists, checks it out instead of failing.
    - Pushes the branch to origin and sets upstream tracking (`git push --set-upstream origin <branch-name>`), so `gitm update` / `gitm checkout` never fail with "no tracking information" later. Skipped with `--no-remote` or when the repository has no `origin` remote; branches that already track a remote are left untouched.
-2. Streams results live. After every selected repository finishes, exits non-zero if any repository reported an operational error.
+3. Streams results live. After every selected repository finishes, exits non-zero if any repository reported an operational error.
 
 **Examples:**
 
@@ -800,18 +806,22 @@ gitm branch delete <branch-name> [flags]
 2. Selects repositories:
    - Interactive: opens the multi-select UI showing only the matching repositories.
    - `--all` / `--repo`: skips the UI and asks for a single `y/N` confirmation listing the target repositories.
-3. With `--dry-run`, prints the checkout, local delete, and remote delete commands that would run, including known skips for default and unmerged branches, then exits without confirmation or changes.
-4. For each selected repo (in parallel):
-   - If the target is currently checked out, `git checkout <default-branch>` switches to that repository's configured default branch without pulling.
+3. Performs a lightweight network lookup of each selected repository's `origin`
+   symbolic `HEAD` (not a full fetch) before applying default-branch protection.
+   Outside dry-run, a changed default updates GitM's SQLite cache; a failed
+   lookup emits one warning and uses the cached default.
+4. With `--dry-run`, prints the checkout, local delete, and remote delete commands that would run, including known skips for default and unmerged branches, then exits without confirmation or worktree, Git metadata, or SQLite cache changes. The live lookup still supplies the preview's default branch.
+5. For each selected repo (in parallel):
+   - If the target is currently checked out, `git checkout <default-branch>` switches to that repository's detected default branch without pulling.
    - `git branch -d <branch-name>` — deletes locally (`-D` when `--force`).
    - `git push origin --delete <branch-name>` — deletes the remote branch if it exists (skipped with `--no-remote`).
-5. Streams results live, then exits non-zero if any repository failed.
+6. Streams results live, then exits non-zero if any repository failed.
 
 **Safety:**
 
 - The local delete uses `git branch -d`, which refuses branches with unmerged commits. Pass `--force` to delete them anyway.
-- The repository's default branch (`main`/`master`) is never deleted — it is skipped.
-- A branch that is currently checked out is switched automatically to the repository's configured default branch before deletion.
+- The repository's live detected default branch (`main`/`master`) is never deleted — it is skipped.
+- A branch that is currently checked out is switched automatically to the detected default branch before deletion.
 - Automatic checkout does not pull. If checkout fails, the branch is left untouched and that repository reports an error.
 
 **Examples:**
@@ -922,7 +932,7 @@ gitm status --group backend
 
 ### `gitm branches`
 
-A branch dashboard across all registered repositories. Answers, at a glance: which branch is each repo on, does a given feature branch exist in each repo, is it tracked/pushed, how far ahead/behind origin is it, and has it already merged into the default branch. Runs in **parallel** with no network calls by default. Purpose-built for multi-repo feature work.
+A branch dashboard across all registered repositories. Answers, at a glance: which branch is each repo on, does a given feature branch exist in each repo, is it tracked/pushed, how far ahead/behind origin is it, and has it already merged into the default branch. Runs in **parallel** and avoids a full fetch by default. Purpose-built for multi-repo feature work.
 
 ```
 gitm branches [target-branch] [flags]
@@ -938,7 +948,7 @@ gitm branches [target-branch] [flags]
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--fetch` | — | false | Run `git fetch` on each repo first so remote branch existence and ahead/behind numbers are up to date (slower, requires network). |
+| `--fetch` | — | false | Run a full `git fetch` on each repo first so remote branch existence and ahead/behind numbers are up to date (slower and more network work than the default symbolic-HEAD lookup). |
 | `--repo` | `-r` | _(all repos)_ | Limit output to specific repository aliases (comma-separated). |
 | `--group` | `-g` | _(all repos)_ | Limit output to repositories in a group. Combines with `--repo` as an intersection. |
 
@@ -951,7 +961,7 @@ gitm branches [target-branch] [flags]
 
 **Behaviour:**
 
-- **Offline by default**, like `gitm status`: remote branch existence and ahead/behind come from the last-fetched `origin` refs. Pass `--fetch` to refresh first.
+- Without `--fetch`, remote branch existence and ahead/behind come from the last-fetched `origin` refs. gitm still performs a lightweight network lookup of each `origin` symbolic `HEAD` (not a full fetch) so default-sensitive calculations use the current default. A changed default updates GitM's SQLite cache; a failed lookup emits a warning and uses the cache. Pass `--fetch` to refresh all remote refs first.
 - In target mode, the `TARGET` column reports existence: `local+remote`, `local only`, `remote only`, or `missing`. A green `●` marks repos currently checked out **on** the target.
 - `UPSTREAM` and `AHEAD/BEHIND` describe the subject branch; they require the branch to exist **locally**, so they show `—` for a `remote only` or `missing` target.
 - `MERGED` reports whether the subject branch has merged into the repository's default branch (`merged` / `not merged`). It shows `(default)` when the subject **is** the default branch, and `—` when it cannot be determined (e.g. a missing target).
@@ -1118,7 +1128,7 @@ Nothing to discard — all repositories are clean.
 
 ### `gitm update`
 
-Pull the latest changes on the **current branch** of every repository in parallel. Unlike `checkout master`, this does **not** switch branches.
+Pull the latest changes on the **current branch** of every repository in parallel. Unlike `checkout master`, this normally keeps each repository on its current branch; the missing-upstream fallback described below switches to the detected default.
 
 ```
 gitm update [flags]
@@ -1138,7 +1148,7 @@ gitm update [flags]
    - Checks for uncommitted changes — skips if dirty.
    - Runs `git pull --ff-only` on the current branch.
    - If the branch has no upstream (never pushed), the repo is skipped with a note — there is nothing to pull yet.
-   - If the remote branch no longer exists (e.g. deleted after a PR merge), automatically switches to the default branch and pulls that instead.
+   - If the remote branch no longer exists (e.g. deleted after a PR merge), performs a lightweight network lookup of `origin`'s symbolic `HEAD` (not a full fetch), updates GitM's SQLite default-branch cache if it changed, then switches to that default and pulls it. If the lookup fails, warns and uses the cached default. Repositories whose ordinary pull succeeds do not perform this lookup.
 3. Streams results live with a summary.
 4. If a `--repo` alias doesn't match any registered repository, the command exits with an error before pulling anything.
 
@@ -1293,16 +1303,17 @@ gitm commit [flags]
 **What it does:**
 
 1. **Scans** the registered repositories (all, or only those in `--repo` / `--group`) for uncommitted changes.
-2. **Filters** to dirty repos only — repos on their default branch are shown but marked `⛔ protected branch` and cannot be selected.
-3. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
-4. For each selected repo, **sequentially**:
+2. **Refreshes defaults for dirty repos only** with a lightweight network lookup of each `origin` symbolic `HEAD` (not a full fetch). Changes update GitM's SQLite cache; failures emit one warning and use cached defaults.
+3. **Filters** to dirty repos only — repos on their detected default branch are shown but marked `⛔ protected branch` and cannot be selected.
+4. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
+5. For each selected repo, **sequentially**:
    - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, orange `U` for conflicts, dim `??`). Nothing is pre-selected.
    - **Commit message input** — single-line text input; rejects empty messages.
    - `git add -- <selected files>`
    - `git commit -m "<message>"` (during a merge, commits the entire index to complete the merge)
    - `git push --set-upstream origin <branch>` (skipped with `--no-push`). If the push is rejected because the remote branch advanced (a non-fast-forward), gitm automatically rebases the new commit onto origin and retries — see [`gitm push`](#gitm-push). A rebase conflict is left in place and reported so you can resolve it and run `gitm push`.
    - Live result printed per repo.
-5. **Final summary** — `N committed, N skipped, N failed`. Operational failures produce a non-zero exit status after all selected repositories have been processed.
+6. **Final summary** — `N committed, N skipped, N failed`. Operational failures produce a non-zero exit status after all selected repositories have been processed.
 
 **Merge conflict resolution:**
 
@@ -1363,7 +1374,7 @@ Summary
 
 **Protected branch behaviour:**
 
-Repos that are currently on their configured default branch (e.g. `main` or `master`) are shown greyed out in the selection list with an `⛔ protected branch` label and **cannot be toggled**. This prevents accidental direct commits to the default branch.
+Repos that are currently on their live detected default branch (e.g. `main` or `master`) are shown greyed out in the selection list with an `⛔ protected branch` label and **cannot be toggled**. This prevents accidental direct commits to the default branch. If the remote lookup failed, the warning makes clear that protection is using the cached default.
 
 **Examples:**
 
@@ -1830,7 +1841,7 @@ gitm untrack --repo api-gateway --group backend --path "*.log"
 
 ### `gitm doctor`
 
-Run read-only diagnostics across registered repositories and report common health issues before they interrupt a workflow.
+Run worktree-read-only diagnostics across registered repositories and report common health issues before they interrupt a workflow.
 
 ```
 gitm doctor [flags]
@@ -1848,7 +1859,7 @@ gitm doctor [flags]
 1. The registered path still exists and is a directory.
 2. The path is still the root of a git repository.
 3. The current branch can be read and is not detached.
-4. The configured default branch exists locally.
+4. The live detected default branch exists locally.
 5. An `origin` remote is configured.
 6. The current branch has an upstream.
 7. The working tree has uncommitted changes.
@@ -1860,7 +1871,12 @@ gitm doctor [flags]
 - `WARN` means the repository is usable but may need attention, such as a dirty working tree or missing upstream.
 - `ERROR` means the registered repository is broken or cannot be inspected, such as a missing path or non-git directory.
 - The command exits non-zero only when one or more repositories have `ERROR` status.
-- The command does not fetch, pull, push, checkout, modify files, or update the database.
+- Before checking, doctor performs a lightweight network lookup of each
+  `origin` symbolic `HEAD` (not a full fetch). A change updates GitM's SQLite
+  default-branch cache; a failure emits a warning and uses the cached value.
+- The repository remains read-only: doctor does not fetch remote refs, pull,
+  push, checkout, modify files, or change Git metadata. Only GitM's SQLite cache
+  may be updated.
 
 **Example output:**
 
@@ -1977,14 +1993,28 @@ Every multi-repo operation uses a concurrent worker pool (`golang.org/x/sync/err
 
 ### Default Branch Detection
 
-`gitm` auto-detects each repository's default branch using this fallback chain:
+`gitm` detects the authoritative default with
+`git ls-remote --symref origin HEAD`. This is a lightweight network lookup of
+the symbolic `HEAD`, not a full fetch; it has a 10-second deadline and cannot
+open an interactive Git authentication prompt.
 
-1. `git symbolic-ref refs/remotes/origin/HEAD` — reads what origin considers the default.
-2. Checks if a local branch named `main` exists.
-3. Checks if a local branch named `master` exists.
-4. Falls back to the current `HEAD` branch.
+When a repository is added, an unavailable remote falls back to local state:
 
-This is stored in the SQLite database when the repo is added and used by `checkout master` and `branch create`.
+1. `git symbolic-ref refs/remotes/origin/HEAD`.
+2. A local branch named `main`.
+3. A local branch named `master`.
+4. The current `HEAD` branch.
+
+The result is stored in GitM's SQLite database. Default-sensitive commands
+refresh it automatically: default checkout, implicit sync, branch creation
+without `--from`, branch deletion protection, dirty-repository commit
+protection, the branches dashboard, doctor, and repo list. `gitm update` does
+so only for repositories whose upstream disappeared and need the default
+fallback. Lookups run concurrently; changed values are persisted sequentially.
+If a lookup fails, gitm emits one warning naming the affected repositories and
+uses their cached values. Dry-run operations use the live result in memory but
+do not persist it. These lookups may change GitM's SQLite cache, but never fetch
+remote refs or mutate a repository's worktree or Git metadata.
 
 ### Skip, Never Force
 
@@ -2082,6 +2112,7 @@ cli-git-commands/
 │   ├── cli/
 │   │   ├── root.go              # Root cobra command
 │   │   ├── dry_run.go           # Shared dry-run preview output helpers
+│   │   ├── default_branch.go     # Live default lookup and SQLite cache reconciliation
 │   │   ├── repo.go              # repo add/list/remove/rename
 │   │   ├── group.go             # group list/show/create/rename/delete/add/remove
 │   │   ├── checkout.go          # checkout master

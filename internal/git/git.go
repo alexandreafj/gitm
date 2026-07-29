@@ -3,29 +3,41 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const remoteDefaultBranchTimeout = 10 * time.Second
 
 // run executes a git command in the given directory and returns stdout.
 func run(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	return runContext(context.Background(), dir, nil, args...)
+}
+
+func runContext(ctx context.Context, dir string, extraEnv []string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	// Force the C locale so git's messages stay in English regardless of the
 	// user's LANG/LC_ALL: several callers match on message text (e.g. "no
 	// upstream configured", "Your local changes", "Already up to date").
 	// os/exec keeps the last duplicate key, so this append wins.
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	cmd.Env = append(cmd.Env, extraEnv...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = ctxErr
+		}
 		return "", fmt.Errorf("%w\n%s", err, strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimRight(stdout.String(), "\r\n"), nil
@@ -60,7 +72,15 @@ func IsGitRepo(path string) bool {
 
 // RemoteDefaultBranch returns origin's advertised default branch.
 func RemoteDefaultBranch(path string) (string, error) {
-	out, err := run(path, "ls-remote", "--symref", "origin", "HEAD")
+	ctx, cancel := context.WithTimeout(context.Background(), remoteDefaultBranchTimeout)
+	defer cancel()
+	return RemoteDefaultBranchContext(ctx, path)
+}
+
+// RemoteDefaultBranchContext returns origin's advertised default branch and
+// stops the lookup when ctx is canceled.
+func RemoteDefaultBranchContext(ctx context.Context, path string) (string, error) {
+	out, err := runContext(ctx, path, []string{"GIT_TERMINAL_PROMPT=0"}, "ls-remote", "--symref", "origin", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("query remote default branch: %w", err)
 	}

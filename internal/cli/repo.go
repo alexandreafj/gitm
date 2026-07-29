@@ -293,7 +293,13 @@ func repoListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all registered repositories",
-		Args:  cobra.NoArgs,
+		Long: `List all registered repositories and their detected default branches.
+
+Before displaying the table, gitm performs a lightweight network lookup of each
+origin's symbolic HEAD (not a full fetch). A changed default updates GitM's
+SQLite cache; a failed lookup emits a warning and keeps the cached value. The
+lookup does not modify repository worktrees or Git metadata.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repos, err := database.ListRepositories()
 			if err != nil {

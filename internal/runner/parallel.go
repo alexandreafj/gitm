@@ -3,6 +3,8 @@ package runner
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -37,7 +39,6 @@ type OpFunc func(repo *db.Repository) (message string, skipReason string, err er
 const maxConcurrency = 10
 
 var (
-	mu     sync.Mutex
 	green  = color.New(color.FgGreen, color.Bold)
 	yellow = color.New(color.FgYellow, color.Bold)
 	red    = color.New(color.FgRed, color.Bold)
@@ -48,8 +49,19 @@ var (
 // Run executes op against each repo in parallel, streaming results to stdout.
 // It returns the collected results after all operations complete.
 func Run(repos []*db.Repository, op OpFunc) []Result {
+	results := RunEach(repos, op, func(result Result) {
+		FprintResult(os.Stdout, result)
+	})
+	FprintSummary(os.Stdout, results)
+	return results
+}
+
+// RunEach executes op against each repository in parallel and calls onResult
+// serially as operations finish. It does not print a summary.
+func RunEach(repos []*db.Repository, op OpFunc, onResult func(Result)) []Result {
 	results := make([]Result, len(repos))
 	sem := make(chan struct{}, maxConcurrency)
+	var callbackMu sync.Mutex
 
 	var eg errgroup.Group
 
@@ -76,24 +88,24 @@ func Run(repos []*db.Repository, op OpFunc) []Result {
 			}
 
 			results[i] = r
-			printResult(r)
+			if onResult != nil {
+				callbackMu.Lock()
+				onResult(r)
+				callbackMu.Unlock()
+			}
 			return nil
 		})
 	}
 
 	//nolint:errcheck // errgroup.Wait() can only error from child goroutines; we handle all errors there
 	_ = eg.Wait()
-	printSummary(results)
 	return results
 }
 
-// printResult prints a result in a thread-safe way.
+// FprintResult prints a result.
 // If the message contains newlines, the first line is printed with the status
 // icon and the remaining lines are indented below it.
-func printResult(r Result) {
-	mu.Lock()
-	defer mu.Unlock()
-
+func FprintResult(w io.Writer, r Result) {
 	label := fmt.Sprintf("[%-20s]", r.Repo.Alias)
 
 	var icon string
@@ -108,20 +120,20 @@ func printResult(r Result) {
 
 	lines := strings.SplitN(r.Message, "\n", 2)
 	firstLine := lines[0]
-	fmt.Printf("%s %s %s\n", cyan.Sprint(label), icon, firstLine)
+	fmt.Fprintf(w, "%s %s %s\n", cyan.Sprint(label), icon, firstLine)
 
 	// Print any additional lines (e.g. file list) indented under the first.
 	if len(lines) == 2 {
 		for _, extra := range strings.Split(lines[1], "\n") {
 			if extra != "" {
-				fmt.Printf("  %s\n", extra)
+				fmt.Fprintf(w, "  %s\n", extra)
 			}
 		}
 	}
 }
 
-// printSummary prints a summary line after all operations.
-func printSummary(results []Result) {
+// FprintSummary prints a summary line after all operations.
+func FprintSummary(w io.Writer, results []Result) {
 	var success, skipped, errored int
 	for _, r := range results {
 		switch r.Status {
@@ -144,7 +156,7 @@ func printSummary(results []Result) {
 		parts = append(parts, red.Sprintf("%d failed", errored))
 	}
 
-	fmt.Printf("\n%s %s\n", bold.Sprint("Done:"), strings.Join(parts, ", "))
+	fmt.Fprintf(w, "\n%s %s\n", bold.Sprint("Done:"), strings.Join(parts, ", "))
 }
 
 // HasErrors returns true if any result in the slice has StatusError.

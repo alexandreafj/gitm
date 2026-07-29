@@ -56,12 +56,17 @@ func doctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check registered repositories for common health issues",
-		Long: `Run read-only diagnostics across registered repositories.
+		Long: `Run worktree-read-only diagnostics across registered repositories.
 
 gitm doctor checks whether each repository path still exists, is still a git
 repository, has an origin remote, is on a readable branch, has an upstream, has
-its configured default branch locally, has uncommitted changes, or is in the
+its detected default branch locally, has uncommitted changes, or is in the
 middle of a merge/rebase/cherry-pick/revert/bisect operation.
+
+Before these checks, gitm performs a lightweight network lookup of origin's
+symbolic HEAD (not a full fetch). A changed default updates GitM's SQLite cache;
+a failed lookup emits a warning and uses the cached value. Doctor never fetches
+remote refs or mutates the repository's worktree or Git metadata.
 
 Warnings call out normal conditions that may need attention, such as dirty
 working trees or missing upstreams. Errors are reserved for broken registrations

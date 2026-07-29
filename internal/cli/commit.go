@@ -28,7 +28,11 @@ lets you pick which repos to commit, then walks through each one sequentially:
   2. Enter a commit message
   3. Stage selected files, commit, and push (use --no-push to skip push)
 
-Repositories on their default branch are shown but cannot be selected (protected).
+For dirty repositories, gitm performs a lightweight network lookup of origin's
+symbolic HEAD (not a full fetch) before applying default-branch protection. A
+changed default updates GitM's SQLite cache; a failed lookup emits a warning and
+uses the cached value. Repositories on the resulting default branch are shown
+but cannot be selected (protected).
 
 If a repository is in the middle of a merge, the commit automatically completes
 the merge (git forbids partial commits during a merge, so all staged changes are

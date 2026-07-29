@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alexandreafj/gitm/internal/db"
@@ -347,6 +348,18 @@ func TestUpdateDefaultBranch(t *testing.T) {
 	}
 	if repo.DefaultBranch != "master" {
 		t.Errorf("DefaultBranch = %q, want %q", repo.DefaultBranch, "master")
+	}
+}
+
+func TestUpdateDefaultBranchNotFound(t *testing.T) {
+	d, _ := initDB(t)
+
+	err := d.UpdateDefaultBranch("missing-alias", "master")
+	if !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("UpdateDefaultBranch() error = %v, want ErrNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "update default branch") {
+		t.Fatalf("UpdateDefaultBranch() error = %q, want operation context", err)
 	}
 }
 

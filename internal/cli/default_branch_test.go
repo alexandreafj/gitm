@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -85,6 +86,22 @@ func TestReconcileDefaultBranchesReturnsContextualPersistenceError(t *testing.T)
 	}
 	if repo.DefaultBranch != "master" {
 		t.Fatalf("in-memory default branch = %q, want master even when persistence fails", repo.DefaultBranch)
+	}
+}
+
+func TestReconcileDefaultBranchesReportsRemovedAlias(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "removed-cache", "main", "master")
+	if err := database.RemoveRepository(repo.Alias); err != nil {
+		t.Fatalf("RemoveRepository: %v", err)
+	}
+
+	err := reconcileDefaultBranches(database, []*db.Repository{repo}, true)
+	if !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("reconcileDefaultBranches() error = %v, want ErrNotFound", err)
+	}
+	if !strings.Contains(err.Error(), "persist default branch for removed-cache") {
+		t.Fatalf("reconcileDefaultBranches() error = %q, want removed alias context", err)
 	}
 }
 
