@@ -58,9 +58,39 @@ func IsGitRepo(path string) bool {
 	return abs == repoRoot
 }
 
+// RemoteDefaultBranch returns origin's advertised default branch.
+func RemoteDefaultBranch(path string) (string, error) {
+	out, err := run(path, "ls-remote", "--symref", "origin", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("query remote default branch: %w", err)
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "ref: ") {
+			continue
+		}
+		if !strings.HasSuffix(line, "\tHEAD") {
+			return "", fmt.Errorf("remote default branch: malformed symbolic HEAD output: %q", line)
+		}
+
+		ref := strings.TrimSuffix(strings.TrimPrefix(line, "ref: "), "\tHEAD")
+		const branchRefPrefix = "refs/heads/"
+		if !strings.HasPrefix(ref, branchRefPrefix) || len(ref) == len(branchRefPrefix) {
+			return "", fmt.Errorf("remote default branch: malformed symbolic HEAD output: %q", line)
+		}
+		return strings.TrimPrefix(ref, branchRefPrefix), nil
+	}
+
+	return "", errors.New("remote default branch: missing symbolic HEAD output")
+}
+
 // DefaultBranch detects the default branch (main/master) for a repo.
-// It tries origin/HEAD first, then falls back to probing local branches.
+// It tries the remote symbolic HEAD first, then falls back to local refs.
 func DefaultBranch(path string) (string, error) {
+	if branch, err := RemoteDefaultBranch(path); err == nil {
+		return branch, nil
+	}
+
 	// Try origin/HEAD symbolic ref (most reliable).
 	out, err := run(path, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
