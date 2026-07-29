@@ -352,6 +352,12 @@ Found 4 git repository(ies) in /home/user/work
 
 List all registered repositories.
 
+gitm reads `origin`'s symbolic `HEAD` for each repository before displaying the
+table. A successfully discovered change updates the cached default branch. If a
+remote cannot be queried, gitm prints a warning naming the affected repositories
+and continues with their cached values. Default-branch operations use the same
+live lookup; their dry-run previews never persist a refreshed value.
+
 ```
 gitm repo list
 ```
@@ -499,7 +505,7 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 | Invocation | Behaviour |
 |---|---|
 | `gitm checkout` _(no args)_ | Interactive: multi-select repos, then type a branch name |
-| `gitm checkout master` or `gitm checkout main` | Switch **all** repos to their configured default branch + pull |
+| `gitm checkout master` or `gitm checkout main` | Equivalent aliases: switch **all** repos to their configured default branch + pull |
 | `gitm checkout <branch-name>` | Check out `<branch-name>` in **all** repos; skip with warning where it doesn't exist |
 
 **Flags:**
@@ -515,7 +521,9 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 - Repositories with uncommitted **tracked** changes are skipped (untracked files like `AGENTS.md` are safely ignored).
 - Branch existence is checked locally first, then on the remote — skipped with a warning if neither has it.
 - After checkout, runs `git pull --ff-only`. If the branch has no upstream (a local-only branch), the pull is skipped with a note — the checkout still succeeds.
+- In default-branch mode, gitm resolves each remote's live symbolic `HEAD` before checkout. A changed default updates the cache; if it cannot be resolved, gitm warns and uses the cached branch.
 - With `--dry-run`, gitm prints the planned commands and known skips, but does not fetch, checkout, pull, or mutate repositories. Checkout conflicts that Git only detects during checkout are shown as risk notes.
+- A default-branch dry run uses the live default for its preview but does not persist a refreshed value.
 - Streams results live with a final summary.
 
 **Example — default branch:**
@@ -1207,11 +1215,11 @@ gitm sync [branch] [flags]
 
 **Behaviour (per repository, in parallel):**
 
-1. Determines the target branch: the repository's default branch (`main` or `master`, from the value stored at `repo add`) unless a `[branch]` argument is given, in which case that branch is used for every repo.
+1. Determines the target branch: when `[branch]` is omitted, resolves the repository's live `origin/HEAD` default (`main` or `master`) and updates the cached value; if that lookup fails, warns and uses the cache. A supplied `[branch]` is used for every repo without refreshing defaults.
 2. **Skips** repos with uncommitted tracked changes (stash or commit first). Untracked files do not block the sync.
 3. **Skips** repos already on the target branch (use `gitm update` to pull instead).
 4. Fetches the latest target branch from `origin`, then merges `origin/<branch>` into the current branch (falls back to the local branch when there is no remote). Repos where the branch is missing both locally and on `origin` are **skipped**.
-5. With `--dry-run`, prints the planned `git fetch` and `git merge --no-edit` commands, but does not fetch or merge. Merge conflicts cannot be predicted without running `git merge`, so they are shown as risk notes.
+5. With `--dry-run`, prints the planned `git fetch` and `git merge --no-edit` commands, but does not fetch, merge, or persist a refreshed default branch. Merge conflicts cannot be predicted without running `git merge`, so they are shown as risk notes.
 6. **Merge conflicts are left in place** — the repo is reported and kept in its merging state so you can resolve the conflicts and commit. A conflict is not treated as a failure; the command still exits 0.
 7. Streams results live with a summary, followed by a list of any repos left with conflicts.
 

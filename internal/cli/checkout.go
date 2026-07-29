@@ -37,6 +37,8 @@ Three modes of operation:
 
   gitm checkout master  (or: gitm checkout main)
       Switches ALL repos to their configured default branch and pulls.
+      Resolves each remote's live default first; a failed lookup warns and uses
+      the cached branch. Dry-run previews never persist a refreshed default.
 
   gitm checkout <branch-name>
       Checks out <branch-name> in ALL repos where it exists.

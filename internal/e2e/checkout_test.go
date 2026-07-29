@@ -37,6 +37,27 @@ func TestCheckout_DefaultBranch_Main(t *testing.T) {
 	}
 }
 
+func TestCheckout_DefaultBranchRefreshesAfterRemoteHEADChanges(t *testing.T) {
+	e := newTestEnv(t)
+	repo, origin := e.initRepoWithRemote("co-refresh-default")
+
+	registered := e.runGitm("repo", "add", repo, "--alias", "co-refresh-default")
+	e.assertExitCode(registered, 0)
+
+	e.mustGit(repo, "branch", "master")
+	e.mustGit(repo, "push", "--set-upstream", "origin", "master")
+	e.mustGit(origin, "symbolic-ref", "HEAD", "refs/heads/master")
+	e.mustGit(repo, "checkout", "-b", "feature/before-default-change")
+
+	checkedOut := e.runGitm("checkout", "main", "--repo", "co-refresh-default")
+	e.assertExitCode(checkedOut, 0)
+
+	if branch := e.currentBranch(repo); branch != "master" {
+		t.Fatalf("default checkout followed %q, want refreshed remote default %q\nstdout: %s\nstderr: %s",
+			branch, "master", checkedOut.Stdout, checkedOut.Stderr)
+	}
+}
+
 func TestCheckout_ExistingBranch_WithRepo(t *testing.T) {
 	e := newTestEnv(t)
 	repo, _ := e.initRepoWithRemote("co-existing")

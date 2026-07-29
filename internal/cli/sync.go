@@ -31,6 +31,10 @@ master, auto-detected per repository). Pass a branch name to merge that branch
 instead — useful when you track a long-lived integration branch that is not the
 repository's configured default:
 
+When no branch is supplied, gitm resolves the remote's live default branch first.
+If that lookup fails, it warns and uses the cached branch; dry-run previews do
+not persist a refreshed default.
+
   gitm sync                merge each repo's default branch (main/master)
   gitm sync master-raw     merge "master-raw" into the current branch
 
