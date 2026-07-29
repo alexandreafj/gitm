@@ -43,6 +43,11 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 			return err
 		}
 	}
+	if fromBranch == "" {
+		if err := reconcileDefaultBranches(database, chosen, true); err != nil {
+			return fmt.Errorf("refresh default branches: %w", err)
+		}
+	}
 
 	fmt.Printf("\nCreating branch %q in %d repository(ies)…\n\n", branchName, len(chosen))
 
@@ -271,6 +276,9 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 		if err != nil {
 			return err
 		}
+	}
+	if err := reconcileDefaultBranches(database, chosen, !dryRun); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
 	}
 
 	if dryRun {

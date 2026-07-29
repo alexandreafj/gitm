@@ -438,3 +438,46 @@ func TestRunSync_SpecifiedBranchNotFound(t *testing.T) {
 		t.Fatalf("expected to stay on feature/x, got %q", head)
 	}
 }
+
+func TestRunSyncImplicitRefreshesStaleDefaultBranch(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	writeFile(t, repo.Path, "master-only.txt", "from master\n")
+	mustRunGit(t, repo.Path, "add", "master-only.txt")
+	mustRunGit(t, repo.Path, "commit", "-m", "master-only change")
+	mustRunGit(t, repo.Path, "push")
+	mustRunGit(t, repo.Path, "checkout", "main")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/work")
+
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo.Path, "master-only.txt")); err != nil {
+		t.Fatalf("implicit sync did not merge refreshed master: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}
+
+func TestRunSyncExplicitBranchSkipsDefaultRefresh(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/work")
+
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "main"); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("explicit sync refreshed default branch to %q", stored.DefaultBranch)
+	}
+}

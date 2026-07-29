@@ -303,6 +303,9 @@ func repoListCmd() *cobra.Command {
 				fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
 				return nil
 			}
+			if err := reconcileDefaultBranches(database, repos, true); err != nil {
+				return fmt.Errorf("refresh default branches: %w", err)
+			}
 
 			printRepoTable(repos)
 			return nil

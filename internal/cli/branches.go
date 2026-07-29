@@ -92,6 +92,9 @@ func runBranches(target string, fetchRemote bool, repoAliases []string, groupNam
 		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
+	if err := reconcileDefaultBranches(database, repos, true); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
+	}
 
 	printBranchesHeader(target, fetchRemote, len(repos))
 

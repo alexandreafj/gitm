@@ -125,6 +125,10 @@ func runCheckoutDefault(repos []*db.Repository) error {
 }
 
 func runCheckoutDefaultDryRun(repos []*db.Repository, dryRun bool) error {
+	if err := reconcileDefaultBranches(database, repos, !dryRun); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
+	}
+
 	if dryRun {
 		printDryRunPreview(
 			fmt.Sprintf("Default branch checkout preview for %d repository(ies)", len(repos)),

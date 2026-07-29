@@ -208,3 +208,45 @@ func TestUpdate_NoUpstreamSkippedNotFailed(t *testing.T) {
 		t.Errorf("update must not switch branches; expected feature/no-upstream, got %q", branch)
 	}
 }
+
+func TestRunUpdateRefreshesDefaultOnlyForDeletedUpstreamFallback(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/old")
+	writeFile(t, repo.Path, "feature.txt", "feature\n")
+	mustRunGit(t, repo.Path, "add", "feature.txt")
+	mustRunGit(t, repo.Path, "commit", "-m", "feature commit")
+	mustRunGit(t, repo.Path, "push", "--set-upstream", "origin", "feature/old")
+	originDir := mustRunGit(t, repo.Path, "remote", "get-url", "origin")
+	mustRunGit(t, originDir, "branch", "-D", "feature/old")
+
+	if err := runUpdate([]string{"repo1"}); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+	if branch := gitCurrentBranch(t, repo.Path); branch != "master" {
+		t.Fatalf("current branch = %q, want refreshed master", branch)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}
+
+func TestRunUpdateDoesNotRefreshWhenFallbackIsNotNeeded(t *testing.T) {
+	database = setupTestDB(t)
+	_ = addRepoWithRemoteDefault(t, "repo1", "main", "master")
+
+	if err := runUpdate([]string{"repo1"}); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("ordinary update refreshed default branch to %q", stored.DefaultBranch)
+	}
+}

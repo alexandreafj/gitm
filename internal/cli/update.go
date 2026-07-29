@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -72,44 +73,83 @@ func runUpdateWithGroup(repoAliases []string, groupName string) error {
 
 	fmt.Printf("Pulling current branch for %d repositories…\n\n", len(repos))
 
+	type updatePreparation struct {
+		branch        string
+		message       string
+		skipReason    string
+		err           error
+		needsFallback bool
+	}
+
+	prepared := make([]updatePreparation, len(repos))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+	for i, repo := range repos {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			dirty, err := git.IsDirtyTrackedOnly(repo.Path)
+			if err != nil {
+				prepared[i].err = fmt.Errorf("git status: %w", err)
+				return
+			}
+			if dirty {
+				prepared[i].skipReason = "uncommitted changes — stash or commit first"
+				return
+			}
+
+			branch, err := git.CurrentBranch(repo.Path)
+			if err != nil {
+				prepared[i].err = fmt.Errorf("get current branch: %w", err)
+				return
+			}
+			prepared[i].branch = branch
+
+			out, pullErr := git.Pull(repo.Path)
+			switch {
+			case pullErr == nil:
+				prepared[i].message = fmt.Sprintf("on %s — %s", branch, summarisePull(out))
+			case git.IsNoUpstreamError(pullErr):
+				prepared[i].skipReason = fmt.Sprintf("on %s — no upstream, nothing to pull (`gitm push` sets one)", branch)
+			case strings.Contains(pullErr.Error(), "no such ref was fetched"):
+				prepared[i].needsFallback = true
+			default:
+				prepared[i].err = fmt.Errorf("pull: %w", pullErr)
+			}
+		}()
+	}
+	wg.Wait()
+
+	fallbackRepos := make([]*db.Repository, 0)
+	preparedByRepo := make(map[*db.Repository]*updatePreparation, len(repos))
+	for i, repo := range repos {
+		preparedByRepo[repo] = &prepared[i]
+		if prepared[i].needsFallback {
+			fallbackRepos = append(fallbackRepos, repo)
+		}
+	}
+	if err := reconcileDefaultBranches(database, fallbackRepos, true); err != nil {
+		return fmt.Errorf("refresh default branches for update fallback: %w", err)
+	}
+
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
-		dirty, err := git.IsDirtyTrackedOnly(repo.Path)
+		prep := preparedByRepo[repo]
+		if !prep.needsFallback {
+			return prep.message, prep.skipReason, prep.err
+		}
+
+		def := repo.DefaultBranch
+		if err := git.Checkout(repo.Path, def); err != nil {
+			return "", "", fmt.Errorf("remote branch gone, switch to %s failed: %w", def, err)
+		}
+		out, err := git.Pull(repo.Path)
 		if err != nil {
-			return "", "", fmt.Errorf("git status: %w", err)
+			return "", "", fmt.Errorf("pull %s: %w", def, err)
 		}
-		if dirty {
-			return "", "uncommitted changes — stash or commit first", nil
-		}
-
-		branch, err := git.CurrentBranch(repo.Path)
-		if err != nil {
-			return "", "", fmt.Errorf("get current branch: %w", err)
-		}
-
-		out, pullErr := git.Pull(repo.Path)
-		if pullErr != nil {
-			// A branch with no upstream has nothing to pull — a normal state
-			// for branches not yet pushed, not a failure.
-			if git.IsNoUpstreamError(pullErr) {
-				return "", fmt.Sprintf("on %s — no upstream, nothing to pull (`gitm push` sets one)", branch), nil
-			}
-			if strings.Contains(pullErr.Error(), "no such ref was fetched") {
-				def := repo.DefaultBranch
-				if err := git.Checkout(repo.Path, def); err != nil {
-					return "", "", fmt.Errorf("remote branch gone, switch to %s failed: %w", def, err)
-				}
-				out, err = git.Pull(repo.Path)
-				if err != nil {
-					return "", "", fmt.Errorf("pull %s: %w", def, err)
-				}
-				msg := fmt.Sprintf("remote branch %s gone → switched to %s — %s", branch, def, summarisePull(out))
-				return msg, "", nil
-			}
-			return "", "", fmt.Errorf("pull: %w", pullErr)
-		}
-
-		msg := fmt.Sprintf("on %s — %s", branch, summarisePull(out))
-		return msg, "", nil
+		return fmt.Sprintf("remote branch %s gone → switched to %s — %s", prep.branch, def, summarisePull(out)), "", nil
 	})
 
 	if runner.HasErrors(results) {

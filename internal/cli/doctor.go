@@ -101,6 +101,9 @@ func runDoctorWithGroup(repoAliases []string, groupName string) error {
 		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
+	if err := reconcileDefaultBranches(database, repos, true); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
+	}
 
 	fmt.Printf("Checking %d registered repository(ies)…\n\n", len(repos))
 

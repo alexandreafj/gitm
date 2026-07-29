@@ -149,6 +149,11 @@ func runSyncWithUIAndGroupDryRun(ui ui, selectAll bool, repoAliases []string, gr
 	if len(chosen) == 0 {
 		return nil
 	}
+	if branch == "" {
+		if err := reconcileDefaultBranches(database, chosen, !dryRun); err != nil {
+			return fmt.Errorf("refresh default branches: %w", err)
+		}
+	}
 
 	if dryRun {
 		printDryRunPreview(

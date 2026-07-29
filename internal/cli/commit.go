@@ -106,7 +106,7 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		protected bool
 	}
 
-	var candidates []candidate
+	var dirtyRepos []*db.Repository
 
 	for _, repo := range repos {
 		dirty, dirtyErr := git.IsDirtyTrackedOnly(repo.Path)
@@ -117,7 +117,19 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		if !dirty {
 			continue
 		}
+		dirtyRepos = append(dirtyRepos, repo)
+	}
 
+	if len(dirtyRepos) == 0 {
+		fmt.Println("No dirty repositories found.")
+		return nil
+	}
+	if err := reconcileDefaultBranches(database, dirtyRepos, true); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
+	}
+
+	var candidates []candidate
+	for _, repo := range dirtyRepos {
 		onDefault, branchErr := git.IsDefaultBranch(repo.Path, repo.DefaultBranch)
 		if branchErr != nil {
 			color.Yellow("  ⚠  %s: cannot detect branch (%v) — treating as unprotected", repo.Alias, branchErr)
@@ -125,11 +137,6 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		}
 
 		candidates = append(candidates, candidate{repo: repo, protected: onDefault})
-	}
-
-	if len(candidates) == 0 {
-		fmt.Println("No dirty repositories found.")
-		return nil
 	}
 
 	// Build display slice and disabled indices for MultiSelect.
