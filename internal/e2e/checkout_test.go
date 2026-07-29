@@ -43,6 +43,7 @@ func TestCheckout_DefaultBranchRefreshesAfterRemoteHEADChanges(t *testing.T) {
 
 	registered := e.runGitm("repo", "add", repo, "--alias", "co-refresh-default")
 	e.assertExitCode(registered, 0)
+	e.assertContains(registered, "default branch: main")
 
 	e.mustGit(repo, "branch", "master")
 	e.mustGit(repo, "push", "--set-upstream", "origin", "master")
