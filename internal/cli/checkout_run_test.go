@@ -41,6 +41,25 @@ func TestRunCheckoutDefault(t *testing.T) {
 	}
 }
 
+func TestCheckoutDefault_AllowsBranchCheckedOutInLinkedWorktree(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "checkout", "-b", "feature/current")
+	linked := filepath.Join(t.TempDir(), "linked")
+	mustRunGit(t, dir, "worktree", "add", linked, "main")
+
+	if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+		t.Fatalf("runCheckoutDefault: %v", err)
+	}
+	if branch := gitCurrentBranch(t, dir); branch != "main" {
+		t.Fatalf("current branch = %q, want main", branch)
+	}
+}
+
 func TestRunCheckoutBranch_SkipsDirty(t *testing.T) {
 	database = setupTestDB(t)
 	repo, dir := newRepo(t, database, "repo1")
@@ -81,6 +100,27 @@ func TestRunCheckoutBranch_Checkout(t *testing.T) {
 
 	if err := runCheckoutBranch([]*db.Repository{repo}, "feature/test"); err != nil {
 		t.Fatalf("runCheckoutBranch: %v", err)
+	}
+}
+
+func TestCheckoutBranch_AllowsBranchCheckedOutInLinkedWorktree(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "checkout", "-b", "feature/shared")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "feature/shared")
+	mustRunGit(t, dir, "checkout", "main")
+	linked := filepath.Join(t.TempDir(), "linked")
+	mustRunGit(t, dir, "worktree", "add", linked, "feature/shared")
+
+	if err := runCheckoutBranch([]*db.Repository{repo}, "feature/shared"); err != nil {
+		t.Fatalf("runCheckoutBranch: %v", err)
+	}
+	if branch := gitCurrentBranch(t, dir); branch != "feature/shared" {
+		t.Fatalf("current branch = %q, want feature/shared", branch)
 	}
 }
 
@@ -302,7 +342,7 @@ func TestRunCheckoutBranch_DryRunRemoteOnlyDoesNotFetchOrSwitch(t *testing.T) {
 	if !strings.Contains(output, "git fetch origin -- feature/remote-only") {
 		t.Fatalf("expected fetch preview, got:\n%s", output)
 	}
-	if !strings.Contains(output, "git checkout feature/remote-only") {
+	if !strings.Contains(output, "git checkout --ignore-other-worktrees feature/remote-only") {
 		t.Fatalf("expected checkout preview, got:\n%s", output)
 	}
 }
@@ -609,7 +649,7 @@ func TestCheckoutDefaultDryRunUsesLiveDefaultWithoutPersistence(t *testing.T) {
 			t.Fatalf("runCheckoutWithUIDryRun: %v", err)
 		}
 	})
-	if !strings.Contains(output, "git checkout master") {
+	if !strings.Contains(output, "git checkout --ignore-other-worktrees master") {
 		t.Fatalf("dry-run output does not use live default branch:\n%s", output)
 	}
 	if branch := gitCurrentBranch(t, repo.Path); branch != "main" {

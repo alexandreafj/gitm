@@ -45,6 +45,8 @@ Three modes of operation:
       Repos where the branch is not found are skipped with a warning.
 
 Repositories are skipped when uncommitted changes conflict with the target branch.
+Branches already checked out in another linked worktree are allowed. This bypasses
+only Git's worktree occupancy guard; local changes can still block checkout.
 If the branch has no upstream, the pull after checkout is skipped with a note
 instead of failing (gitm push sets the upstream).
 
@@ -142,7 +144,7 @@ func runCheckoutDefaultDryRun(repos []*db.Repository, dryRun bool) error {
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
-		if checkoutErr := git.Checkout(repo.Path, repo.DefaultBranch); checkoutErr != nil {
+		if checkoutErr := git.CheckoutIgnoringOtherWorktrees(repo.Path, repo.DefaultBranch); checkoutErr != nil {
 			if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
 				return "", reason, nil
 			}
@@ -256,7 +258,7 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 		}
 	}
 
-	if checkoutErr := git.Checkout(repo.Path, branch); checkoutErr != nil {
+	if checkoutErr := git.CheckoutIgnoringOtherWorktrees(repo.Path, branch); checkoutErr != nil {
 		if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
 			return "", reason, nil
 		}
@@ -281,7 +283,7 @@ func checkoutDefaultDryRunItems(repos []*db.Repository) []dryRunItem {
 		item := dryRunItem{
 			repo: repo,
 			actions: []string{
-				fmt.Sprintf("git checkout %s", repo.DefaultBranch),
+				fmt.Sprintf("git checkout --ignore-other-worktrees %s", repo.DefaultBranch),
 				"git pull --ff-only",
 			},
 			warning: "checkout conflicts cannot be predicted without running git checkout",
@@ -315,7 +317,7 @@ func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunIt
 			item.actions = append(item.actions, fmt.Sprintf("git fetch origin -- %s", branch))
 		}
 		item.actions = append(item.actions,
-			fmt.Sprintf("git checkout %s", branch),
+			fmt.Sprintf("git checkout --ignore-other-worktrees %s", branch),
 			"git pull --ff-only",
 		)
 		item.warning = "checkout conflicts cannot be predicted without running git checkout"

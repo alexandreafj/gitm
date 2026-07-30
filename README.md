@@ -522,6 +522,7 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 
 - Repositories with uncommitted **tracked** changes are skipped (untracked files like `AGENTS.md` are safely ignored).
 - Branch existence is checked locally first, then on the remote — skipped with a warning if neither has it.
+- Branches already checked out in another linked worktree are allowed. This overrides only Git's linked-worktree occupancy check; conflicting local changes still prevent checkout.
 - After checkout, runs `git pull --ff-only`. If the branch has no upstream (a local-only branch), the pull is skipped with a note — the checkout still succeeds.
 - In default-branch mode, gitm resolves each remote's live symbolic `HEAD` before checkout. A changed default updates the cache; if it cannot be resolved, gitm warns and uses the cached branch.
 - With `--dry-run`, gitm prints the planned commands and known skips, but does not fetch, checkout, pull, or mutate repositories. Checkout conflicts that Git only detects during checkout are shown as risk notes.
@@ -590,7 +591,7 @@ Branch "feature/JIRA-12345" checkout preview for 4 repository(ies)
 
 [api-gateway] /home/user/work/api-gateway
   Would run:
-    - git checkout feature/JIRA-12345
+    - git checkout --ignore-other-worktrees feature/JIRA-12345
     - git pull --ff-only
 
 No changes made.
