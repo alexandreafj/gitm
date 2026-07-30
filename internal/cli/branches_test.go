@@ -180,3 +180,24 @@ func TestRunBranchesRepoScoping(t *testing.T) {
 		t.Errorf("did not expect beta in --repo alpha output, got:\n%s", out)
 	}
 }
+
+func TestRunBranchesRefreshesDefaultBeforeDashboardCalculations(t *testing.T) {
+	database = setupTestDB(t)
+	_ = addRepoWithRemoteDefault(t, "repo1", "main", "master")
+
+	out := captureOutput(t, func() {
+		if err := runBranches("master", false, []string{"repo1"}, ""); err != nil {
+			t.Fatalf("runBranches: %v", err)
+		}
+	})
+	if !strings.Contains(out, "default") {
+		t.Fatalf("dashboard did not identify refreshed master as default:\n%s", out)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}

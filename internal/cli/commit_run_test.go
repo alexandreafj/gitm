@@ -427,3 +427,32 @@ func TestRunCommit_RebaseInProgressSkips(t *testing.T) {
 		t.Errorf("expected rebase repo to be skipped, but found commit: %s", logOut)
 	}
 }
+
+func TestRunCommitProtectsRefreshedDefaultAndOnlyRefreshesDirtyRepos(t *testing.T) {
+	database = setupTestDB(t)
+	dirty := addRepoWithRemoteDefault(t, "dirty", "main", "master")
+	writeFile(t, dirty.Path, "README.md", "dirty\n")
+	_, _ = newRepo(t, database, "clean-offline")
+
+	output := captureOutput(t, func() {
+		if err := runCommitWithUI(fakeUI{}, true, []string{"dirty", "clean-offline"}); err != nil {
+			t.Fatalf("runCommitWithUI: %v", err)
+		}
+	})
+	if !strings.Contains(output, "All dirty repositories are on their default branch") {
+		t.Fatalf("dirty refreshed default branch was not protected:\n%s", output)
+	}
+	if strings.Contains(output, "could not refresh default branch for clean-offline") {
+		t.Fatalf("clean repository was unnecessarily refreshed:\n%s", output)
+	}
+	if status := mustRunGit(t, dirty.Path, "status", "--porcelain"); status == "" {
+		t.Fatal("protected dirty repository was committed")
+	}
+	stored, err := database.GetRepository("dirty")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}

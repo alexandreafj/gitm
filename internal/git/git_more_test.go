@@ -1,12 +1,18 @@
 package git_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexandreafj/gitm/internal/git"
 )
@@ -107,6 +113,169 @@ func TestDefaultBranchUsesOriginHead(t *testing.T) {
 	}
 	if got != branch {
 		t.Errorf("DefaultBranch = %q, want %q (origin: %s)", got, branch, origin)
+	}
+}
+
+func TestRemoteDefaultBranchUsesRemoteHeadWhenLocalOriginHeadIsStale(t *testing.T) {
+	origin := initBareRepo(t)
+	source := initRepo(t)
+	mustRunGit(t, source, "remote", "add", "origin", origin)
+	mustRunGit(t, source, "push", "--set-upstream", "origin", "main")
+	mustRunGit(t, source, "branch", "master")
+	mustRunGit(t, source, "push", "origin", "master")
+
+	clone := cloneRepo(t, origin)
+	if got := mustRunGit(t, clone, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/main" {
+		t.Fatalf("clone origin/HEAD = %q, want refs/remotes/origin/main", got)
+	}
+
+	mustRunGit(t, origin, "symbolic-ref", "HEAD", "refs/heads/master")
+
+	got, err := git.RemoteDefaultBranch(clone)
+	if err != nil {
+		t.Fatalf("RemoteDefaultBranch: %v", err)
+	}
+	if got != "master" {
+		t.Fatalf("RemoteDefaultBranch = %q, want master", got)
+	}
+
+	got, err = git.DefaultBranch(clone)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "master" {
+		t.Fatalf("DefaultBranch = %q, want master", got)
+	}
+}
+
+func TestRemoteDefaultBranchRejectsMissingOrMalformedSymbolicHead(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		origin := initBareRepo(t)
+		source := initRepo(t)
+		mustRunGit(t, source, "remote", "add", "origin", origin)
+		mustRunGit(t, source, "push", "--set-upstream", "origin", "main")
+		commit := mustRunGit(t, source, "rev-parse", "HEAD")
+		mustRunGit(t, origin, "update-ref", "--no-deref", "HEAD", commit)
+
+		_, err := git.RemoteDefaultBranch(source)
+		if err == nil || !strings.Contains(err.Error(), "missing symbolic HEAD output") {
+			t.Fatalf("RemoteDefaultBranch() error = %v, want missing symbolic HEAD output", err)
+		}
+	})
+
+	t.Run("malformed", func(t *testing.T) {
+		origin := initBareRepo(t)
+		source := initRepo(t)
+		mustRunGit(t, source, "remote", "add", "origin", origin)
+		mustRunGit(t, source, "push", "--set-upstream", "origin", "main")
+		mustRunGit(t, source, "tag", "v1")
+		mustRunGit(t, source, "push", "origin", "v1")
+		mustRunGit(t, origin, "symbolic-ref", "HEAD", "refs/tags/v1")
+
+		_, err := git.RemoteDefaultBranch(source)
+		if err == nil || !strings.Contains(err.Error(), "malformed symbolic HEAD output") {
+			t.Fatalf("RemoteDefaultBranch() error = %v, want malformed symbolic HEAD output", err)
+		}
+	})
+}
+
+func TestRemoteDefaultBranchContextStopsHungRemote(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			accepted <- conn
+		}
+	}()
+
+	repo := initRepo(t)
+	mustRunGit(t, repo, "remote", "add", "origin", fmt.Sprintf("git://%s/repo.git", listener.Addr()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err = git.RemoteDefaultBranchContext(ctx, repo)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RemoteDefaultBranchContext() error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("RemoteDefaultBranchContext() returned after %s, want under 2s", elapsed)
+	}
+	if !strings.Contains(err.Error(), "query remote default branch") {
+		t.Fatalf("RemoteDefaultBranchContext() error = %q, want operation context", err)
+	}
+
+	select {
+	case conn := <-accepted:
+		_ = conn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("git did not connect to the hanging remote")
+	}
+}
+
+func TestRemoteDefaultBranchDisablesTerminalAuthenticationPrompt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="gitm-test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+
+	repo := initRepo(t)
+	mustRunGit(t, repo, "remote", "add", "origin", server.URL+"/repo.git")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := git.RemoteDefaultBranchContext(ctx, repo)
+	if err == nil {
+		t.Fatal("RemoteDefaultBranchContext() unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), "terminal prompts disabled") {
+		t.Fatalf("RemoteDefaultBranchContext() error = %q, want disabled terminal prompt", err)
+	}
+}
+
+func TestDefaultBranchFallsBackToLocalOriginHeadWhenRemoteUnavailable(t *testing.T) {
+	repo := initRepo(t)
+	mustRunGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release")
+
+	got, err := git.DefaultBranch(repo)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "release" {
+		t.Fatalf("DefaultBranch = %q, want release", got)
+	}
+}
+
+func TestDefaultBranchFallsBackToLocalMainWhenRemoteUnavailable(t *testing.T) {
+	repo := initRepo(t)
+
+	got, err := git.DefaultBranch(repo)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Fatalf("DefaultBranch = %q, want main", got)
+	}
+}
+
+func TestDefaultBranchFallsBackToLocalMasterWhenRemoteUnavailable(t *testing.T) {
+	repo := initRepo(t)
+	mustRunGit(t, repo, "branch", "-M", "master")
+	mustRunGit(t, repo, "checkout", "-b", "develop")
+
+	got, err := git.DefaultBranch(repo)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "master" {
+		t.Fatalf("DefaultBranch = %q, want master", got)
 	}
 }
 

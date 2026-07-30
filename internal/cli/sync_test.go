@@ -168,6 +168,30 @@ func TestRunSync_DryRunDoesNotFetchOrMerge(t *testing.T) {
 	}
 }
 
+func TestRunSync_DryRunUsesLiveDefaultWithoutPersistingIt(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/work")
+
+	output := captureOutput(t, func() {
+		if err := runSyncWithUIDryRun(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "", true); err != nil {
+			t.Fatalf("runSyncWithUIDryRun: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "git fetch origin -- master") || !strings.Contains(output, "git merge --no-edit origin/master") {
+		t.Fatalf("dry-run did not preview the live master default:\n%s", output)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want unchanged main", stored.DefaultBranch)
+	}
+}
+
 func TestRunSync_SkipsDirty(t *testing.T) {
 	database = setupTestDB(t)
 	dir, originDir, _ := initRepoWithRemote(t)
@@ -436,5 +460,48 @@ func TestRunSync_SpecifiedBranchNotFound(t *testing.T) {
 	}
 	if head := gitCurrentBranch(t, dir); head != "feature/x" {
 		t.Fatalf("expected to stay on feature/x, got %q", head)
+	}
+}
+
+func TestRunSyncImplicitRefreshesStaleDefaultBranch(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	writeFile(t, repo.Path, "master-only.txt", "from master\n")
+	mustRunGit(t, repo.Path, "add", "master-only.txt")
+	mustRunGit(t, repo.Path, "commit", "-m", "master-only change")
+	mustRunGit(t, repo.Path, "push")
+	mustRunGit(t, repo.Path, "checkout", "main")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/work")
+
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, ""); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo.Path, "master-only.txt")); err != nil {
+		t.Fatalf("implicit sync did not merge refreshed master: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}
+
+func TestRunSyncExplicitBranchSkipsDefaultRefresh(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/work")
+
+	if err := runSyncWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, false, nil, "main"); err != nil {
+		t.Fatalf("runSyncWithUI: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("explicit sync refreshed default branch to %q", stored.DefaultBranch)
 	}
 }

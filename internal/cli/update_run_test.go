@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunUpdate_NoRepos(t *testing.T) {
@@ -207,4 +211,135 @@ func TestUpdate_NoUpstreamSkippedNotFailed(t *testing.T) {
 	if branch := gitCurrentBranch(t, repoDir); branch != "feature/no-upstream" {
 		t.Errorf("update must not switch branches; expected feature/no-upstream, got %q", branch)
 	}
+}
+
+func TestRunUpdateRefreshesDefaultOnlyForDeletedUpstreamFallback(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/old")
+	writeFile(t, repo.Path, "feature.txt", "feature\n")
+	mustRunGit(t, repo.Path, "add", "feature.txt")
+	mustRunGit(t, repo.Path, "commit", "-m", "feature commit")
+	mustRunGit(t, repo.Path, "push", "--set-upstream", "origin", "feature/old")
+	originDir := mustRunGit(t, repo.Path, "remote", "get-url", "origin")
+	mustRunGit(t, originDir, "branch", "-D", "feature/old")
+
+	if err := runUpdate([]string{"repo1"}); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+	if branch := gitCurrentBranch(t, repo.Path); branch != "master" {
+		t.Fatalf("current branch = %q, want refreshed master", branch)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}
+
+func TestRunUpdateDoesNotRefreshWhenFallbackIsNotNeeded(t *testing.T) {
+	database = setupTestDB(t)
+	_ = addRepoWithRemoteDefault(t, "repo1", "main", "master")
+
+	if err := runUpdate([]string{"repo1"}); err != nil {
+		t.Fatalf("runUpdate: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("ordinary update refreshed default branch to %q", stored.DefaultBranch)
+	}
+}
+
+func TestRunUpdateStreamsFastResultBeforeSlowPullFinishes(t *testing.T) {
+	database = setupTestDB(t)
+	fastRepo, _, _ := initRepoWithRemote(t)
+	slowRepo, slowOrigin, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("fast", "fast", fastRepo, "main"); err != nil {
+		t.Fatalf("AddRepository fast: %v", err)
+	}
+	if _, err := database.AddRepository("slow", "slow", slowRepo, "main"); err != nil {
+		t.Fatalf("AddRepository slow: %v", err)
+	}
+
+	releaseFile := filepath.Join(t.TempDir(), "release-upload-pack")
+	t.Cleanup(func() {
+		if err := os.WriteFile(releaseFile, []byte("release\n"), 0o644); err != nil {
+			t.Errorf("release delayed upload-pack during cleanup: %v", err)
+		}
+	})
+	uploadPack := filepath.Join(t.TempDir(), "delayed-upload-pack")
+	script := fmt.Sprintf("#!/bin/sh\nwhile test ! -e %s; do sleep 0.01; done\nexec git-upload-pack %s\n", shellQuote(releaseFile), shellQuote(slowOrigin))
+	if err := os.WriteFile(uploadPack, []byte(script), 0o755); err != nil {
+		t.Fatalf("write delayed upload-pack: %v", err)
+	}
+	mustRunGit(t, slowRepo, "config", "protocol.ext.allow", "always")
+	mustRunGit(t, slowRepo, "remote", "set-url", "origin", "ext::"+uploadPack)
+
+	reader, writer := io.Pipe()
+	lines := make(chan string, 32)
+	readDone := make(chan struct{})
+	var output strings.Builder
+	go func() {
+		defer close(readDone)
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			line := scanner.Text()
+			output.WriteString(line)
+			output.WriteByte('\n')
+			lines <- line
+		}
+		close(lines)
+	}()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runUpdateWithGroupTo([]string{"fast", "slow"}, "", writer)
+		_ = writer.Close()
+	}()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("update output closed before fast repository completed:\n%s", output.String())
+			}
+			if strings.Contains(line, "[fast") {
+				goto fastVisible
+			}
+		case <-deadline:
+			t.Fatal("fast repository result was not streamed while slow pull was blocked")
+		}
+	}
+
+fastVisible:
+	select {
+	case err := <-runDone:
+		t.Fatalf("update finished before slow pull was released: %v", err)
+	default:
+	}
+	if err := os.WriteFile(releaseFile, []byte("release\n"), 0o644); err != nil {
+		t.Fatalf("release slow upload-pack: %v", err)
+	}
+	if err := <-runDone; err != nil {
+		t.Fatalf("runUpdateWithGroupTo: %v", err)
+	}
+	<-readDone
+
+	got := output.String()
+	if strings.Count(got, "Done:") != 1 {
+		t.Fatalf("summary count = %d, want 1; output:\n%s", strings.Count(got, "Done:"), got)
+	}
+	if strings.Count(got, "[fast") != 1 || strings.Count(got, "[slow") != 1 {
+		t.Fatalf("repository results were duplicated or omitted:\n%s", got)
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

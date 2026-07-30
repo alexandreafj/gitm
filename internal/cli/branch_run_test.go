@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alexandreafj/gitm/internal/db"
 	"github.com/alexandreafj/gitm/internal/git"
 )
 
@@ -648,6 +649,29 @@ func TestBranchDelete_DryRunCurrentBranchPreviewsCheckoutBeforeDelete(t *testing
 	}
 }
 
+func TestBranchDelete_DryRunUsesLiveDefaultWithoutPersistingIt(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "-b", "feature/current")
+
+	output := captureOutput(t, func() {
+		if err := runBranchDeleteWithUIDryRun(fakeUI{}, "feature/current", false, false, true, []string{"repo1"}, true); err != nil {
+			t.Fatalf("branch delete dry-run: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "git checkout master") {
+		t.Fatalf("dry-run did not preview checkout of live master default:\n%s", output)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want unchanged main", stored.DefaultBranch)
+	}
+}
+
 func TestBranchDelete_DefaultBranchProtected(t *testing.T) {
 	database = setupTestDB(t)
 	repoDir, _, _ := initRepoWithRemote(t)
@@ -668,9 +692,11 @@ func TestBranchDelete_CurrentBranchSwitchesToConfiguredDefault(t *testing.T) {
 	for _, defaultBranch := range []string{"main", "master"} {
 		t.Run(defaultBranch, func(t *testing.T) {
 			database = setupTestDB(t)
-			repoDir, _, _ := initRepoWithRemote(t)
+			repoDir, originDir, _ := initRepoWithRemote(t)
 			if defaultBranch != "main" {
 				mustRunGit(t, repoDir, "branch", "-m", defaultBranch)
+				mustRunGit(t, repoDir, "push", "--set-upstream", "origin", defaultBranch)
+				mustRunGit(t, originDir, "symbolic-ref", "HEAD", "refs/heads/"+defaultBranch)
 			}
 			mustRunGit(t, repoDir, "checkout", "-b", "feature/current")
 			mustRunGit(t, repoDir, "push", "origin", "feature/current")
@@ -798,4 +824,61 @@ func unmergedBranchRepo(t *testing.T) string {
 	mustRunGit(t, repoDir, "commit", "-m", "unmerged commit")
 	mustRunGit(t, repoDir, "checkout", "main")
 	return repoDir
+}
+
+func TestBranchCreateImplicitBaseRefreshesStaleDefaultBranch(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	writeFile(t, repo.Path, "master-only.txt", "from master\n")
+	mustRunGit(t, repo.Path, "add", "master-only.txt")
+	mustRunGit(t, repo.Path, "commit", "-m", "master-only change")
+	mustRunGit(t, repo.Path, "push")
+	mustRunGit(t, repo.Path, "checkout", "main")
+
+	if err := runBranchCreateWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, []string{"feature/live-default"}, false, "", nil, true); err != nil {
+		t.Fatalf("runBranchCreateWithUI: %v", err)
+	}
+	if branch := gitCurrentBranch(t, repo.Path); branch != "feature/live-default" {
+		t.Fatalf("current branch = %q, want feature/live-default", branch)
+	}
+	if _, err := os.Stat(filepath.Join(repo.Path, "master-only.txt")); err != nil {
+		t.Fatalf("branch was not created from refreshed master: %v", err)
+	}
+}
+
+func TestBranchCreateExplicitBaseSkipsDefaultRefresh(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+
+	if err := runBranchCreateWithUI(fakeUI{selectRepos: []*db.Repository{repo}}, []string{"feature/explicit"}, false, "main", nil, true); err != nil {
+		t.Fatalf("runBranchCreateWithUI: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("explicit branch base refreshed default branch to %q", stored.DefaultBranch)
+	}
+}
+
+func TestBranchDeleteProtectsRefreshedDefaultBranch(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+
+	if err := runBranchDeleteWithUI(fakeUI{confirm: true}, "master", true, true, true, []string{"repo1"}); err != nil {
+		t.Fatalf("runBranchDeleteWithUI: %v", err)
+	}
+	if !git.BranchExists(repo.Path, "master") {
+		t.Fatal("refreshed default branch master was deleted")
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
 }
