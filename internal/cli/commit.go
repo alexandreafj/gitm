@@ -28,7 +28,11 @@ lets you pick which repos to commit, then walks through each one sequentially:
   2. Enter a commit message
   3. Stage selected files, commit, and push (use --no-push to skip push)
 
-Repositories on their default branch are shown but cannot be selected (protected).
+For dirty repositories, gitm performs a lightweight network lookup of origin's
+symbolic HEAD (not a full fetch) before applying default-branch protection. A
+changed default updates GitM's SQLite cache; a failed lookup emits a warning and
+uses the cached value. Repositories on the resulting default branch are shown
+but cannot be selected (protected).
 
 If a repository is in the middle of a merge, the commit automatically completes
 the merge (git forbids partial commits during a merge, so all staged changes are
@@ -106,7 +110,7 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		protected bool
 	}
 
-	var candidates []candidate
+	var dirtyRepos []*db.Repository
 
 	for _, repo := range repos {
 		dirty, dirtyErr := git.IsDirtyTrackedOnly(repo.Path)
@@ -117,7 +121,19 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		if !dirty {
 			continue
 		}
+		dirtyRepos = append(dirtyRepos, repo)
+	}
 
+	if len(dirtyRepos) == 0 {
+		fmt.Println("No dirty repositories found.")
+		return nil
+	}
+	if err := reconcileDefaultBranches(database, dirtyRepos, true); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
+	}
+
+	var candidates []candidate
+	for _, repo := range dirtyRepos {
 		onDefault, branchErr := git.IsDefaultBranch(repo.Path, repo.DefaultBranch)
 		if branchErr != nil {
 			color.Yellow("  ⚠  %s: cannot detect branch (%v) — treating as unprotected", repo.Alias, branchErr)
@@ -125,11 +141,6 @@ func runCommitWithBranchLookupAndGroup(ui ui, noPush bool, repoAliases []string,
 		}
 
 		candidates = append(candidates, candidate{repo: repo, protected: onDefault})
-	}
-
-	if len(candidates) == 0 {
-		fmt.Println("No dirty repositories found.")
-		return nil
 	}
 
 	// Build display slice and disabled indices for MultiSelect.

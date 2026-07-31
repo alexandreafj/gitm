@@ -146,3 +146,19 @@ func TestInspectRepoHealth_MissingPathErrors(t *testing.T) {
 		t.Fatalf("expected missing path to error, got %#v", report.checks)
 	}
 }
+
+func TestRunDoctorRefreshesDefaultBranchBeforeInspection(t *testing.T) {
+	database = setupTestDB(t)
+	_ = addRepoWithRemoteDefault(t, "repo1", "main", "master")
+
+	if err := runDoctor([]string{"repo1"}); err != nil {
+		t.Fatalf("runDoctor: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}

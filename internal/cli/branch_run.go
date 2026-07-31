@@ -43,6 +43,11 @@ func runBranchCreateWithUIAndGroup(ui ui, args []string, selectAll bool, fromBra
 			return err
 		}
 	}
+	if fromBranch == "" {
+		if err := reconcileDefaultBranches(database, chosen, true); err != nil {
+			return fmt.Errorf("refresh default branches: %w", err)
+		}
+	}
 
 	fmt.Printf("\nCreating branch %q in %d repository(ies)…\n\n", branchName, len(chosen))
 
@@ -272,6 +277,9 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 			return err
 		}
 	}
+	if err := reconcileDefaultBranches(database, chosen, !dryRun); err != nil {
+		return fmt.Errorf("refresh default branches: %w", err)
+	}
 
 	if dryRun {
 		printDryRunPreview(
@@ -292,8 +300,12 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 		if err != nil {
 			return "", "", fmt.Errorf("current branch: %w", err)
 		}
+		switchedTo := ""
 		if current == branchName {
-			return "", "branch is currently checked out — switch away first", nil
+			if err := git.Checkout(repo.Path, repo.DefaultBranch); err != nil {
+				return "", "", fmt.Errorf("checkout default branch %s: %w", repo.DefaultBranch, err)
+			}
+			switchedTo = repo.DefaultBranch
 		}
 
 		var deleted []string
@@ -318,7 +330,11 @@ func runBranchDeleteWithUIAndGroupDryRun(ui ui, branchName string, selectAll, fo
 			return "", fmt.Sprintf("branch %q not found", branchName), nil
 		}
 
-		return fmt.Sprintf("deleted %s (%s)", branchName, strings.Join(deleted, " + ")), "", nil
+		result := fmt.Sprintf("deleted %s (%s)", branchName, strings.Join(deleted, " + "))
+		if switchedTo != "" {
+			result = fmt.Sprintf("switched to %s — %s", switchedTo, result)
+		}
+		return result, "", nil
 	})
 
 	if runner.HasErrors(results) {
@@ -345,9 +361,7 @@ func branchDeleteDryRunItems(repos []*db.Repository, branchName string, force, n
 			continue
 		}
 		if current == branchName {
-			item.skipReason = "branch is currently checked out — switch away first"
-			items = append(items, item)
-			continue
+			item.actions = append(item.actions, fmt.Sprintf("git checkout %s", repo.DefaultBranch))
 		}
 
 		localExists := git.BranchExists(repo.Path, branchName)

@@ -294,11 +294,13 @@ func repoListCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List registered repositories in the active context",
-		Long: `List registered repositories.
+		Short: "List all registered repositories",
+		Long: `List all registered repositories and their detected default branches.
 
-By default only repositories in the active context are shown. Use --all to
-list every registered repository across all contexts.`,
+Before displaying the table, gitm performs a lightweight network lookup of each
+origin's symbolic HEAD (not a full fetch). A changed default updates GitM's
+SQLite cache; a failed lookup emits a warning and keeps the cached value. The
+lookup does not modify repository worktrees or Git metadata.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if allContexts {
@@ -326,6 +328,9 @@ list every registered repository across all contexts.`,
 			if len(repos) == 0 {
 				fmt.Println(noReposMessage(nil, ""))
 				return nil
+			}
+			if err := reconcileDefaultBranches(database, repos, true); err != nil {
+				return fmt.Errorf("refresh default branches: %w", err)
 			}
 
 			printRepoTable(repos)

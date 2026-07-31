@@ -165,11 +165,21 @@ func (db *DB) RenameRepository(oldAlias, newAlias string) error {
 
 // UpdateDefaultBranch updates the stored default branch for a repository.
 func (db *DB) UpdateDefaultBranch(alias, branch string) error {
-	_, err := db.conn.Exec(
+	res, err := db.conn.Exec(
 		`UPDATE repositories SET default_branch = ? WHERE alias = ?`,
 		branch, alias,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("update default branch for %q: %w", alias, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count updated default branches for %q: %w", alias, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("update default branch for %q: %w", alias, ErrNotFound)
+	}
+	return nil
 }
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.

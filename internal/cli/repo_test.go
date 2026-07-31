@@ -683,3 +683,25 @@ func TestRepoAddSamePathWithGroupAssignsExistingRepo(t *testing.T) {
 		t.Fatalf("backend repos = %v, want %v", got, want)
 	}
 }
+
+func TestRepoListRefreshesDisplayedDefaultBranch(t *testing.T) {
+	database = setupTestDB(t)
+	_ = addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	cmd := repoListCmd()
+
+	out := captureOutput(t, func() {
+		if err := cmd.RunE(cmd, nil); err != nil {
+			t.Fatalf("repo list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "master") {
+		t.Fatalf("repository list does not display refreshed master:\n%s", out)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}

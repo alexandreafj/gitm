@@ -578,3 +578,66 @@ func TestCheckoutDefault_NoRemotePullSkipped(t *testing.T) {
 		t.Errorf("expected to be on main, got %q", branch)
 	}
 }
+
+func TestCheckoutDefaultRefreshesStaleDefaultBranch(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+
+	if err := runCheckoutWithUI(fakeUI{}, []string{"main"}, []string{"repo1"}); err != nil {
+		t.Fatalf("runCheckoutWithUI: %v", err)
+	}
+	if branch := gitCurrentBranch(t, repo.Path); branch != "master" {
+		t.Fatalf("current branch = %q, want master", branch)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}
+
+func TestCheckoutDefaultDryRunUsesLiveDefaultWithoutPersistence(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "checkout", "main")
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutWithUIDryRun(fakeUI{}, []string{"master"}, []string{"repo1"}, true); err != nil {
+			t.Fatalf("runCheckoutWithUIDryRun: %v", err)
+		}
+	})
+	if !strings.Contains(output, "git checkout master") {
+		t.Fatalf("dry-run output does not use live default branch:\n%s", output)
+	}
+	if branch := gitCurrentBranch(t, repo.Path); branch != "main" {
+		t.Fatalf("dry-run changed current branch to %q", branch)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("dry-run stored default branch = %q, want stale main", stored.DefaultBranch)
+	}
+}
+
+func TestCheckoutExplicitBranchSkipsDefaultRefresh(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "repo1", "main", "master")
+	mustRunGit(t, repo.Path, "branch", "feature/explicit")
+	mustRunGit(t, repo.Path, "checkout", "main")
+
+	if err := runCheckoutWithUI(fakeUI{}, []string{"feature/explicit"}, []string{"repo1"}); err != nil {
+		t.Fatalf("runCheckoutWithUI: %v", err)
+	}
+	stored, err := database.GetRepository("repo1")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("explicit checkout refreshed default branch to %q", stored.DefaultBranch)
+	}
+}
