@@ -23,7 +23,7 @@ func TestHelp_RootCommand(t *testing.T) {
 	e.assertExitCode(r, 0)
 
 	expectedCommands := []string{
-		"branch", "checkout", "commit", "discard",
+		"branch", "checkout", "commit", "context", "discard",
 		"doctor", "group", "repo", "reset", "stash", "status",
 		"track", "untrack", "update", "upgrade",
 	}
@@ -38,7 +38,7 @@ func TestHelp_SubCommands(t *testing.T) {
 	e := newTestEnv(t)
 
 	commands := []string{
-		"repo", "branch", "checkout", "commit",
+		"repo", "branch", "checkout", "commit", "context",
 		"discard", "doctor", "group", "stash", "status", "track",
 		"untrack", "update", "reset", "upgrade",
 	}

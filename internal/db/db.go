@@ -71,6 +71,21 @@ var migrations = []string{
 		FROM groups
 		CROSS JOIN repositories
 		WHERE groups.name = 'all'`,
+	// v4: add contexts. Each repository belongs to exactly one context (1:N);
+	// the built-in "default" context absorbs all pre-existing repositories. The
+	// settings table stores the active context so it survives across invocations.
+	`CREATE TABLE IF NOT EXISTS contexts (
+		id         INTEGER  PRIMARY KEY AUTOINCREMENT,
+		name       TEXT     NOT NULL UNIQUE,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`INSERT OR IGNORE INTO contexts (name) VALUES ('default')`,
+	`ALTER TABLE repositories ADD COLUMN context_id INTEGER REFERENCES contexts(id)`,
+	`UPDATE repositories SET context_id = (SELECT id FROM contexts WHERE name = 'default') WHERE context_id IS NULL`,
+	`CREATE TABLE IF NOT EXISTS settings (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`,
 }
 
 // DB wraps the SQLite connection.
