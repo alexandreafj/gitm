@@ -384,6 +384,24 @@ func TestCheckoutAndBranchOps(t *testing.T) {
 	}
 }
 
+func TestCheckoutIgnoringOtherWorktrees(t *testing.T) {
+	repo := initRepo(t)
+	mustRunGit(t, repo, "branch", "feature/shared")
+	mustRunGit(t, repo, "checkout", "-b", "feature/current")
+	linked := filepath.Join(t.TempDir(), "linked")
+	mustRunGit(t, repo, "worktree", "add", linked, "feature/shared")
+
+	if err := git.Checkout(repo, "feature/shared"); err == nil {
+		t.Fatal("ordinary checkout should preserve Git's other-worktree safeguard")
+	}
+	if err := git.CheckoutIgnoringOtherWorktrees(repo, "feature/shared"); err != nil {
+		t.Fatalf("CheckoutIgnoringOtherWorktrees: %v", err)
+	}
+	if branch, err := git.CurrentBranch(repo); err != nil || branch != "feature/shared" {
+		t.Fatalf("CurrentBranch = %q, %v; want feature/shared", branch, err)
+	}
+}
+
 func TestRemoteBranchOps(t *testing.T) {
 	repo, origin := initRepoWithRemote(t)
 	_ = origin

@@ -188,6 +188,13 @@ func Checkout(path, branch string) error {
 	return err
 }
 
+// CheckoutIgnoringOtherWorktrees switches branches even when another linked
+// worktree already has the target branch checked out.
+func CheckoutIgnoringOtherWorktrees(path, branch string) error {
+	_, err := run(path, "checkout", "--ignore-other-worktrees", branch)
+	return err
+}
+
 // DiscardChanges discards all uncommitted changes in the working tree and
 // removes untracked files. This is equivalent to:
 //
