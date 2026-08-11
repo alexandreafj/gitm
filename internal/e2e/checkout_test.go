@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -137,6 +138,27 @@ func TestCheckout_DirtyRepo_Conflicting_Skips(t *testing.T) {
 		t.Errorf("conflicting dirty repo should stay on current branch, but switched to %s", branch)
 	}
 	e.assertContains(r, "co-dirty-conflict")
+}
+
+func TestCheckout_DirtyCurrentBranchSkipsPull(t *testing.T) {
+	e := newTestEnv(t)
+	repo, _ := e.initRepoWithRemote("co-dirty-current")
+	e.runGitm("repo", "add", repo, "--alias", "co-dirty-current")
+	e.mustGit(repo, "checkout", "-b", "AA-19432")
+	e.mustGit(repo, "push", "--set-upstream", "origin", "AA-19432")
+	e.mustGit(repo, "config", "pull.rebase", "true")
+	e.writeFile(repo, "README.md", "uncommitted work\n")
+
+	r := e.runGitm("checkout", "AA-19432", "--repo", "co-dirty-current")
+	e.assertExitCode(r, 0)
+	e.assertContains(r, "SKIPPED: already on AA-19432 with uncommitted changes — pull skipped")
+	content, err := os.ReadFile(filepath.Join(repo, "README.md"))
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	if got := string(content); got != "uncommitted work\n" {
+		t.Fatalf("README.md = %q, want uncommitted work preserved", got)
+	}
 }
 
 func TestCheckout_UntrackedFiles_ShouldNotSkip(t *testing.T) {

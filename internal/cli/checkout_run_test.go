@@ -307,6 +307,43 @@ func TestRunCheckoutBranch_DryRunRemoteOnlyDoesNotFetchOrSwitch(t *testing.T) {
 	}
 }
 
+func TestCheckoutBranchDryRun_DirtyCurrentBranchShowsSkip(t *testing.T) {
+	dir := initRepo(t)
+	mustRunGit(t, dir, "checkout", "-b", "AA-19432")
+	writeFile(t, dir, "README.md", "uncommitted\n")
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+
+	items := checkoutBranchDryRunItems([]*db.Repository{repo}, "AA-19432")
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	want := "already on AA-19432 with uncommitted changes — pull skipped"
+	if items[0].skipReason != want {
+		t.Fatalf("skip reason = %q, want %q", items[0].skipReason, want)
+	}
+	if len(items[0].actions) != 0 {
+		t.Fatalf("actions = %v, want none for known skip", items[0].actions)
+	}
+}
+
+func TestCheckoutDefaultDryRun_DirtyCurrentBranchShowsSkip(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "README.md", "uncommitted\n")
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+
+	items := checkoutDefaultDryRunItems([]*db.Repository{repo})
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	want := "already on main with uncommitted changes — pull skipped"
+	if items[0].skipReason != want {
+		t.Fatalf("skip reason = %q, want %q", items[0].skipReason, want)
+	}
+	if len(items[0].actions) != 0 {
+		t.Fatalf("actions = %v, want none for known skip", items[0].actions)
+	}
+}
+
 func TestRunCheckoutDefault_ReturnsErrorOnFailure(t *testing.T) {
 	database = setupTestDB(t)
 
@@ -376,6 +413,27 @@ func TestRunCheckoutDefault_ConflictingDirtyFile(t *testing.T) {
 	}
 }
 
+func TestCheckoutDefault_DirtyCurrentBranchSkipsPull(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+	writeFile(t, dir, "work.txt", "committed\n")
+	mustRunGit(t, dir, "add", "work.txt")
+	mustRunGit(t, dir, "commit", "-m", "add work file")
+	mustRunGit(t, dir, "push")
+	mustRunGit(t, dir, "config", "pull.rebase", "true")
+	writeFile(t, dir, "work.txt", "uncommitted\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+			t.Fatalf("runCheckoutDefault: %v", err)
+		}
+	})
+	if !strings.Contains(output, "SKIPPED: already on main with uncommitted changes — pull skipped") {
+		t.Fatalf("output does not contain dirty current-branch skip:\n%s", output)
+	}
+}
+
 func TestCheckoutBranchInRepo_NonConflictingDirtyFile(t *testing.T) {
 	dir, _, _ := initRepoWithRemote(t)
 
@@ -437,6 +495,73 @@ func TestCheckoutBranchInRepo_ConflictingDirtyFile(t *testing.T) {
 
 	if head := gitCurrentBranch(t, dir); head != "main" {
 		t.Fatalf("should stay on main (skipped), got %s", head)
+	}
+}
+
+func TestCheckoutBranchInRepo_DirtyCurrentBranchSkipsPull(t *testing.T) {
+	dir, _, _ := initRepoWithRemote(t)
+
+	writeFile(t, dir, "work.txt", "committed\n")
+	mustRunGit(t, dir, "add", "work.txt")
+	mustRunGit(t, dir, "commit", "-m", "add work file")
+	mustRunGit(t, dir, "checkout", "-b", "AA-19432")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "AA-19432")
+	mustRunGit(t, dir, "config", "pull.rebase", "true")
+	writeFile(t, dir, "work.txt", "uncommitted\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	message, skipReason, err := checkoutBranchInRepo(repo, "AA-19432")
+	if err != nil {
+		t.Fatalf("checkoutBranchInRepo: %v", err)
+	}
+	if message != "" {
+		t.Fatalf("message = %q, want empty", message)
+	}
+	want := "already on AA-19432 with uncommitted changes — pull skipped"
+	if skipReason != want {
+		t.Fatalf("skip reason = %q, want %q", skipReason, want)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "work.txt"))
+	if err != nil {
+		t.Fatalf("read work.txt: %v", err)
+	}
+	if got := string(content); got != "uncommitted\n" {
+		t.Fatalf("work.txt = %q, want uncommitted work preserved", got)
+	}
+}
+
+func TestCheckoutBranchInRepo_CleanCurrentBranchPullsRemoteChanges(t *testing.T) {
+	dir, origin, _ := initRepoWithRemote(t)
+	mustRunGit(t, dir, "checkout", "-b", "AA-19432")
+	mustRunGit(t, dir, "push", "--set-upstream", "origin", "AA-19432")
+
+	other := filepath.Join(t.TempDir(), "other")
+	mustRunGit(t, t.TempDir(), "clone", origin, other)
+	mustRunGit(t, other, "config", "user.email", "test@example.com")
+	mustRunGit(t, other, "config", "user.name", "Test User")
+	mustRunGit(t, other, "checkout", "AA-19432")
+	writeFile(t, other, "remote.txt", "from GitHub\n")
+	mustRunGit(t, other, "add", "remote.txt")
+	mustRunGit(t, other, "commit", "-m", "advance remote branch")
+	mustRunGit(t, other, "push")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	message, skipReason, err := checkoutBranchInRepo(repo, "AA-19432")
+	if err != nil {
+		t.Fatalf("checkoutBranchInRepo: %v", err)
+	}
+	if skipReason != "" {
+		t.Fatalf("skip reason = %q, want empty", skipReason)
+	}
+	if message == "" {
+		t.Fatal("expected pull result message")
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "remote.txt"))
+	if err != nil {
+		t.Fatalf("read remote.txt: %v", err)
+	}
+	if got := string(content); got != "from GitHub\n" {
+		t.Fatalf("remote.txt = %q, want pulled remote content", got)
 	}
 }
 

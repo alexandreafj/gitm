@@ -612,7 +612,7 @@ gitm checkout [branch] [--repo alias1,alias2] [--group name] [--dry-run]
 
 **Behaviour (all modes):**
 
-- Repositories with uncommitted **tracked** changes are skipped (untracked files like `AGENTS.md` are safely ignored).
+- When the requested branch is already current, tracked uncommitted changes skip checkout and pull; a clean current branch still pulls remote updates. When switching branches, Git carries non-conflicting changes and skips conflicts. Untracked-only files are ignored.
 - Branch existence is checked locally first, then on the remote — skipped with a warning if neither has it.
 - After checkout, runs `git pull --ff-only`. If the branch has no upstream (a local-only branch), the pull is skipped with a note — the checkout still succeeds.
 - In default-branch mode, gitm resolves each remote's live symbolic `HEAD` before checkout. A changed default updates the cache; if it cannot be resolved, gitm warns and uses the cached branch.
@@ -629,7 +629,7 @@ Checking out default branch and pulling for 4 repositories…
 
 [api-gateway        ] ✓ on main — already up to date
 [auth-service       ] ✓ on master — 3 files changed, 47 insertions(+)
-[frontend           ] ⚠ SKIPPED: uncommitted changes (2 file(s)): M src/App.tsx, M package.json
+[frontend           ] ⚠ SKIPPED: already on main with uncommitted changes — pull skipped
 [payment-svc        ] ✓ on main — already up to date
 
 Done: 3 succeeded, 1 skipped
@@ -666,7 +666,7 @@ Checking out branch "feature/JIRA-12345" in 4 repositories…
 [api-gateway        ] ✓ on feature/JIRA-12345 — already up to date
 [auth-service       ] ✓ on feature/JIRA-12345 — pulled
 [frontend           ] ⚠ SKIPPED: branch "feature/JIRA-12345" not found (local or remote)
-[payment-svc        ] ⚠ SKIPPED: uncommitted changes (1 file(s))
+[payment-svc        ] ⚠ SKIPPED: uncommitted changes conflict (1 file(s)): M config.yml
 
 Done: 2 succeeded, 2 skipped
 ```

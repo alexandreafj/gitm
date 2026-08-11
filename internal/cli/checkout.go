@@ -45,6 +45,8 @@ Three modes of operation:
       Repos where the branch is not found are skipped with a warning.
 
 Repositories are skipped when uncommitted changes conflict with the target branch.
+When the requested branch is already current, tracked uncommitted changes skip
+the checkout and pull. A clean current branch still pulls remote updates.
 If the branch has no upstream, the pull after checkout is skipped with a note
 instead of failing (gitm push sets the upstream).
 
@@ -142,6 +144,14 @@ func runCheckoutDefaultDryRun(repos []*db.Repository, dryRun bool) error {
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
+		skipReason, err := dirtyCurrentBranchSkip(repo.Path, repo.DefaultBranch)
+		if err != nil {
+			return "", "", err
+		}
+		if skipReason != "" {
+			return "", skipReason, nil
+		}
+
 		if checkoutErr := git.Checkout(repo.Path, repo.DefaultBranch); checkoutErr != nil {
 			if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
 				return "", reason, nil
@@ -256,6 +266,14 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 		}
 	}
 
+	skipReason, err := dirtyCurrentBranchSkip(repo.Path, branch)
+	if err != nil {
+		return "", "", err
+	}
+	if skipReason != "" {
+		return "", skipReason, nil
+	}
+
 	if checkoutErr := git.Checkout(repo.Path, branch); checkoutErr != nil {
 		if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
 			return "", reason, nil
@@ -275,18 +293,45 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 	return fmt.Sprintf("on %s — %s", branch, summarisePull(out)), "", nil
 }
 
+func dirtyCurrentBranchSkip(path, target string) (string, error) {
+	current, err := git.CurrentBranch(path)
+	if err != nil {
+		return "", fmt.Errorf("current branch: %w", err)
+	}
+	if current != target {
+		return "", nil
+	}
+
+	dirty, err := git.IsDirtyTrackedOnly(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect tracked changes: %w", err)
+	}
+	if !dirty {
+		return "", nil
+	}
+
+	return fmt.Sprintf("already on %s with uncommitted changes — pull skipped", target), nil
+}
+
 func checkoutDefaultDryRunItems(repos []*db.Repository) []dryRunItem {
 	items := make([]dryRunItem, 0, len(repos))
 	for _, repo := range repos {
-		item := dryRunItem{
-			repo: repo,
-			actions: []string{
-				fmt.Sprintf("git checkout %s", repo.DefaultBranch),
-				"git pull --ff-only",
-			},
-			warning: "checkout conflicts cannot be predicted without running git checkout",
+		item := dryRunItem{repo: repo}
+		skipReason, stateErr := dirtyCurrentBranchSkip(repo.Path, repo.DefaultBranch)
+		if skipReason != "" {
+			item.skipReason = skipReason
+			items = append(items, item)
+			continue
 		}
-		if dirty, err := git.IsDirtyTrackedOnly(repo.Path); err == nil && dirty {
+
+		item.actions = []string{
+			fmt.Sprintf("git checkout %s", repo.DefaultBranch),
+			"git pull --ff-only",
+		}
+		item.warning = "checkout conflicts cannot be predicted without running git checkout"
+		if stateErr != nil {
+			item.warning = fmt.Sprintf("could not inspect current branch state: %v", stateErr)
+		} else if dirty, err := git.IsDirtyTrackedOnly(repo.Path); err == nil && dirty {
 			item.warning = "tracked changes exist; checkout may be skipped if Git reports a conflict"
 		} else if err != nil {
 			item.warning = fmt.Sprintf("could not inspect tracked changes: %v", err)
@@ -311,6 +356,13 @@ func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunIt
 			continue
 		}
 
+		skipReason, stateErr := dirtyCurrentBranchSkip(repo.Path, branch)
+		if skipReason != "" {
+			item.skipReason = skipReason
+			items = append(items, item)
+			continue
+		}
+
 		if !localExists && remoteExists {
 			item.actions = append(item.actions, fmt.Sprintf("git fetch origin -- %s", branch))
 		}
@@ -319,7 +371,9 @@ func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunIt
 			"git pull --ff-only",
 		)
 		item.warning = "checkout conflicts cannot be predicted without running git checkout"
-		if dirty, err := git.IsDirtyTrackedOnly(repo.Path); err == nil && dirty {
+		if stateErr != nil {
+			item.warning = fmt.Sprintf("could not inspect current branch state: %v", stateErr)
+		} else if dirty, err := git.IsDirtyTrackedOnly(repo.Path); err == nil && dirty {
 			item.warning = "tracked changes exist; checkout may be skipped if Git reports a conflict"
 		} else if err != nil {
 			item.warning = fmt.Sprintf("could not inspect tracked changes: %v", err)
