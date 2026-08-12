@@ -295,12 +295,12 @@ func repoListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all registered repositories",
-		Long: `List all registered repositories and their detected default branches.
+		Long: `List all registered repositories and their cached default branches.
 
-Before displaying the table, gitm performs a lightweight network lookup of each
-origin's symbolic HEAD (not a full fetch). A changed default updates GitM's
-SQLite cache; a failed lookup emits a warning and keeps the cached value. The
-lookup does not modify repository worktrees or Git metadata.`,
+This command reads only GitM's local SQLite database and does not contact Git
+remotes. Commands that depend on the current remote default branch refresh the
+cache automatically. Run "gitm doctor" to refresh and check repository metadata
+explicitly.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if allContexts {
@@ -329,10 +329,6 @@ lookup does not modify repository worktrees or Git metadata.`,
 				fmt.Println(noReposMessage(nil, ""))
 				return nil
 			}
-			if err := reconcileDefaultBranches(database, repos, true); err != nil {
-				return fmt.Errorf("refresh default branches: %w", err)
-			}
-
 			printRepoTable(repos)
 			return nil
 		},

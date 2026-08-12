@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexandreafj/gitm/internal/db"
 )
@@ -684,24 +685,108 @@ func TestRepoAddSamePathWithGroupAssignsExistingRepo(t *testing.T) {
 	}
 }
 
-func TestRepoListRefreshesDisplayedDefaultBranch(t *testing.T) {
+func TestRepoListUsesCachedDefaultBranchWithoutContactingRemote(t *testing.T) {
 	database = setupTestDB(t)
-	_ = addRepoWithRemoteDefault(t, "repo1", "main", "master")
-	cmd := repoListCmd()
+	repoDir, originDir, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repoDir, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
 
-	out := captureOutput(t, func() {
-		if err := cmd.RunE(cmd, nil); err != nil {
-			t.Fatalf("repo list: %v", err)
+	transportDir := t.TempDir()
+	contactedFile := filepath.Join(transportDir, "contacted")
+	releaseFile := filepath.Join(transportDir, "release")
+	transport := filepath.Join(transportDir, "blocked-upload-pack")
+	script := "#!/bin/sh\n" +
+		": > " + shellQuote(contactedFile) + "\n" +
+		"while test ! -e " + shellQuote(releaseFile) + "; do sleep 0.01; done\n" +
+		"exec git-upload-pack " + shellQuote(originDir) + "\n"
+	if err := os.WriteFile(transport, []byte(script), 0o755); err != nil {
+		t.Fatalf("write blocked transport: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.WriteFile(releaseFile, []byte("release\n"), 0o644); err != nil {
+			t.Errorf("release blocked transport during cleanup: %v", err)
 		}
 	})
-	if !strings.Contains(out, "master") {
-		t.Fatalf("repository list does not display refreshed master:\n%s", out)
+	mustRunGit(t, repoDir, "config", "protocol.ext.allow", "always")
+	mustRunGit(t, repoDir, "remote", "set-url", "origin", "ext::"+transport)
+
+	outputPath := filepath.Join(transportDir, "repo-list-output")
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		t.Fatalf("create output file: %v", err)
 	}
+	originalStdout := os.Stdout
+	os.Stdout = outputFile
+	defer func() {
+		os.Stdout = originalStdout
+		_ = outputFile.Close()
+	}()
+
+	cmd := repoListCmd()
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.RunE(cmd, nil)
+	}()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("repo list: %v", err)
+			}
+			os.Stdout = originalStdout
+			if err := outputFile.Close(); err != nil {
+				t.Fatalf("close output file: %v", err)
+			}
+			if _, err := os.Stat(contactedFile); err == nil {
+				t.Fatal("repo list contacted origin before returning")
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("stat remote contact marker: %v", err)
+			}
+			goto listed
+		case <-ticker.C:
+			if _, err := os.Stat(contactedFile); err == nil {
+				if writeErr := os.WriteFile(releaseFile, []byte("release\n"), 0o644); writeErr != nil {
+					t.Fatalf("release blocked transport: %v", writeErr)
+				}
+				if runErr := <-done; runErr != nil {
+					t.Fatalf("repo list after contacting origin: %v", runErr)
+				}
+				t.Fatal("repo list contacted origin")
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("stat remote contact marker: %v", err)
+			}
+		case <-timeout:
+			t.Fatal("repo list did not finish within 2 seconds")
+		}
+	}
+
+listed:
+	output, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read repo list output: %v", err)
+	}
+	foundCachedBranch := false
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[1] == "repo1" && fields[2] == "main" {
+			foundCachedBranch = true
+			break
+		}
+	}
+	if !foundCachedBranch {
+		t.Fatalf("repository list does not display cached main branch:\n%s", output)
+	}
+
 	stored, err := database.GetRepository("repo1")
 	if err != nil {
 		t.Fatalf("GetRepository: %v", err)
 	}
-	if stored.DefaultBranch != "master" {
-		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want cached main", stored.DefaultBranch)
 	}
 }
