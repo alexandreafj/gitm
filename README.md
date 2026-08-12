@@ -354,13 +354,11 @@ Found 4 git repository(ies) in /home/user/work
 
 List registered repositories in the active context. Use `--all` to list every repository across all contexts.
 
-gitm performs a lightweight network lookup of `origin`'s symbolic `HEAD` for
-each repository before displaying the table; this is not a full fetch and does
-not modify the worktree or Git metadata. A successfully discovered change
-updates GitM's SQLite default-branch cache. If a remote cannot be queried, gitm
-prints a warning naming the affected repositories and continues with their
-cached values. Default-branch operations use the same live lookup; their dry-run
-previews never persist a refreshed value.
+The command reads only GitM's local SQLite database and does not contact Git
+remotes, so its runtime does not depend on network availability. The default
+branch column shows the cached value. Commands that depend on the current remote
+default branch refresh this cache automatically; run `gitm doctor` to refresh
+and check repository metadata explicitly.
 
 ```
 gitm repo list [--all]
@@ -2100,8 +2098,9 @@ When a repository is added, an unavailable remote falls back to local state:
 The result is stored in GitM's SQLite database. Default-sensitive commands
 refresh it automatically: default checkout, implicit sync, branch creation
 without `--from`, branch deletion protection, dirty-repository commit
-protection, the branches dashboard, doctor, and repo list. `gitm update` does
-so only for repositories whose upstream disappeared and need the default
+protection, the branches dashboard, and doctor. `gitm repo list` reads the
+cached value without contacting remotes. `gitm update` refreshes the cache
+only for repositories whose upstream disappeared and need the default
 fallback. Lookups run concurrently; changed values are persisted sequentially.
 If a lookup fails, gitm emits one warning naming the affected repositories and
 uses their cached values. Dry-run operations use the live result in memory but
