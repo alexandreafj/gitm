@@ -548,15 +548,39 @@ func UntrackFiles(path string, files []string) error {
 }
 
 // cleanPorcelainPaths strips the two-char porcelain status prefix (e.g. " M ",
-// "?? ") from each line, yielding the bare repo-relative path.
+// "?? ") from each line, yielding the bare repo-relative paths. Rename and
+// copy entries from DirtyFilesWithRawStatus contain both paths separated by NUL.
 func cleanPorcelainPaths(files []string) []string {
 	cleaned := make([]string, 0, len(files))
 	for _, f := range files {
-		// porcelain format: "XY filename" where XY is two chars + space.
+		var paths string
 		if len(f) > 3 {
-			cleaned = append(cleaned, strings.TrimSpace(f[3:]))
+			paths = f[3:]
 		} else {
-			cleaned = append(cleaned, strings.TrimSpace(f))
+			paths = strings.TrimSpace(f)
+		}
+		for _, path := range strings.Split(paths, "\x00") {
+			if path != "" {
+				cleaned = append(cleaned, path)
+			}
+		}
+	}
+	return cleaned
+}
+
+func cleanPorcelainCurrentPaths(files []string) []string {
+	cleaned := make([]string, 0, len(files))
+	for _, f := range files {
+		if len(f) > 3 {
+			f = f[3:]
+		} else {
+			f = strings.TrimSpace(f)
+		}
+		if path, _, found := strings.Cut(f, "\x00"); found {
+			f = path
+		}
+		if f != "" {
+			cleaned = append(cleaned, f)
 		}
 	}
 	return cleaned
@@ -564,7 +588,7 @@ func cleanPorcelainPaths(files []string) []string {
 
 // StageFiles stages specific files (by their path relative to the repo root).
 func StageFiles(path string, files []string) error {
-	args := append([]string{"add", "--"}, cleanPorcelainPaths(files)...)
+	args := append([]string{"add", "--"}, cleanPorcelainCurrentPaths(files)...)
 	_, err := run(path, args...)
 	return err
 }
@@ -631,6 +655,41 @@ func DirtyFilesWithStatus(path string) ([]string, error) {
 		if strings.TrimSpace(l) != "" {
 			files = append(files, l)
 		}
+	}
+	return files, nil
+}
+
+// DirtyFilesWithRawStatus returns porcelain entries with exact, unquoted paths.
+// Rename and copy entries store the destination and source paths separated by NUL.
+func DirtyFilesWithRawStatus(path string) ([]string, error) {
+	out, err := run(path, "status", "--porcelain=v1", "-z")
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+
+	records := strings.Split(out, "\x00")
+	files := make([]string, 0, len(records))
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if record == "" {
+			continue
+		}
+		if len(record) < 3 {
+			return nil, fmt.Errorf("parse porcelain status entry %q", record)
+		}
+
+		status := record[:2]
+		if strings.ContainsAny(status, "RC") {
+			i++
+			if i >= len(records) || records[i] == "" {
+				return nil, fmt.Errorf("parse porcelain rename or copy entry %q", record)
+			}
+			record += "\x00" + records[i]
+		}
+		files = append(files, record)
 	}
 	return files, nil
 }

@@ -1397,7 +1397,7 @@ gitm commit [flags]
 3. **Filters** to dirty repos only — repos on their detected default branch are shown but marked `⛔ protected branch` and cannot be selected.
 4. **Multi-select UI** — pick which repos you want to commit. _(Skipped when `--repo` is provided — all dirty, unprotected matches proceed automatically.)_
 5. For each selected repo, **sequentially**:
-   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, orange `U` for conflicts, dim `??`). Nothing is pre-selected.
+   - **File picker** — shows all dirty files with colour-coded status prefixes (yellow `M`, green `A`, red `D`, orange `U` for conflicts, dim `??`). Paths containing spaces are handled without quoting errors, and renames are shown as `old -> new` and committed as one change. Nothing is pre-selected.
    - **Commit message input** — single-line text input; rejects empty messages.
    - `git add -- <selected files>`
    - `git commit -m "<message>"` (during a merge, commits the entire index to complete the merge)

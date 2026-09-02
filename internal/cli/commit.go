@@ -208,7 +208,7 @@ repoLoop:
 		}
 
 		// 3a. Get dirty tracked files (untracked files belong in `gitm track`).
-		allLines, err := git.DirtyFilesWithStatus(repo.Path)
+		allLines, err := git.DirtyFilesWithRawStatus(repo.Path)
 		if err != nil {
 			color.Red("  ✗ Cannot list dirty files: %v", err)
 			results = append(results, repoCommitResult{alias: repo.Alias, err: err})

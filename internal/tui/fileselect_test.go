@@ -34,3 +34,18 @@ func TestRenderStatus_KnownStatuses(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePorcelainLine_RenameDisplaysSourceAndDestination(t *testing.T) {
+	raw := "R  new name.txt\x00old name.txt"
+	line := parsePorcelainLine(raw)
+
+	if line.raw != raw {
+		t.Fatalf("raw = %q, want %q", line.raw, raw)
+	}
+	if line.status != "R " {
+		t.Errorf("status = %q, want %q", line.status, "R ")
+	}
+	if line.path != "old name.txt -> new name.txt" {
+		t.Errorf("path = %q, want %q", line.path, "old name.txt -> new name.txt")
+	}
+}
