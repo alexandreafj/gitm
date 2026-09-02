@@ -30,7 +30,10 @@ func parsePorcelainLine(raw string) fileLine {
 		return fileLine{raw: raw, status: "??", path: strings.TrimSpace(raw)}
 	}
 	status := raw[:2]
-	path := strings.TrimSpace(raw[3:])
+	path := raw[3:]
+	if destination, source, renamed := strings.Cut(path, "\x00"); renamed {
+		path = source + " -> " + destination
+	}
 	return fileLine{raw: raw, status: status, path: path}
 }
 

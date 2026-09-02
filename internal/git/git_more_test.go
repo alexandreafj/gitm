@@ -618,6 +618,57 @@ func TestCommitOnlySelectedFiles(t *testing.T) {
 	}
 }
 
+func TestCommitFileWithSpaces(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "file with spaces.txt", "v1\n", "add spaced file")
+	writeFile(t, repo, "file with spaces.txt", "v2\n")
+
+	files, err := git.DirtyFilesWithRawStatus(repo)
+	if err != nil {
+		t.Fatalf("DirtyFilesWithRawStatus: %v", err)
+	}
+	if len(files) != 1 || files[0] != " M file with spaces.txt" {
+		t.Fatalf("files = %q, want exact unquoted path", files)
+	}
+	if err := git.StageFiles(repo, files); err != nil {
+		t.Fatalf("StageFiles: %v", err)
+	}
+	if _, err := git.Commit(repo, "commit spaced file", files); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	committed := mustRunGit(t, repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
+	if committed != "file with spaces.txt" {
+		t.Errorf("committed files = %q, want %q", committed, "file with spaces.txt")
+	}
+}
+
+func TestCommitRenamedFile(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "old name.txt", "content\n", "add original file")
+	mustRunGit(t, repo, "mv", "old name.txt", "new name.txt")
+
+	files, err := git.DirtyFilesWithRawStatus(repo)
+	if err != nil {
+		t.Fatalf("DirtyFilesWithRawStatus: %v", err)
+	}
+	want := "R  new name.txt\x00old name.txt"
+	if len(files) != 1 || files[0] != want {
+		t.Fatalf("files = %q, want [%q]", files, want)
+	}
+	if err := git.StageFiles(repo, files); err != nil {
+		t.Fatalf("StageFiles: %v", err)
+	}
+	if _, err := git.Commit(repo, "commit renamed file", files); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	committed := mustRunGit(t, repo, "diff-tree", "--no-commit-id", "--name-status", "-M", "-r", "HEAD")
+	if !strings.Contains(committed, "old name.txt") || !strings.Contains(committed, "new name.txt") {
+		t.Errorf("expected committed rename, got %q", committed)
+	}
+}
+
 func TestIsDefaultBranch(t *testing.T) {
 	repo := initRepo(t)
 	branch, err := git.CurrentBranch(repo)
