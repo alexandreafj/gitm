@@ -23,6 +23,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
 - **Safe** — never force-resets your work; dirty repos are skipped, not clobbered.
 - **Dry-run previews** — inspect dangerous branch/delete/reset/sync/checkout/discard operations before they change anything.
 - **Branch dashboard** — `gitm branches feature/JIRA-123` shows, per repo, where a feature branch exists, its tracking/ahead-behind state, and whether it has merged into default.
+- **Attention view and JSON** — `gitm status --attention` highlights unfinished work; `--json` provides structured output with explicit remote freshness and per-repository errors.
 - **Contexts** — isolated working sets of repos (`gitm context use company-a`); every command operates only on the active context.
 - **Interactive TUI** — multi-select repos and files with bubbletea.
 - **Self-updating (manual installs)** — `gitm upgrade` pulls signed binaries from GitHub Releases on macOS/Linux manual installs.
@@ -46,7 +47,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [branch create](#gitm-branch-create)
   - [branch rename](#gitm-branch-rename)
   - [branch delete](#gitm-branch-delete)
-  - [status](#gitm-status)
+  - [status (attention filters and JSON)](#gitm-status)
   - [branches](#gitm-branches)
   - [update](#gitm-update)
   - [sync](#gitm-sync)
@@ -956,67 +957,109 @@ Done: 2 succeeded
 
 ### `gitm status`
 
-Show a summary of all registered repositories: current branch, dirty state, and commits ahead/behind origin. Runs in **parallel** with no network calls by default.
+Inspect repositories in the active context, with a table or a JSON report. Use `--attention` to focus on unfinished work and repository problems. Collection runs in parallel; interactive input is not required.
 
-```
-gitm status [flags]
+```bash
+gitm status [--fetch] [--attention] [--json] [--repo aliases] [--group name]
 ```
 
 **Flags:**
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--fetch` | — | false | Run `git fetch` on all repos first for up-to-date remote numbers (slower, requires network). |
-| `--repo` | `-r` | _(all repos)_ | Limit output to specific repository aliases (comma-separated). |
-| `--group` | `-g` | _(all repos)_ | Limit output to repositories in a group. Combines with `--repo` as an intersection. |
+| `--fetch` | — | false | Fetch before inspection. Failed refreshes are reported, with cached counts retained when available. |
+| `--attention` | — | false | Show only repositories needing attention, including inspection errors. |
+| `--json` | — | false | Write a versioned JSON report to stdout, without progress text or ANSI colors. |
+| `--repo` | `-r` | _(all repos in active context)_ | Limit output to repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos in active context)_ | Limit output to a group; intersects with `--repo`. |
 
-**Example output (fast mode, no network):**
+**Behaviour:**
 
+- Without `--fetch`, inspection makes no network calls. Ahead/behind counts use the branch's configured upstream and cached remote-tracking refs.
+- The table identifies the active context. Remote counts are marked `cached`, `fresh` after a successful requested refresh, or `stale` after a failed refresh.
+- A local-only branch displays `no upstream`. A configured upstream whose ref is unavailable displays unknown counts and an error; unknown counts are never silently replaced by zero.
+- `--attention` includes changed tracked or untracked files, ahead/behind commits, conflicts, unfinished Git operations, detached or unborn HEAD, missing upstream, and inspection errors. Clean repositories with no upstream are intentionally included.
+- A rename counts as one changed entry. Files inside untracked directories are counted individually.
+- Healthy repositories are still reported when another repository fails. Inspection failures and failed requested fetches produce a nonzero exit status. Dirty files, conflicts, and other readable states alone do not make status fail.
+- If nothing matches `--attention`, the table says `No repositories need attention.`
+
+**Example output (cached local inspection):**
+
+```text
+Context: work
+
+REPO          BRANCH            DIRTY      REMOTE                       ATTENTION
+api-gateway   feature/PROJ-101  2 changed  up to date (cached)
+billing       main              clean      0 ahead, 14 behind (cached)
+local-tool    feature/scratch   clean      no upstream
 ```
-Collecting status for 11 repositories…
 
-REPO                    BRANCH                    DIRTY         REMOTE
-────────────────────────────────────────────────────────────────────────────────
-api-gateway             feature/PROJ-101          2 modified    up to date
-auth-service            feature/PROJ-202          1 modified    up to date
-billing                 master                    clean         14 behind
-data-pipeline           feature/PROJ-101          1 modified    up to date
-frontend                master                    1 modified    up to date
-notifications           feature/PROJ-303          clean         up to date
-payments                feature/PROJ-101          2 modified    up to date
-reporting               master                    2 modified    up to date
-search                  master                    12 modified   4 behind
-user-service            feature/PROJ-303          1 modified    up to date
-worker                  master                    1 modified    up to date
-```
-
-**Column descriptions:**
+**Columns:**
 
 | Column | Description |
 |---|---|
-| `REPO` | Repository name |
-| `BRANCH` | Currently checked-out branch |
-| `DIRTY` | `clean` if no uncommitted changes; otherwise shows the number of modified files |
-| `REMOTE` | Commits ahead/behind `origin`. Based on the last known remote state (no network call). Use `--fetch` for current numbers. |
+| `REPO` | Registered repository alias. |
+| `BRANCH` | Current branch, including detached/unborn states. |
+| `DIRTY` | `clean`, a changed-entry count, or `unknown` when inspection failed. |
+| `REMOTE` | Upstream counts and freshness, `no upstream`, or `unknown`. |
+| `ATTENTION` | Unfinished operations, conflicts, special HEAD states, and error details. |
 
 **Examples:**
 
 ```bash
-# Fast: instant, uses cached remote tracking info
+# Local inspection with no network calls
 gitm status
 
-# Accurate: fetch from origin first, then show status (takes a few seconds)
+# Refresh remote information; failure produces a nonzero exit code
 gitm status --fetch
 
-# Show status for specific repos only
-gitm status -r api-gateway
-gitm status -r api-gateway,auth-service --group backend --fetch
+# Focus on repositories requiring action
+gitm status --attention --group backend
 
-# Show status for a group
-gitm status --group backend
+# Inspect only selected aliases within a group
+gitm status -r api-gateway,auth-service -g backend --fetch
+
+# Machine-readable output, also compatible with --attention
+gitm status --json
+gitm status --attention --json -g backend
 ```
 
-> **Performance note:** By default, `gitm status` is near-instant because it doesn't fetch from origin. The ahead/behind numbers reflect the last known state of remote branches. Use `--fetch` if you need up-to-the-second accuracy from the remote.
+**JSON contract (version 1):**
+
+The top-level object contains `version`, `context`, and `repositories`. Repository entries include `alias`, `path`, `branch`, `dirty`, `changed_files`, `upstream`, `ahead`, `behind`, `remote_state`, `detached`, `unborn`, `conflicts`, `operations`, and `error`.
+
+- `repositories` and `operations` are always arrays, including when empty.
+- Unknown `dirty`, `changed_files`, `ahead`, and `behind` values are `null`. Counts are also `null` when no upstream comparison exists.
+- `remote_state` is `cached`, `fresh`, `stale`, `none` (no upstream), or `unknown`.
+- `error` is an empty string for successful inspection. A failed repository remains in the JSON report; the process exits nonzero and writes its failure summary to stderr. Argument/selection errors can stop execution before a report is produced.
+- Array ordering follows repository selection order. `--attention` filters entries without hiding errors.
+
+Example for a clean local-only repository:
+
+```json
+{
+  "version": 1,
+  "context": "default",
+  "repositories": [
+    {
+      "alias": "local-tool",
+      "path": "/projects/local-tool",
+      "branch": "main",
+      "dirty": false,
+      "changed_files": 0,
+      "upstream": "",
+      "ahead": null,
+      "behind": null,
+      "remote_state": "none",
+      "detached": false,
+      "unborn": false,
+      "conflicts": false,
+      "operations": [],
+      "error": ""
+    }
+  ]
+}
+```
 
 ---
 
@@ -1054,6 +1097,7 @@ gitm branches [target-branch] [flags]
 - Without `--fetch`, remote branch existence and ahead/behind come from the last-fetched `origin` refs. gitm still performs a lightweight network lookup of each `origin` symbolic `HEAD` (not a full fetch) so default-sensitive calculations use the current default. A changed default updates GitM's SQLite cache; a failed lookup emits a warning and uses the cache. Pass `--fetch` to refresh all remote refs first.
 - In target mode, the `TARGET` column reports existence: `local+remote`, `local only`, `remote only`, or `missing`. A green `●` marks repos currently checked out **on** the target.
 - `UPSTREAM` and `AHEAD/BEHIND` describe the subject branch; they require the branch to exist **locally**, so they show `—` for a `remote only` or `missing` target.
+- Local-only branches show `none` as their upstream and `—` for counts. Failed requested fetches or tracking queries produce an error row and a nonzero exit status after the other repositories have been inspected.
 - `MERGED` reports whether the subject branch has merged into the repository's default branch (`merged` / `not merged`). It shows `(default)` when the subject **is** the default branch, and `—` when it cannot be determined (e.g. a missing target).
 
 **Column descriptions:**
@@ -1138,6 +1182,8 @@ gitm discard [flags]
 |---|---|---|
 | Modified tracked (` M`, `M `, `MM`) | `git reset HEAD -- <file>` + `git checkout -- <file>` | Reverts to last committed version |
 | Staged new file (`A `) | `git reset HEAD -- <file>` + `git clean -fd -- <file>` | Unstages and removes the file |
+| Staged rename (`R `) | Reset selected paths, restore the original path, clean the destination | Restores the file's original name and committed content |
+| Staged copy (`C `) | Reset and clean the destination only | Removes the selected copy while preserving source changes |
 | Untracked file/dir (`??`) | `git clean -fd -- <file>` | Removes the file or directory |
 
 **Behaviour:**
@@ -1149,6 +1195,8 @@ gitm discard [flags]
 5. With `--dry-run`, prints the selected files and the `git reset`, `git checkout`, and `git clean` commands that would run, then exits without changing files.
 6. Otherwise, discards only the selected files in each repo.
 7. Prints a per-repo summary, then exits non-zero if any repository failed.
+
+Filenames are matched literally: spaces, quotes, Unicode, and wildcard characters do not broaden the selection. Unselected index and working-tree changes are preserved. If a rename's original path now contains an unselected replacement file, discard refuses before changing the repository. Dry-run applies the same check and does not advertise destructive commands for a blocked selection. Dry-run previews quote special filenames and use the same selected paths as execution.
 
 **Example flow:**
 
@@ -2221,7 +2269,8 @@ cli-git-commands/
 │   │   ├── context.go           # context list/show/current/create/use/rename/delete/add/remove
 │   │   ├── checkout.go          # checkout master
 │   │   ├── branch.go            # branch create/rename/delete
-│   │   ├── status.go            # status
+│   │   ├── status.go            # status command, attention filtering, JSON output
+│   │   ├── status_report.go     # Status collection and table rendering
 │   │   ├── branches.go          # branches (multi-repo branch dashboard)
 │   │   ├── update.go            # update
 │   │   ├── sync.go              # sync (merge default branch into current branch)
@@ -2242,7 +2291,8 @@ cli-git-commands/
 │   │   ├── context.go           # Repository context CRUD and active-context state
 │   │   └── repository.go        # Repository CRUD
 │   ├── git/
-│   │   └── git.go               # Git operations
+│   │   ├── git.go               # Git operations
+│   │   └── status.go            # Structured local working-tree inspection
 │   ├── runner/
 │   │   └── parallel.go          # Parallel execution engine
 │   └── tui/

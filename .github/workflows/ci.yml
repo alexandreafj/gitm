@@ -41,7 +41,9 @@ jobs:
           cache: true
 
       - name: Tidy dependencies
-        run: go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
 
       - name: Check format
         run: make format-check
@@ -61,7 +63,6 @@ jobs:
       - name: Check coverage threshold
         run: make coverage-check
         id: coverage
-        continue-on-error: true
 
       - name: Extract coverage percentage
         if: always()
@@ -119,7 +120,3 @@ jobs:
               repo: context.repo.repo,
               body: `❌ CI Failed - ${failedStage} failed (Go 1.26)\n\nCoverage: ${coverageValue}\n\nPrevious checks passed: ${fmtStatus} ${lintStatus} ${testStatus}`
             })
-
-      - name: Fail if coverage below threshold
-        if: steps.coverage.conclusion == 'failure'
-        run: exit 1

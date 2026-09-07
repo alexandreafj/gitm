@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -70,11 +71,17 @@ func TestRunStatus_RepoFlag_UnknownAliasErrors(t *testing.T) {
 	}
 }
 
-func TestPrintStatusTable(t *testing.T) {
-	statuses := []repoStatus{
-		{name: "repo1", branch: "main", dirty: "clean", ahead: 0, behind: 0},
-		{name: "repo2", branch: "feat", dirty: "2 modified", ahead: 1, behind: 0},
-		{name: "repo3", err: "boom"},
+func TestRenderStatusTable(t *testing.T) {
+	output, err := renderStatusTable(statusReport{Context: "work", Repositories: []repoStatus{
+		{Alias: "repo1", Branch: "main", Upstream: "origin/main"},
+		{Alias: "repo2", Error: "broken path"},
+	}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	printStatusTable(statuses)
+	for _, want := range []string{"Context: work", "repo1", "main", "unknown", "repo2", "ERROR: broken path"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("missing %q in %s", want, output)
+		}
+	}
 }

@@ -39,6 +39,9 @@ lookup of origin's symbolic HEAD (not a full fetch) so merged-into-default state
 uses the current default. A change updates GitM's SQLite cache; a failed lookup
 emits a warning and uses the cached default. Pass --fetch to refresh all remote
 refs first for up-to-date branch numbers (slower, requires more network work).
+Failed requested fetches or tracking queries are shown as repository errors.
+Other repositories are still inspected; the command then exits nonzero.
+Branches without an upstream show no comparison counts, rather than zero.
 
 Use --repo / -r to limit output to specific repositories by alias.
 Use --group / -g to limit output to repositories in a group.
@@ -82,8 +85,9 @@ type branchInfo struct {
 	upstream    string // upstream tracking ref of the subject branch, "" if none
 	ahead       int
 	behind      int
+	countsKnown bool
 	merged      mergedState
-	err         string
+	err         error
 }
 
 func runBranches(target string, fetchRemote bool, repoAliases []string, groupName string) error {
@@ -122,6 +126,15 @@ func runBranches(target string, fetchRemote bool, repoAliases []string, groupNam
 	}
 
 	printBranchesTable(infos, target)
+	failed := 0
+	for _, info := range infos {
+		if info.err != nil {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("branch inspection failed for %d repository(ies)", failed)
+	}
 	return nil
 }
 
@@ -142,15 +155,15 @@ func collectBranchInfo(repo *db.Repository, target string, fetchRemote bool) bra
 	info := branchInfo{name: repo.Alias}
 
 	if fetchRemote {
-		// Best-effort: a fetch failure (offline, missing remote) must not abort
-		// the dashboard — fall back to the last-known remote-tracking refs.
-		//nolint:errcheck // fetch failure intentionally falls back to cached refs
-		_ = git.Fetch(repo.Path)
+		if err := git.Fetch(repo.Path); err != nil {
+			info.err = fmt.Errorf("fetch origin: %w", err)
+			return info
+		}
 	}
 
 	current, err := git.CurrentBranch(repo.Path)
 	if err != nil {
-		info.err = err.Error()
+		info.err = fmt.Errorf("read current branch: %w", err)
 		return info
 	}
 	info.current = current
@@ -165,10 +178,19 @@ func collectBranchInfo(repo *db.Repository, target string, fetchRemote bool) bra
 	if target == "" {
 		// Subject is the branch the repo is currently on.
 		info.hasSubject = true
-		//nolint:errcheck // a lookup failure degrades to an empty upstream, not a hard error
-		info.upstream, _ = git.Upstream(repo.Path, current)
-		//nolint:errcheck // a lookup failure degrades to 0/0 ahead/behind, not a hard error
-		info.ahead, info.behind, _ = git.AheadBehindOf(repo.Path, current)
+		info.upstream, err = git.Upstream(repo.Path, current)
+		if err != nil {
+			info.err = fmt.Errorf("inspect upstream for %s: %w", current, err)
+			return info
+		}
+		if info.upstream != "" {
+			info.ahead, info.behind, err = git.AheadBehindOf(repo.Path, current)
+			if err != nil {
+				info.err = fmt.Errorf("inspect ahead/behind for %s: %w", current, err)
+				return info
+			}
+			info.countsKnown = true
+		}
 		info.merged = mergedStateFor(repo.Path, current == repo.DefaultBranch, "HEAD", defaultRef)
 		return info
 	}
@@ -180,13 +202,21 @@ func collectBranchInfo(repo *db.Repository, target string, fetchRemote bool) bra
 	info.onTarget = current == target
 
 	if localOK {
-		// Upstream and ahead/behind need refs/heads/<target>@{upstream}, which only
-		// exists when the target is checked out locally.
+		// Tracking comparisons require a local branch, even when it is not checked out.
 		info.hasSubject = true
-		//nolint:errcheck // a lookup failure degrades to an empty upstream, not a hard error
-		info.upstream, _ = git.Upstream(repo.Path, target)
-		//nolint:errcheck // a lookup failure degrades to 0/0 ahead/behind, not a hard error
-		info.ahead, info.behind, _ = git.AheadBehindOf(repo.Path, target)
+		info.upstream, err = git.Upstream(repo.Path, target)
+		if err != nil {
+			info.err = fmt.Errorf("inspect upstream for %s: %w", target, err)
+			return info
+		}
+		if info.upstream != "" {
+			info.ahead, info.behind, err = git.AheadBehindOf(repo.Path, target)
+			if err != nil {
+				info.err = fmt.Errorf("inspect ahead/behind for %s: %w", target, err)
+				return info
+			}
+			info.countsKnown = true
+		}
 	}
 
 	if localOK || remoteOK {
@@ -251,8 +281,8 @@ func printBranchesCurrent(infos []branchInfo) {
 	fmt.Println(strings.Repeat("─", 92))
 
 	for _, info := range infos {
-		if info.err != "" {
-			fmt.Printf("%-22s  %s\n", cyan.Sprint(info.name), red.Sprintf("ERROR: %s", info.err))
+		if info.err != nil {
+			fmt.Printf("%-22s  %s\n", cyan.Sprint(info.name), red.Sprintf("ERROR: %v", info.err))
 			continue
 		}
 		fmt.Printf("%-22s  %-26s  %-22s  %-14s  %s\n",
@@ -281,8 +311,8 @@ func printBranchesTarget(infos []branchInfo, target string) {
 	fmt.Println(strings.Repeat("─", 108))
 
 	for _, info := range infos {
-		if info.err != "" {
-			fmt.Printf("%-22s  %s\n", cyan.Sprint(info.name), red.Sprintf("ERROR: %s", info.err))
+		if info.err != nil {
+			fmt.Printf("%-22s  %s\n", cyan.Sprint(info.name), red.Sprintf("ERROR: %v", info.err))
 			continue
 		}
 		fmt.Printf("%-22s  %-18s  %-24s  %-22s  %-14s  %s\n",
@@ -335,7 +365,7 @@ func formatAheadBehind(info branchInfo) string {
 	dim := color.New(color.FgWhite)
 
 	switch {
-	case !info.hasSubject:
+	case !info.hasSubject || !info.countsKnown:
 		return dim.Sprint("—")
 	case info.behind > 0 && info.ahead > 0:
 		return yellow.Sprintf("↓%d ↑%d", info.behind, info.ahead)
