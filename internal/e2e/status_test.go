@@ -1,9 +1,39 @@
 package e2e
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestStatusJSONPartialFailureExit(t *testing.T) {
+	e := newTestEnv(t)
+	healthy, _ := e.initRepoWithRemote("healthy-json")
+	missing, _ := e.initRepoWithRemote("missing-json")
+	e.assertExitCode(e.runGitm("repo", "add", healthy, "--alias", "healthy-json"), 0)
+	e.assertExitCode(e.runGitm("repo", "add", missing, "--alias", "missing-json"), 0)
+	if err := os.RemoveAll(missing); err != nil {
+		t.Fatal(err)
+	}
+	r := e.runGitm("status", "--json")
+	e.assertExitCode(r, 1)
+	var report struct {
+		Repositories []struct {
+			Alias string `json:"alias"`
+			Error string `json:"error"`
+		} `json:"repositories"`
+	}
+	if err := json.Unmarshal([]byte(r.Stdout), &report); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, r.Stdout)
+	}
+	if len(report.Repositories) != 2 || report.Repositories[0].Alias != "healthy-json" || report.Repositories[0].Error != "" || report.Repositories[1].Error == "" {
+		t.Fatalf("report=%s", r.Stdout)
+	}
+	if !strings.Contains(r.Stderr, "status inspection failed") {
+		t.Fatalf("missing stderr summary: %s", r.Stderr)
+	}
+}
 
 func TestStatus_CleanRepo(t *testing.T) {
 	e := newTestEnv(t)

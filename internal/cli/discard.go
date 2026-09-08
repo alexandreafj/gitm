@@ -33,6 +33,10 @@ Depending on the file status, the appropriate git command is used:
   Staged new files        → git reset HEAD -- <file> + git clean -fd -- <file>
   Untracked files/dirs    → git clean -fd -- <file>
 
+Filenames are matched literally, including spaces and wildcard characters.
+Discarding a staged rename restores the original path and removes the new one.
+Unselected changes remain untouched.
+
 Use --repo / -r to target specific repositories by alias, bypassing the
 interactive multi-select UI entirely. Non-dirty repos are silently skipped.
 Use --group / -g to limit candidates to repositories in a group.
@@ -158,7 +162,7 @@ func runDiscardWithUIAndGroupDryRun(ui ui, repoAliases []string, groupName strin
 		fmt.Printf("\n%s\n", color.CyanString("━━━ %s ━━━", repo.Alias))
 
 		// Get dirty files with status.
-		porcelainLines, filesErr := git.DirtyFilesWithStatus(repo.Path)
+		porcelainLines, filesErr := git.DirtyFilesWithRawStatus(repo.Path)
 		if filesErr != nil {
 			color.Red("  ✗ Cannot list dirty files: %v", filesErr)
 			results = append(results, discardResult{alias: repo.Alias, err: filesErr})
@@ -190,6 +194,15 @@ func runDiscardWithUIAndGroupDryRun(ui ui, repoAliases []string, groupName strin
 		}
 
 		if dryRun {
+			if validationErr := git.ValidateDiscardFiles(repo.Path, selectedFiles); validationErr != nil {
+				color.Red("  ✗ Cannot discard selected files: %v", validationErr)
+				dryRunItems = append(dryRunItems, dryRunItem{
+					repo:       repo,
+					skipReason: validationErr.Error(),
+				})
+				results = append(results, discardResult{alias: repo.Alias, err: validationErr})
+				continue
+			}
 			dryRunItems = append(dryRunItems, dryRunItem{
 				repo:    repo,
 				actions: discardDryRunActions(selectedFiles),
@@ -210,10 +223,12 @@ func runDiscardWithUIAndGroupDryRun(ui ui, repoAliases []string, groupName strin
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("  ✓ Discarded %d file(s):\n", len(selectedFiles)))
 		for _, f := range selectedFiles {
-			// Strip porcelain prefix for display.
 			name := f
 			if len(f) > 3 {
-				name = strings.TrimSpace(f[3:])
+				name = f[3:]
+				if destination, source, renamed := strings.Cut(name, "\x00"); renamed {
+					name = source + " -> " + destination
+				}
 			}
 			sb.WriteString(fmt.Sprintf("       %s\n", color.New(color.FgWhite).Sprint(name)))
 		}

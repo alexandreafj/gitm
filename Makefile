@@ -41,7 +41,7 @@ test:
 ## coverage: Run tests with coverage report (HTML output)
 coverage:
 	@mkdir -p $(BUILD_DIR)
-	@go test ./... -race -timeout $(TEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
+	@go test ./... -race -timeout $(TEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/coverage.out
 	@go tool cover -html=$(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 	@echo ""
 	@echo "Coverage Summary:"
@@ -54,7 +54,7 @@ coverage:
 ## coverage-check: Run tests and verify coverage meets 50% minimum
 coverage-check:
 	@mkdir -p $(BUILD_DIR)
-	@go test ./... -race -timeout $(TEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/coverage.out > /dev/null 2>&1
+	@go test ./... -race -timeout $(TEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/coverage.out
 	@COVERAGE=$$(go tool cover -func=$(BUILD_DIR)/coverage.out | grep total | awk '{printf "%.1f", $$3}'); \
 	echo "Coverage: $${COVERAGE}%"; \
 	if [ "$$(echo "$${COVERAGE} < 50" | bc)" -eq 1 ]; then \

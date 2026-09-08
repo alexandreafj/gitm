@@ -56,51 +56,74 @@ func printDryRunPreview(title string, items []dryRunItem) {
 	fmt.Println("No changes made.")
 }
 
-func porcelainPath(line string) string {
-	if len(line) > 3 {
-		return strings.TrimSpace(line[3:])
-	}
-	return strings.TrimSpace(line)
-}
-
 func discardDryRunActions(porcelainFiles []string) []string {
-	var staged []string
-	var tracked []string
-	var untracked []string
+	var resetPaths []string
+	var checkoutPaths []string
+	var cleanPaths []string
+	renameSources := make(map[string]struct{})
+	for _, line := range porcelainFiles {
+		if len(line) < 4 || !strings.Contains(line[:2], "R") {
+			continue
+		}
+		_, sourcePath, renamed := strings.Cut(line[3:], "\x00")
+		if renamed && sourcePath != "" {
+			renameSources[sourcePath] = struct{}{}
+		}
+	}
 
 	for _, line := range porcelainFiles {
 		if len(line) < 4 {
 			continue
 		}
 		status := line[:2]
-		path := porcelainPath(line)
-		if path == "" {
+		currentPath, sourcePath, renamed := strings.Cut(line[3:], "\x00")
+		if currentPath == "" {
 			continue
 		}
 
 		switch {
 		case status == "??":
-			untracked = append(untracked, path)
+			if _, restoredByRename := renameSources[currentPath]; !restoredByRename {
+				cleanPaths = append(cleanPaths, currentPath)
+			}
+		case strings.Contains(status, "R") && renamed && sourcePath != "":
+			resetPaths = append(resetPaths, currentPath, sourcePath)
+			checkoutPaths = append(checkoutPaths, sourcePath)
+			cleanPaths = append(cleanPaths, currentPath)
+		case strings.Contains(status, "C") && renamed && sourcePath != "":
+			resetPaths = append(resetPaths, currentPath)
+			cleanPaths = append(cleanPaths, currentPath)
 		case status[0] == 'A':
-			staged = append(staged, path)
+			resetPaths = append(resetPaths, currentPath)
+			cleanPaths = append(cleanPaths, currentPath)
 		default:
-			tracked = append(tracked, path)
+			resetPaths = append(resetPaths, currentPath)
+			checkoutPaths = append(checkoutPaths, currentPath)
 		}
 	}
 
+	formatPathspecs := func(paths []string) string {
+		formatted := make([]string, 0, len(paths))
+		for _, path := range paths {
+			if strings.ContainsAny(path, " \t\r\n\\\"'`$&;|<>(){}[]*?!#~") || strings.HasPrefix(path, ":") {
+				literal := ":(literal)" + path
+				formatted = append(formatted, "'"+strings.ReplaceAll(literal, "'", "'\"'\"'")+"'")
+				continue
+			}
+			formatted = append(formatted, path)
+		}
+		return strings.Join(formatted, " ")
+	}
+
 	var actions []string
-	if len(staged) > 0 {
-		joined := strings.Join(staged, " ")
-		actions = append(actions, "git reset HEAD -- "+joined)
-		actions = append(actions, "git clean -fd -- "+joined)
+	if len(resetPaths) > 0 {
+		actions = append(actions, "git reset HEAD -- "+formatPathspecs(resetPaths))
 	}
-	if len(tracked) > 0 {
-		joined := strings.Join(tracked, " ")
-		actions = append(actions, "git reset HEAD -- "+joined)
-		actions = append(actions, "git checkout -- "+joined)
+	if len(checkoutPaths) > 0 {
+		actions = append(actions, "git checkout -- "+formatPathspecs(checkoutPaths))
 	}
-	if len(untracked) > 0 {
-		actions = append(actions, "git clean -fd -- "+strings.Join(untracked, " "))
+	if len(cleanPaths) > 0 {
+		actions = append(actions, "git clean -fd -- "+formatPathspecs(cleanPaths))
 	}
 	return actions
 }

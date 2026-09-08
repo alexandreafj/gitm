@@ -139,7 +139,11 @@ func DefaultBranch(path string) (string, error) {
 
 // CurrentBranch returns the name of the currently checked-out branch.
 func CurrentBranch(path string) (string, error) {
-	return run(path, "rev-parse", "--abbrev-ref", "HEAD")
+	ref, err := run(path, "rev-parse", "--symbolic-full-name", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve current branch: %w", err)
+	}
+	return strings.TrimPrefix(ref, "refs/heads/"), nil
 }
 
 // IsDirty reports whether the working tree has uncommitted changes,
@@ -207,81 +211,122 @@ func DiscardChanges(path string) error {
 	return nil
 }
 
-// DiscardFiles selectively discards uncommitted changes for the given files.
-// Each entry in porcelainFiles is a porcelain-format line (e.g. " M foo.go",
-// "?? bar.txt", "A  new.go"). The function groups files by status and runs
-// the appropriate git command for each group:
-//
-//   - Staged new files (A): git reset HEAD -- <files>, then git clean -fd -- <files>
-//   - Tracked modifications/deletions (M, D, etc.): git reset HEAD -- <files>,
-//     then git checkout -- <files> (reset first to unstage any staged changes)
-//   - Untracked files/directories (??): git clean -fd -- <files>
-//
-// The -d flag is required because git status --porcelain collapses untracked
-// directories into a single "?? dir/" entry, and git clean without -d refuses
-// to remove directories.
-//
-// This is irreversible.
+// ValidateDiscardFiles rejects selected renames that would overwrite an
+// existing source path which the user did not also select for discard.
+func ValidateDiscardFiles(path string, porcelainFiles []string) error {
+	selectedPaths := make(map[string]struct{}, len(porcelainFiles))
+	var renameSources []string
+	for _, line := range porcelainFiles {
+		if len(line) < 4 {
+			continue
+		}
+		paths := cleanPorcelainPaths([]string{line})
+		if len(paths) == 0 {
+			continue
+		}
+		selectedPaths[paths[0]] = struct{}{}
+		if strings.Contains(line[:2], "R") && len(paths) > 1 {
+			renameSources = append(renameSources, paths[1:]...)
+		}
+	}
+
+	for _, source := range renameSources {
+		if _, selected := selectedPaths[source]; selected {
+			continue
+		}
+		_, err := os.Lstat(filepath.Join(path, filepath.FromSlash(source)))
+		switch {
+		case err == nil:
+			return fmt.Errorf("rename source %q already exists and is not selected for discard", source)
+		case os.IsNotExist(err):
+			continue
+		default:
+			return fmt.Errorf("check rename source %q: %w", source, err)
+		}
+	}
+	return nil
+}
+
+// DiscardFiles selectively discards entries from DirtyFilesWithRawStatus.
+// Rename and copy entries include the destination followed by the source,
+// separated by NUL. Literal pathspecs keep filename metacharacters exact.
 func DiscardFiles(path string, porcelainFiles []string) error {
 	if len(porcelainFiles) == 0 {
 		return nil
 	}
+	if err := ValidateDiscardFiles(path, porcelainFiles); err != nil {
+		return err
+	}
 
-	var staged []string    // "A " — newly staged files
-	var tracked []string   // " M", "M ", "MM", " D", "D ", etc. — tracked modifications
-	var untracked []string // "??" — untracked files
+	var resetPaths []string
+	var checkoutPaths []string
+	var cleanPaths []string
+	renameSources := make(map[string]struct{})
+	for _, line := range porcelainFiles {
+		if len(line) < 4 || !strings.Contains(line[:2], "R") {
+			continue
+		}
+		paths := cleanPorcelainPaths([]string{line})
+		for _, source := range paths[1:] {
+			renameSources[source] = struct{}{}
+		}
+	}
 
 	for _, line := range porcelainFiles {
 		if len(line) < 4 {
 			continue
 		}
 		status := line[:2]
-		filePath := strings.TrimSpace(line[3:])
-		if filePath == "" {
+		paths := cleanPorcelainPaths([]string{line})
+		if len(paths) == 0 {
 			continue
 		}
 
 		switch {
 		case status == "??":
-			untracked = append(untracked, filePath)
+			if _, restoredByRename := renameSources[paths[0]]; !restoredByRename {
+				cleanPaths = append(cleanPaths, paths[0])
+			}
+		case strings.Contains(status, "R") && len(paths) > 1:
+			resetPaths = append(resetPaths, paths...)
+			checkoutPaths = append(checkoutPaths, paths[1:]...)
+			cleanPaths = append(cleanPaths, paths[0])
+		case strings.Contains(status, "C") && len(paths) > 1:
+			resetPaths = append(resetPaths, paths[0])
+			cleanPaths = append(cleanPaths, paths[0])
 		case status[0] == 'A':
-			// Staged new file: index says Added, work-tree may or may not differ.
-			staged = append(staged, filePath)
+			resetPaths = append(resetPaths, paths[0])
+			cleanPaths = append(cleanPaths, paths[0])
 		default:
-			// Everything else (M, D, R, etc.) — tracked file with changes.
-			tracked = append(tracked, filePath)
+			resetPaths = append(resetPaths, paths[0])
+			checkoutPaths = append(checkoutPaths, paths[0])
 		}
 	}
 
-	// Unstage and remove staged new files.
-	if len(staged) > 0 {
-		resetArgs := append([]string{"reset", "HEAD", "--"}, staged...)
-		if _, err := run(path, resetArgs...); err != nil {
-			return fmt.Errorf("reset staged files: %w", err)
+	literalPathspecs := func(paths []string) []string {
+		pathspecs := make([]string, 0, len(paths))
+		for _, filePath := range paths {
+			pathspecs = append(pathspecs, ":(literal)"+filePath)
 		}
-		cleanArgs := append([]string{"clean", "-fd", "--"}, staged...)
-		if _, err := run(path, cleanArgs...); err != nil {
-			return fmt.Errorf("clean staged files: %w", err)
+		return pathspecs
+	}
+
+	if len(resetPaths) > 0 {
+		resetArgs := append([]string{"reset", "HEAD", "--"}, literalPathspecs(resetPaths)...)
+		if _, err := run(path, resetArgs...); err != nil {
+			return fmt.Errorf("reset selected files: %w", err)
 		}
 	}
 
-	// Revert tracked modifications/deletions: reset index first (handles
-	// staged modifications like "M " or "MM"), then checkout to restore
-	// working-tree state to match HEAD.
-	if len(tracked) > 0 {
-		resetArgs := append([]string{"reset", "HEAD", "--"}, tracked...)
-		if _, err := run(path, resetArgs...); err != nil {
-			return fmt.Errorf("reset tracked files: %w", err)
-		}
-		checkoutArgs := append([]string{"checkout", "--"}, tracked...)
+	if len(checkoutPaths) > 0 {
+		checkoutArgs := append([]string{"checkout", "--"}, literalPathspecs(checkoutPaths)...)
 		if _, err := run(path, checkoutArgs...); err != nil {
 			return fmt.Errorf("discard tracked changes: %w", err)
 		}
 	}
 
-	// Remove untracked files and directories.
-	if len(untracked) > 0 {
-		cleanArgs := append([]string{"clean", "-fd", "--"}, untracked...)
+	if len(cleanPaths) > 0 {
+		cleanArgs := append([]string{"clean", "-fd", "--"}, literalPathspecs(cleanPaths)...)
 		if _, err := run(path, cleanArgs...); err != nil {
 			return fmt.Errorf("clean untracked files: %w", err)
 		}
@@ -434,69 +479,82 @@ func PushBranch(path, branch string) error {
 	return err
 }
 
-// AheadBehind returns how many commits the current branch is ahead/behind origin.
-// Pass fetch=true to run git fetch first for accurate up-to-date numbers (slower).
+// AheadBehind compares the current branch with its configured upstream.
+// A branch without an upstream returns zero counts; failed queries return errors.
 func AheadBehind(path string, fetch bool) (ahead, behind int, err error) {
 	if fetch {
-		//nolint:errcheck // fetch failure should not block ahead/behind check
-		_, _ = run(path, "fetch", "--quiet")
-	}
-
-	out, err := run(path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
-	if err != nil {
-		// No upstream tracking branch — treat as 0/0.
-		return 0, 0, nil
-	}
-	parts := strings.Fields(out)
-	if len(parts) != 2 {
-		return 0, 0, nil
-	}
-	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
-	_, _ = fmt.Sscanf(parts[0], "%d", &ahead)
-	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
-	_, _ = fmt.Sscanf(parts[1], "%d", &behind)
-	return ahead, behind, nil
-}
-
-// AheadBehindOf returns how many commits ref is ahead/behind its upstream. Unlike
-// AheadBehind, ref may be any branch — not just the checked-out one — so the branch
-// dashboard can report on a target branch without checking it out. ref must resolve
-// to a local branch for ref@{upstream} to exist; when there is no upstream the
-// counts are 0/0. Run Fetch first if up-to-date remote numbers are needed.
-func AheadBehindOf(path, ref string) (ahead, behind int, err error) {
-	out, err := run(path, "rev-list", "--left-right", "--count", ref+"..."+ref+"@{upstream}")
-	if err != nil {
-		// No upstream tracking branch — treat as 0/0.
-		return 0, 0, nil
-	}
-	parts := strings.Fields(out)
-	if len(parts) != 2 {
-		return 0, 0, nil
-	}
-	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
-	_, _ = fmt.Sscanf(parts[0], "%d", &ahead)
-	//nolint:errcheck // sscanf errors are safe to ignore; vars stay 0 on failure
-	_, _ = fmt.Sscanf(parts[1], "%d", &behind)
-	return ahead, behind, nil
-}
-
-// Upstream returns the upstream tracking ref of branch (e.g. "origin/feature/x"),
-// or an empty string when branch has no upstream configured. A missing upstream is
-// a normal state, not an error, so the same tolerant message matching as HasUpstream
-// is used to distinguish it from a real failure.
-func Upstream(path, branch string) (string, error) {
-	out, err := run(path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
-	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "no upstream configured") ||
-			strings.Contains(msg, "HEAD does not point to a branch") ||
-			strings.Contains(msg, "ambiguous argument") ||
-			strings.Contains(msg, "does not point to a branch") {
-			return "", nil
+		if err := Fetch(path); err != nil {
+			return 0, 0, fmt.Errorf("fetch before ahead/behind: %w", err)
 		}
-		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	branch, err := CurrentBranch(path)
+	if err != nil {
+		return 0, 0, fmt.Errorf("current branch for ahead/behind: %w", err)
+	}
+	return AheadBehindOf(path, branch)
+}
+
+// AheadBehindOf compares a local branch with its configured upstream.
+// Missing tracking configuration returns zero counts; a missing configured ref
+// is an error, because its counts are unknown.
+func AheadBehindOf(path, ref string) (ahead, behind int, err error) {
+	upstream, err := Upstream(path, ref)
+	if err != nil {
+		return 0, 0, fmt.Errorf("upstream for %s: %w", ref, err)
+	}
+	if upstream == "" {
+		return 0, 0, nil
+	}
+	branchRef := "refs/heads/" + ref
+	out, err := run(path, "rev-list", "--left-right", "--count", branchRef+"..."+ref+"@{upstream}", "--")
+	if err != nil {
+		return 0, 0, fmt.Errorf("ahead/behind for %s: %w", ref, err)
+	}
+	if len(strings.Fields(out)) != 2 {
+		return 0, 0, fmt.Errorf("invalid ahead/behind counts %q", out)
+	}
+	if _, err := fmt.Sscanf(out, "%d %d", &ahead, &behind); err != nil {
+		return 0, 0, fmt.Errorf("parse ahead/behind counts: %w", err)
+	}
+	if ahead < 0 || behind < 0 {
+		return 0, 0, fmt.Errorf("negative ahead/behind counts %q", out)
+	}
+	return ahead, behind, nil
+}
+
+// Upstream returns the configured upstream even when its tracking ref is gone.
+// A local branch without tracking configuration returns an empty string.
+func Upstream(path, branch string) (string, error) {
+	if branch == "HEAD" {
+		if _, err := run(path, "rev-parse", "--verify", "HEAD"); err != nil {
+			return "", fmt.Errorf("verify detached HEAD: %w", err)
+		}
+		return "", nil
+	}
+	ref := "refs/heads/" + branch
+	if _, err := run(path, "check-ref-format", ref); err != nil {
+		return "", fmt.Errorf("validate branch %q: %w", branch, err)
+	}
+	out, err := run(path, "for-each-ref", "--format=%(refname)%00%(upstream:short)", "--", ref)
+	if err != nil {
+		return "", fmt.Errorf("read upstream for %s: %w", branch, err)
+	}
+	for _, record := range strings.Split(out, "\n") {
+		name, upstream, ok := strings.Cut(record, "\x00")
+		if ok && name == ref {
+			if upstream == "" {
+				configured, err := hasTrackingConfiguration(path, branch)
+				if err != nil {
+					return "", err
+				}
+				if configured {
+					return "", fmt.Errorf("configured upstream for %s cannot be resolved", branch)
+				}
+			}
+			return upstream, nil
+		}
+	}
+	return "", fmt.Errorf("local branch %q not found", branch)
 }
 
 // TrackedFiles returns all tracked files in the repository as porcelain-style
