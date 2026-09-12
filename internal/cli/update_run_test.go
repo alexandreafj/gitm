@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -9,7 +10,162 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alexandreafj/gitm/internal/git"
 )
+
+func TestRunUpdate_RebasesAfterSyncWithConfiguredPull(t *testing.T) {
+	database = setupTestDB(t)
+	repo, _, _ := initRepoWithRemote(t)
+	if _, err := database.AddRepository("repo1", "repo1", repo, "main"); err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, repo, "config", "pull.rebase", "true")
+	mustRunGit(t, repo, "config", "pull.ff", "true")
+	mustRunGit(t, repo, "checkout", "-b", "feature")
+	writeFile(t, repo, "feature.txt", "feature\n")
+	mustRunGit(t, repo, "add", "feature.txt")
+	mustRunGit(t, repo, "commit", "-m", "feature")
+	mustRunGit(t, repo, "push", "-u", "origin", "feature")
+	mustRunGit(t, repo, "checkout", "main")
+	writeFile(t, repo, "main.txt", "main\n")
+	mustRunGit(t, repo, "add", "main.txt")
+	mustRunGit(t, repo, "commit", "-m", "advance main")
+	mustRunGit(t, repo, "push", "origin", "main")
+	mustRunGit(t, repo, "checkout", "feature")
+	if _, err := git.Merge(repo, "origin/main"); err != nil {
+		t.Fatalf("sync default branch: %v", err)
+	}
+	before := mustRunGit(t, repo, "rev-parse", "HEAD")
+	var output bytes.Buffer
+	if err := runUpdateWithGroupTo([]string{"repo1"}, "", &output); err != nil {
+		t.Fatalf("update after sync: %v\n%s", err, output.String())
+	}
+	after := mustRunGit(t, repo, "rev-parse", "HEAD")
+	if after == before {
+		t.Fatalf("update did not perform the configured rebase after sync:\n%s", output.String())
+	}
+	if strings.Contains(output.String(), "already up to date") {
+		t.Fatalf("update reported no change after rebasing:\n%s", output.String())
+	}
+	if got := mustRunGit(t, repo, "rev-list", "--merges", "@{u}..HEAD"); got != "" {
+		t.Fatalf("expected linear history after rebase, got merges: %s", got)
+	}
+	for _, name := range []string{"feature.txt", "main.txt"} {
+		if _, err := os.Stat(filepath.Join(repo, name)); err != nil {
+			t.Fatalf("missing %s after rebase: %v", name, err)
+		}
+	}
+	mustRunGit(t, repo, "pull", "--no-edit")
+	if got := mustRunGit(t, repo, "rev-parse", "HEAD"); got != after {
+		t.Fatalf("plain git pull still changed HEAD after gitm update: %s -> %s", after, got)
+	}
+}
+
+func TestRunUpdate_HonorsPullConfigurationOnDivergence(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		rebase       string
+		branchRebase string
+		ff           string
+		wantParents  int
+		wantError    bool
+	}{
+		{name: "rebase", rebase: "true", ff: "true", wantParents: 2},
+		{name: "merge", rebase: "false", ff: "true", wantParents: 3},
+		{name: "branch rebase overrides merge", rebase: "false", branchRebase: "true", ff: "true", wantParents: 2},
+		{name: "branch merge overrides rebase", rebase: "true", branchRebase: "false", ff: "true", wantParents: 3},
+		{name: "fast forward only", rebase: "true", ff: "only", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database = setupTestDB(t)
+			repo, origin, _ := initRepoWithRemote(t)
+			if _, err := database.AddRepository("repo1", "repo1", repo, "main"); err != nil {
+				t.Fatalf("AddRepository: %v", err)
+			}
+			mustRunGit(t, repo, "config", "pull.rebase", tc.rebase)
+			mustRunGit(t, repo, "config", "pull.ff", tc.ff)
+			if tc.branchRebase != "" {
+				mustRunGit(t, repo, "config", "branch.main.rebase", tc.branchRebase)
+			}
+			// A configured editor must not block a parallel update's merge commit.
+			mustRunGit(t, repo, "config", "core.editor", "false")
+			pushRemoteChange(t, origin, "remote.txt")
+			writeFile(t, repo, "local.txt", "local\n")
+			mustRunGit(t, repo, "add", "local.txt")
+			mustRunGit(t, repo, "commit", "-m", "local change")
+			before := mustRunGit(t, repo, "rev-parse", "HEAD")
+			var output bytes.Buffer
+			err := runUpdateWithGroupTo([]string{"repo1"}, "", &output)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected fast-forward-only update to reject divergent history")
+				}
+				if got := mustRunGit(t, repo, "rev-parse", "HEAD"); got != before {
+					t.Fatalf("failed fast-forward-only pull changed HEAD: %s -> %s", before, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("update: %v\n%s", err, output.String())
+			}
+			parents := mustRunGit(t, repo, "rev-list", "--parents", "-n", "1", "HEAD")
+			if got := len(strings.Fields(parents)); got != tc.wantParents {
+				t.Fatalf("unexpected history after configured pull: %s", parents)
+			}
+			for _, name := range []string{"local.txt", "remote.txt"} {
+				if _, err := os.Stat(filepath.Join(repo, name)); err != nil {
+					t.Fatalf("missing %s after update: %v", name, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRunUpdate_LeavesConfiguredPullConflictsForResolution(t *testing.T) {
+	for _, tc := range []struct {
+		operation string
+		rebase    string
+	}{
+		{operation: "rebase", rebase: "true"},
+		{operation: "merge", rebase: "false"},
+	} {
+		t.Run(tc.operation, func(t *testing.T) {
+			database = setupTestDB(t)
+			repo, origin, _ := initRepoWithRemote(t)
+			if _, err := database.AddRepository("repo1", "repo1", repo, "main"); err != nil {
+				t.Fatalf("AddRepository: %v", err)
+			}
+			mustRunGit(t, repo, "config", "pull.rebase", tc.rebase)
+			mustRunGit(t, repo, "config", "pull.ff", "true")
+			pushRemoteChange(t, origin, "README.md")
+			writeFile(t, repo, "README.md", "local edit\n")
+			mustRunGit(t, repo, "add", "README.md")
+			mustRunGit(t, repo, "commit", "-m", "local edit")
+			var output bytes.Buffer
+			if err := runUpdateWithGroupTo([]string{"repo1"}, "", &output); err == nil {
+				t.Fatal("expected update to report the pull conflict as a failure")
+			}
+			if !strings.Contains(output.String(), "README.md") || !strings.Contains(strings.ToLower(output.String()), "conflict") {
+				t.Fatalf("update hid the conflict details:\n%s", output.String())
+			}
+			conflicts, err := git.UnmergedFiles(repo)
+			if err != nil {
+				t.Fatalf("read conflicts: %v", err)
+			}
+			if len(conflicts) != 1 || conflicts[0] != "README.md" {
+				t.Fatalf("expected README.md conflict left for resolution, got %v\n%s", conflicts, output.String())
+			}
+			operations, err := git.InProgressOperations(repo)
+			if err != nil {
+				t.Fatalf("read in-progress operations: %v", err)
+			}
+			if !strings.Contains(strings.Join(operations, " "), tc.operation) {
+				t.Fatalf("expected %s left in progress, got %v", tc.operation, operations)
+			}
+		})
+	}
+}
 
 func TestRunUpdate_NoRepos(t *testing.T) {
 	database = setupTestDB(t)

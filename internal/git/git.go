@@ -340,6 +340,24 @@ func Pull(path string) (string, error) {
 	return run(path, "pull", "--ff-only")
 }
 
+// PullConfigured uses Git's upstream and pull strategy settings. --no-edit
+// prevents configured merge pulls from opening an editor in the parallel runner.
+func PullConfigured(path string) (string, error) {
+	out, err := run(path, "pull", "--no-edit")
+	if err == nil {
+		return out, nil
+	}
+	// Git can report conflict filenames only on stdout, which run discards on failure.
+	conflicts, conflictErr := UnmergedFiles(path)
+	if conflictErr != nil {
+		return "", fmt.Errorf("pull: %w; inspect conflicts: %w", err, conflictErr)
+	}
+	if len(conflicts) > 0 {
+		return "", fmt.Errorf("pull left conflicts in %s — run `git status` for resolution steps: %w", strings.Join(conflicts, ", "), err)
+	}
+	return "", err
+}
+
 // IsNoUpstreamError reports whether err came from a git command that failed
 // because the current branch has no upstream tracking information (e.g.
 // `git pull` on a branch that was never pushed). Callers treat this as a
