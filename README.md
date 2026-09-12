@@ -1284,7 +1284,8 @@ gitm update [flags]
 1. If `--repo` or `--group` is specified, only matching repos are updated. Otherwise, all registered repos are updated.
 2. For each repository (in parallel):
    - Checks for uncommitted changes — skips if dirty.
-   - Runs `git pull --ff-only` on the current branch.
+   - Runs `git pull --no-edit` on the current branch, using the same upstream and pull strategy as plain `git pull`. Honors `pull.rebase`, `branch.<name>.rebase`, and `pull.ff`, including an explicit `pull.ff=only` policy.
+   - Configured rebase pulls can rewrite local commits, including merge history introduced by `gitm sync`. Merge pulls accept Git's generated commit message without opening an editor. Pull conflicts are reported as failures and left in place for resolution.
    - If the branch has no upstream (never pushed), the repo is skipped with a note — there is nothing to pull yet.
    - If the remote branch no longer exists (e.g. deleted after a PR merge), performs a lightweight network lookup of `origin`'s symbolic `HEAD` (not a full fetch), updates GitM's SQLite default-branch cache if it changed, then switches to that default and pulls it. If the lookup fails, warns and uses the cached default. Repositories whose ordinary pull succeeds do not perform this lookup.
 3. Streams results live with a summary.

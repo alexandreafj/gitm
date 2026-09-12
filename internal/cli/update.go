@@ -27,6 +27,12 @@ func updateCmd() *cobra.Command {
 Unlike 'checkout master', this normally keeps each repository on its current
 branch.
 
+Uses the same upstream and pull strategy as plain 'git pull', honoring
+pull.rebase, branch.<name>.rebase, and pull.ff. Configured rebase pulls can
+rewrite local commits, including merge history introduced by 'gitm sync'.
+Merge pulls accept Git's generated commit message without opening an editor.
+Pull conflicts are reported as failures and left in place for resolution.
+
 If the remote branch no longer exists (e.g. deleted after a PR merge), the
 repository is automatically switched to its default branch and pulled. Only in
 that fallback path, gitm performs a lightweight network lookup of origin's
@@ -114,7 +120,7 @@ func runUpdateWithGroupTo(repoAliases []string, groupName string, output io.Writ
 		}
 		prepared[i].branch = branch
 
-		out, pullErr := git.Pull(repo.Path)
+		out, pullErr := git.PullConfigured(repo.Path)
 		switch {
 		case pullErr == nil:
 			prepared[i].message = fmt.Sprintf("on %s — %s", branch, summarisePull(out))
@@ -148,7 +154,7 @@ func runUpdateWithGroupTo(repoAliases []string, groupName string, output io.Writ
 		if err := git.Checkout(repo.Path, def); err != nil {
 			return "", "", fmt.Errorf("remote branch gone, switch to %s failed: %w", def, err)
 		}
-		out, err := git.Pull(repo.Path)
+		out, err := git.PullConfigured(repo.Path)
 		if err != nil {
 			return "", "", fmt.Errorf("pull %s: %w", def, err)
 		}
