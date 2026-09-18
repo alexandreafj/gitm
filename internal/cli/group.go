@@ -3,6 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -131,7 +134,9 @@ func runGroupList() error {
 		fmt.Println("No groups found.")
 		return nil
 	}
-	printGroupTable(groups)
+	if err := printGroupTable(os.Stdout, groups); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -150,7 +155,9 @@ func runGroupShow(name string) error {
 		fmt.Println("No repositories in this group.")
 		return nil
 	}
-	printRepoTable(repos)
+	if err := printRepoTable(os.Stdout, repos); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -209,27 +216,18 @@ func groupError(action, name string, err error) error {
 	}
 }
 
-func printGroupTable(groups []*db.Group) {
-	header := color.New(color.Bold, color.Underline)
-	cyan := color.New(color.FgCyan)
-	dim := color.New(color.FgWhite)
+func printGroupTable(w io.Writer, groups []*db.Group) error {
+	tw := newTable(w)
+	headerRow(tw, "GROUP", "REPOS", "TYPE")
 
-	fmt.Printf("%-24s  %-10s  %s\n",
-		header.Sprint("GROUP"),
-		header.Sprint("REPOS"),
-		header.Sprint("TYPE"),
-	)
 	for _, group := range groups {
 		kind := "custom"
 		if group.Name == db.DefaultGroupName {
 			kind = "built-in"
 		}
-		fmt.Printf("%-24s  %-10d  %s\n",
-			cyan.Sprint(group.Name),
-			group.RepoCount,
-			dim.Sprint(kind),
-		)
+		row(tw, cell(aliasColor, group.Name), strconv.Itoa(group.RepoCount), cell(dimColor, kind))
 	}
+	return flushTable(tw, "group")
 }
 
 func uniqueStrings(values []string) []string {

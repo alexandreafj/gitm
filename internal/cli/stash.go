@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -300,17 +302,8 @@ func runStashListWithGroup(repoAliases []string, groupName string) error {
 		return nil
 	}
 
-	// Calculate column widths.
-	aliasW := len("REPO")
-	for _, e := range found {
-		if len(e.repo.Alias) > aliasW {
-			aliasW = len(e.repo.Alias)
-		}
-	}
-
-	header := color.New(color.Bold)
-	header.Printf("%-*s  %-7s  %s\n", aliasW, "REPO", "STASHES", "TOP STASH")
-	fmt.Println(strings.Repeat("─", aliasW+2+7+2+60))
+	tw := newTable(os.Stdout)
+	headerRow(tw, "REPO", "STASHES", "TOP STASH")
 
 	for _, e := range found {
 		// Trim the stash ref prefix from the top entry for readability.
@@ -319,10 +312,10 @@ func runStashListWithGroup(repoAliases []string, groupName string) error {
 		if idx := strings.Index(top, ": "); idx >= 0 {
 			top = top[idx+2:]
 		}
-		if len(top) > 60 {
-			top = top[:57] + "…"
-		}
-		fmt.Printf("%-*s  %-7d  %s\n", aliasW, e.repo.Alias, len(e.entries), top)
+		row(tw, cell(aliasColor, e.repo.Alias), strconv.Itoa(len(e.entries)), truncate(top, 60))
+	}
+	if err := flushTable(tw, "stash"); err != nil {
+		return err
 	}
 
 	fmt.Printf("\n%d repository(ies) with stash entries.\n", len(found))

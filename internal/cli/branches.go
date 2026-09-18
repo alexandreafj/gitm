@@ -2,9 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/alexandreafj/gitm/internal/db"
@@ -125,7 +126,9 @@ func runBranches(target string, fetchRemote bool, repoAliases []string, groupNam
 		<-done
 	}
 
-	printBranchesTable(infos, target)
+	if err := printBranchesTable(os.Stdout, infos, target); err != nil {
+		return err
+	}
 	failed := 0
 	for _, info := range infos {
 		if info.err != nil {
@@ -258,150 +261,109 @@ func existenceLabel(localOK, remoteOK bool) string {
 	}
 }
 
-func printBranchesTable(infos []branchInfo, target string) {
+func printBranchesTable(w io.Writer, infos []branchInfo, target string) error {
 	if target == "" {
-		printBranchesCurrent(infos)
-		return
+		return printBranchesCurrent(w, infos)
 	}
-	printBranchesTarget(infos, target)
+	return printBranchesTarget(w, infos)
 }
 
-func printBranchesCurrent(infos []branchInfo) {
-	hdr := color.New(color.Bold, color.Underline)
-	cyan := color.New(color.FgCyan)
-	red := color.New(color.FgRed)
-
-	fmt.Printf("%-22s  %-26s  %-22s  %-14s  %s\n",
-		hdr.Sprint("REPO"),
-		hdr.Sprint("BRANCH"),
-		hdr.Sprint("UPSTREAM"),
-		hdr.Sprint("AHEAD/BEHIND"),
-		hdr.Sprint("MERGED"),
-	)
-	fmt.Println(strings.Repeat("─", 92))
+func printBranchesCurrent(w io.Writer, infos []branchInfo) error {
+	tw := newTable(w)
+	headerRow(tw, "REPO", "BRANCH", "UPSTREAM", "AHEAD/BEHIND", "MERGED")
 
 	for _, info := range infos {
+		alias := cell(aliasColor, info.name)
 		if info.err != nil {
-			fmt.Printf("%-22s  %s\n", cyan.Sprint(info.name), red.Sprintf("ERROR: %v", info.err))
+			row(tw, alias, dash(), dash(), dash(), cell(errColor, fmt.Sprintf("ERROR: %v", info.err)))
 			continue
 		}
-		fmt.Printf("%-22s  %-26s  %-22s  %-14s  %s\n",
-			cyan.Sprint(info.name),
-			truncate(info.current, 26),
+		row(tw, alias,
+			truncate(info.current, 40),
 			formatUpstream(info),
 			formatAheadBehind(info),
 			formatMerged(info.merged),
 		)
 	}
+	return flushTable(tw, "branches")
 }
 
-func printBranchesTarget(infos []branchInfo, target string) {
-	hdr := color.New(color.Bold, color.Underline)
-	cyan := color.New(color.FgCyan)
-	red := color.New(color.FgRed)
-
-	fmt.Printf("%-22s  %-18s  %-24s  %-22s  %-14s  %s\n",
-		hdr.Sprint("REPO"),
-		hdr.Sprint("TARGET"),
-		hdr.Sprint("CURRENT"),
-		hdr.Sprint("UPSTREAM"),
-		hdr.Sprint("AHEAD/BEHIND"),
-		hdr.Sprint("MERGED"),
-	)
-	fmt.Println(strings.Repeat("─", 108))
+func printBranchesTarget(w io.Writer, infos []branchInfo) error {
+	tw := newTable(w)
+	headerRow(tw, "", "REPO", "TARGET", "CURRENT", "UPSTREAM", "AHEAD/BEHIND", "MERGED")
 
 	for _, info := range infos {
+		// A ● marks repositories currently checked out on the target branch.
+		marker := ""
+		if info.onTarget {
+			marker = cell(okColor, "●")
+		}
+		alias := cell(aliasColor, info.name)
 		if info.err != nil {
-			fmt.Printf("%-22s  %s\n", cyan.Sprint(info.name), red.Sprintf("ERROR: %v", info.err))
+			row(tw, marker, alias, dash(), dash(), dash(), dash(), cell(errColor, fmt.Sprintf("ERROR: %v", info.err)))
 			continue
 		}
-		fmt.Printf("%-22s  %-18s  %-24s  %-22s  %-14s  %s\n",
-			cyan.Sprint(info.name),
+		row(tw, marker, alias,
 			formatTarget(info),
-			truncate(info.current, 24),
+			truncate(info.current, 40),
 			formatUpstream(info),
 			formatAheadBehind(info),
 			formatMerged(info.merged),
 		)
 	}
+	return flushTable(tw, "branches")
+}
+
+// dash marks a column that cannot be computed for this repository.
+func dash() string {
+	return cell(dimColor, "—")
 }
 
 func formatTarget(info branchInfo) string {
-	green := color.New(color.FgGreen)
-	yellow := color.New(color.FgYellow)
-	red := color.New(color.FgRed)
-
-	marker := "  "
-	if info.onTarget {
-		marker = green.Sprint("● ")
-	}
-
-	var label string
+	c := errColor // missing
 	switch info.targetState {
 	case "local+remote":
-		label = green.Sprint(info.targetState)
+		c = okColor
 	case "local only", "remote only":
-		label = yellow.Sprint(info.targetState)
-	default: // missing
-		label = red.Sprint(info.targetState)
+		c = warnColor
 	}
-	return marker + label
+	return cell(c, info.targetState)
 }
 
 func formatUpstream(info branchInfo) string {
-	dim := color.New(color.FgWhite)
 	if !info.hasSubject {
-		return dim.Sprint("—")
+		return dash()
 	}
 	if info.upstream == "" {
-		return dim.Sprint("none")
+		return cell(dimColor, "none")
 	}
-	return truncate(info.upstream, 22)
+	return truncate(info.upstream, 30)
 }
 
 func formatAheadBehind(info branchInfo) string {
-	green := color.New(color.FgGreen)
-	yellow := color.New(color.FgYellow)
-	dim := color.New(color.FgWhite)
-
 	switch {
 	case !info.hasSubject || !info.countsKnown:
-		return dim.Sprint("—")
+		return dash()
 	case info.behind > 0 && info.ahead > 0:
-		return yellow.Sprintf("↓%d ↑%d", info.behind, info.ahead)
+		return cell(warnColor, fmt.Sprintf("↓%d ↑%d", info.behind, info.ahead))
 	case info.behind > 0:
-		return yellow.Sprintf("%d behind", info.behind)
+		return cell(warnColor, fmt.Sprintf("%d behind", info.behind))
 	case info.ahead > 0:
-		return dim.Sprintf("%d ahead", info.ahead)
+		return cell(dimColor, fmt.Sprintf("%d ahead", info.ahead))
 	default:
-		return green.Sprint("up to date")
+		return cell(okColor, "up to date")
 	}
 }
 
 func formatMerged(state mergedState) string {
-	green := color.New(color.FgGreen)
-	yellow := color.New(color.FgYellow)
-	dim := color.New(color.FgWhite)
-
 	switch state {
 	case mergedYes:
-		return green.Sprint("merged")
+		return cell(okColor, "merged")
 	case mergedNo:
-		return yellow.Sprint("not merged")
+		return cell(warnColor, "not merged")
 	case mergedDefault:
-		return dim.Sprint("(default)")
+		return cell(dimColor, "(default)")
 	default:
-		return dim.Sprint("—")
+		return dash()
 	}
-}
-
-// truncate shortens s to at most max characters, adding an ellipsis when cut.
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	if max <= 1 {
-		return s[:max]
-	}
-	return s[:max-1] + "…"
 }

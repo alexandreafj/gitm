@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/alexandreafj/gitm/internal/db"
 	"github.com/alexandreafj/gitm/internal/git"
@@ -84,9 +83,9 @@ func renderStatusTable(report statusReport) (string, error) {
 		out.WriteString("No repositories need attention.\n")
 		return out.String(), nil
 	}
-	var table strings.Builder
-	w := tabwriter.NewWriter(&table, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "REPO\tBRANCH\tDIRTY\tREMOTE\tATTENTION")
+	var rendered strings.Builder
+	w := newTable(&rendered)
+	headerRow(w, "REPO", "BRANCH", "DIRTY", "REMOTE", "ATTENTION")
 	for _, s := range report.Repositories {
 		dirty := "unknown"
 		if s.Dirty != nil {
@@ -121,11 +120,11 @@ func renderStatusTable(report statusReport) (string, error) {
 		if s.Error != "" {
 			attention = append(attention, "ERROR: "+strings.Join(strings.Fields(s.Error), " "))
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Alias, s.Branch, dirty, remote, strings.Join(attention, "; "))
+		row(w, cell(aliasColor, s.Alias), s.Branch, dirty, remote, strings.Join(attention, "; "))
 	}
-	if err := w.Flush(); err != nil {
-		return "", fmt.Errorf("format status table: %w", err)
+	if err := flushTable(w, "status"); err != nil {
+		return "", err
 	}
-	out.WriteString(table.String())
+	out.WriteString(rendered.String())
 	return out.String(), nil
 }
