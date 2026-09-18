@@ -3,8 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -312,7 +314,9 @@ explicitly.`,
 					fmt.Println("No repositories registered. Run `gitm repo add <path>` to add one.")
 					return nil
 				}
-				printRepoTable(repos)
+				if err := printRepoTable(os.Stdout, repos); err != nil {
+					return err
+				}
 				return nil
 			}
 
@@ -329,7 +333,9 @@ explicitly.`,
 				fmt.Println(noReposMessage(nil, ""))
 				return nil
 			}
-			printRepoTable(repos)
+			if err := printRepoTable(os.Stdout, repos); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -387,26 +393,21 @@ func repoRenameCmd() *cobra.Command {
 }
 
 // printRepoTable renders a clean table of repositories.
-func printRepoTable(repos []*db.Repository) {
-	header := color.New(color.Bold, color.Underline)
-	cyan := color.New(color.FgCyan)
-	dim := color.New(color.FgWhite)
-
-	fmt.Printf("%-4s  %-24s  %-14s  %s\n",
-		header.Sprint("#"),
-		header.Sprint("ALIAS"),
-		header.Sprint("DEFAULT BRANCH"),
-		header.Sprint("PATH"),
-	)
+func printRepoTable(w io.Writer, repos []*db.Repository) error {
+	tw := newTable(w)
+	headerRow(tw, "#", "ALIAS", "DEFAULT BRANCH", "PATH")
 
 	for i, r := range repos {
-		fmt.Printf("%-4d  %-24s  %-14s  %s\n",
-			i+1,
-			cyan.Sprint(r.Alias),
-			dim.Sprint(r.DefaultBranch),
-			dim.Sprint(r.Path),
+		row(tw, strconv.Itoa(i+1),
+			cell(aliasColor, r.Alias),
+			cell(dimColor, r.DefaultBranch),
+			cell(dimColor, r.Path),
 		)
 	}
+	if err := flushTable(tw, "repository"); err != nil {
+		return err
+	}
 
-	fmt.Printf("\n%d repository(ies) registered.\n", len(repos))
+	fmt.Fprintf(w, "\n%d repository(ies) registered.\n", len(repos))
+	return nil
 }

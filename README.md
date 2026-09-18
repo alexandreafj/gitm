@@ -376,12 +376,12 @@ gitm repo list [--all]
 ```
 Context: default
 
-#     ALIAS                     DEFAULT BRANCH  PATH
-1     api-gateway               main            /home/user/work/api-gateway
-2     auth-service              master          /home/user/work/auth-service
-3     docs-api-v1               master          /home/user/work/docs-api/v1
-4     frontend                  main            /home/user/work/frontend
-5     www-api-v1                main            /home/user/work/www-api/v1
+#  ALIAS         DEFAULT BRANCH  PATH
+1  api-gateway   main            /home/user/work/api-gateway
+2  auth-service  master          /home/user/work/auth-service
+3  docs-api-v1   master          /home/user/work/docs-api/v1
+4  frontend      main            /home/user/work/frontend
+5  www-api-v1    main            /home/user/work/www-api/v1
 
 5 repository(ies) registered.
 ```
@@ -495,10 +495,10 @@ gitm group delete services
 ```
 $ gitm group list
 
-GROUP                     REPOS       TYPE
-all                       5           built-in
-backend                   2           custom
-frontend                  1           custom
+GROUP     REPOS  TYPE
+all       5      built-in
+backend   2      custom
+frontend  1      custom
 ```
 
 ---
@@ -574,10 +574,10 @@ gitm context use default
 ```
 $ gitm context list
 
-   CONTEXT                   REPOS       TYPE
-   default                   3           built-in
-*  company-a                 2           custom
-   company-b                 4           custom
+   CONTEXT    REPOS  TYPE
+   default    3      built-in
+*  company-a  2      custom
+   company-b  4      custom
 
 $ gitm context current
 company-a
@@ -1135,11 +1135,10 @@ $ gitm branches
 
 Collecting branch info for 3 repositories…
 
-REPO                    BRANCH                      UPSTREAM                AHEAD/BEHIND    MERGED
-────────────────────────────────────────────────────────────────────────────────────────────
-api-gateway             feature/JIRA-123            origin/feature/JIRA-1…  ↑2              not merged
-auth-service            master                      origin/master           up to date      (default)
-frontend                develop                     none                    —               not merged
+REPO          BRANCH            UPSTREAM                 AHEAD/BEHIND  MERGED
+api-gateway   feature/JIRA-123  origin/feature/JIRA-123  2 ahead       not merged
+auth-service  master            origin/master            up to date    (default)
+frontend      develop           none                     —             not merged
 ```
 
 **Example output — target branch:**
@@ -1149,11 +1148,10 @@ $ gitm branches feature/JIRA-123
 
 Collecting branch info for "feature/JIRA-123" across 3 repositories…
 
-REPO                    TARGET              CURRENT                   UPSTREAM                AHEAD/BEHIND    MERGED
-────────────────────────────────────────────────────────────────────────────────────────────────────────────
-api-gateway             ● local+remote      feature/JIRA-123          origin/feature/JIRA-1…  up to date      not merged
-auth-service              remote only       master                    —                       —               not merged
-frontend                  missing           master                    —                       —               —
+   REPO          TARGET        CURRENT           UPSTREAM                 AHEAD/BEHIND  MERGED
+●  api-gateway   local+remote  feature/JIRA-123  origin/feature/JIRA-123  up to date    not merged
+   auth-service  remote only   master            —                        —             not merged
+   frontend      missing       master            —                        —             —
 ```
 
 ---
@@ -1663,10 +1661,9 @@ Prints a table of repos that have stash entries, with the count and top stash me
 ```
 $ gitm stash list
 
-REPO          STASHES  TOP STASH
-────────────────────────────────────────────────────
-repo1          1        On feature/JIRA-456: gitm stash on feature/JIRA-456
-repo2          2        On master: gitm stash on master
+REPO   STASHES  TOP STASH
+repo1  1        On feature/JIRA-456: gitm stash on feature/JIRA-456
+repo2  2        On master: gitm stash on master
 
 2 repository(ies) with stash entries.
 ```
@@ -2024,11 +2021,10 @@ $ gitm doctor
 
 Checking 3 registered repository(ies)…
 
-REPO                    STATUS   DETAILS
-──────────────────────────────────────────────────────────────────────────────────────────
-api-gateway             OK       healthy
-auth-service            WARN     working tree has uncommitted changes; current branch has no upstream
-old-worker              ERROR    path is not accessible: stat /home/user/work/old-worker: no such file or directory
+REPO          STATUS  DETAILS
+api-gateway   OK      healthy
+auth-service  WARN    working tree has uncommitted changes; current branch has no upstream
+old-worker    ERROR   path is not accessible: stat /home/user/work/old-worker: no such file or directory
 ```
 
 **Examples:**

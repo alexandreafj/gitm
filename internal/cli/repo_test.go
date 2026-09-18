@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,42 +13,26 @@ import (
 )
 
 func TestPrintRepoTableHandlesEmpty(t *testing.T) {
-	// This test ensures the function doesn't crash with an empty repository list.
-	// We can't easily test the actual output without capturing stdout.
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("printRepoTable panicked with empty repos: %v", r)
-		}
-	}()
-
-	repos := []*db.Repository{}
-	printRepoTable(repos)
+	var buf bytes.Buffer
+	if err := printRepoTable(&buf, []*db.Repository{}); err != nil {
+		t.Fatalf("printRepoTable: %v", err)
+	}
+	if !strings.Contains(buf.String(), "0 repository(ies) registered.") {
+		t.Fatalf("output = %q, want empty-list count", buf.String())
+	}
 }
 
 func TestPrintRepoTableHandlesMultipleRepos(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("printRepoTable panicked with multiple repos: %v", r)
-		}
-	}()
-
 	repos := []*db.Repository{
-		{
-			ID:            1,
-			Name:          "api",
-			Alias:         "api-gateway",
-			Path:          "/home/user/api",
-			DefaultBranch: "main",
-		},
-		{
-			ID:            2,
-			Name:          "web",
-			Alias:         "web-ui",
-			Path:          "/home/user/web",
-			DefaultBranch: "master",
-		},
+		{ID: 1, Name: "api", Alias: "api-gateway", Path: "/home/user/api", DefaultBranch: "main"},
+		{ID: 2, Name: "web", Alias: "web-ui", Path: "/home/user/web", DefaultBranch: "master"},
 	}
-	printRepoTable(repos)
+
+	var buf bytes.Buffer
+	if err := printRepoTable(&buf, repos); err != nil {
+		t.Fatalf("printRepoTable: %v", err)
+	}
+	assertAlignedColumns(t, buf.String(), 4)
 }
 
 func TestRepoAddCmdAliasValidation(t *testing.T) {

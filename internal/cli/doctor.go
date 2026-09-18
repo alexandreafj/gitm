@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/alexandreafj/gitm/internal/db"
@@ -132,7 +132,9 @@ func runDoctorWithGroup(repoAliases []string, groupName string) error {
 		<-done
 	}
 
-	printDoctorReports(reports)
+	if err := printDoctorReports(os.Stdout, reports); err != nil {
+		return err
+	}
 
 	var errorCount int
 	for _, report := range reports {
@@ -247,27 +249,17 @@ func inspectRepoHealth(repo *db.Repository) doctorReport {
 	return report
 }
 
-func printDoctorReports(reports []doctorReport) {
-	header := color.New(color.Bold, color.Underline)
-	cyan := color.New(color.FgCyan)
-	green := color.New(color.FgGreen)
-	yellow := color.New(color.FgYellow)
-	red := color.New(color.FgRed)
-
-	fmt.Printf("%-22s  %-7s  %s\n",
-		header.Sprint("REPO"),
-		header.Sprint("STATUS"),
-		header.Sprint("DETAILS"),
-	)
-	fmt.Println(strings.Repeat("─", 90))
+func printDoctorReports(w io.Writer, reports []doctorReport) error {
+	tw := newTable(w)
+	headerRow(tw, "REPO", "STATUS", "DETAILS")
 
 	for _, report := range reports {
-		status := green.Sprint("OK")
+		status := cell(okColor, "OK")
 		details := "healthy"
 		if report.hasErrors() {
-			status = red.Sprint("ERROR")
+			status = cell(errColor, "ERROR")
 		} else if report.hasWarnings() {
-			status = yellow.Sprint("WARN")
+			status = cell(warnColor, "WARN")
 		}
 
 		if len(report.checks) > 0 {
@@ -278,10 +270,7 @@ func printDoctorReports(reports []doctorReport) {
 			details = strings.Join(messages, "; ")
 		}
 
-		fmt.Printf("%-22s  %-7s  %s\n",
-			cyan.Sprint(report.repo.Alias),
-			status,
-			details,
-		)
+		row(tw, cell(aliasColor, report.repo.Alias), status, details)
 	}
+	return flushTable(tw, "doctor")
 }

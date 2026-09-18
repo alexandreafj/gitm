@@ -3,6 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fatih/color"
@@ -183,7 +186,9 @@ func runContextList() error {
 	if err != nil {
 		return fmt.Errorf("list contexts: %w", err)
 	}
-	printContextTable(contexts)
+	if err := printContextTable(os.Stdout, contexts); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -213,7 +218,9 @@ func runContextShow(name string) error {
 		fmt.Println("No repositories in this context.")
 		return nil
 	}
-	printRepoTable(repos)
+	if err := printRepoTable(os.Stdout, repos); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -315,33 +322,23 @@ func contextError(action, name string, err error) error {
 	}
 }
 
-func printContextTable(contexts []*db.Context) {
-	header := color.New(color.Bold, color.Underline)
-	cyan := color.New(color.FgCyan)
-	dim := color.New(color.FgWhite)
+func printContextTable(w io.Writer, contexts []*db.Context) error {
+	tw := newTable(w)
+	headerRow(tw, "", "CONTEXT", "REPOS", "TYPE")
 
-	fmt.Printf("%-2s %-24s  %-10s  %s\n",
-		"",
-		header.Sprint("CONTEXT"),
-		header.Sprint("REPOS"),
-		header.Sprint("TYPE"),
-	)
+	activeColor := color.New(color.FgGreen, color.Bold)
 	for _, context := range contexts {
-		marker := " "
-		name := cyan.Sprint(context.Name)
+		marker := ""
+		name := cell(aliasColor, context.Name)
 		if context.Active {
-			marker = color.GreenString("*")
-			name = color.New(color.FgGreen, color.Bold).Sprint(context.Name)
+			marker = cell(okColor, "*")
+			name = cell(activeColor, context.Name)
 		}
 		kind := "custom"
 		if context.Name == db.DefaultContextName {
 			kind = "built-in"
 		}
-		fmt.Printf("%-2s %-24s  %-10d  %s\n",
-			marker,
-			name,
-			context.RepoCount,
-			dim.Sprint(kind),
-		)
+		row(tw, marker, name, strconv.Itoa(context.RepoCount), cell(dimColor, kind))
 	}
+	return flushTable(tw, "context")
 }
