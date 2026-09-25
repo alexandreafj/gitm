@@ -86,7 +86,7 @@ func shouldHideUpgradeCommand(channel installChannel) bool {
 
 func upgradeBlockedReason(goos string, channel installChannel) string {
 	if channel == installChannelHomebrew {
-		return "gitm installed via Homebrew is managed by Homebrew; run `brew upgrade --cask gitm`"
+		return "gitm installed via Homebrew is managed by Homebrew; run `brew upgrade --cask alexandreafj/gitm/gitm`"
 	}
 
 	if channel == installChannelScoop {

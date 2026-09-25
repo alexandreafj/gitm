@@ -1,8 +1,9 @@
 name: Post-Release Smoke
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -16,6 +17,7 @@ permissions:
 jobs:
   resolve-release:
     name: Resolve Release Tag
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
@@ -24,16 +26,16 @@ jobs:
         id: resolve
         env:
           EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          WORKFLOW_TAG: ${{ github.event.workflow_run.head_branch }}
           INPUT_TAG: ${{ github.event.inputs.release_tag }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" = "release" ]; then
-            tag="$RELEASE_TAG"
-          else
-            tag="$INPUT_TAG"
-          fi
+          case "$EVENT_NAME" in
+            workflow_run) tag="$WORKFLOW_TAG" ;;
+            workflow_dispatch) tag="$INPUT_TAG" ;;
+            *) echo "Unsupported event: $EVENT_NAME"; exit 1 ;;
+          esac
 
           if [ -z "$tag" ] || [ "$tag" = "null" ]; then
             echo "Failed to resolve release tag"
@@ -43,44 +45,9 @@ jobs:
           echo "Using release tag: $tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  wait-for-assets:
-    name: Wait for Release Assets
-    needs: resolve-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Poll until release assets are available
-        env:
-          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # GoReleaser runs in parallel and may not have uploaded assets yet
-          # when the release.published event fires. Poll until assets appear.
-          max_attempts=10
-          delay=30
-
-          for attempt in $(seq 1 "$max_attempts"); do
-            asset_count=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
-            echo "Attempt $attempt/$max_attempts: release $RELEASE_TAG has $asset_count asset(s)"
-
-            if [ "$asset_count" -gt 0 ]; then
-              echo "Assets available, proceeding with smoke tests"
-              exit 0
-            fi
-
-            if [ "$attempt" -eq "$max_attempts" ]; then
-              echo "::error::Release $RELEASE_TAG still has no assets after $(((max_attempts - 1) * delay))s. GoReleaser may have failed (e.g. invalid semver tag)."
-              exit 1
-            fi
-
-            echo "Waiting ${delay}s for GoReleaser to finish uploading assets..."
-            sleep "$delay"
-          done
-
   linux-ubuntu:
     name: install.sh (ubuntu:24.04)
-    needs: [resolve-release, wait-for-assets]
+    needs: resolve-release
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.validate.outputs.version }}
@@ -131,7 +98,7 @@ jobs:
 
   linux-debian:
     name: install.sh (debian:bookworm-slim)
-    needs: [resolve-release, wait-for-assets]
+    needs: resolve-release
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.validate.outputs.version }}
@@ -182,7 +149,7 @@ jobs:
 
   macos-homebrew-cask:
     name: Homebrew Cask (macOS)
-    needs: [resolve-release, wait-for-assets]
+    needs: resolve-release
     runs-on: macos-latest
     outputs:
       version: ${{ steps.install.outputs.version }}
@@ -193,15 +160,15 @@ jobs:
           RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
         run: |
           set -euo pipefail
+          cask="alexandreafj/gitm/gitm"
 
           for attempt in 1 2 3 4 5; do
             echo "Attempt $attempt/5"
-            brew tap alexandreafj/gitm
 
             if brew list --cask gitm >/dev/null 2>&1; then
-              brew upgrade --cask gitm || brew reinstall --cask gitm
+              brew upgrade --cask "$cask" || brew reinstall --cask "$cask"
             else
-              brew install --cask gitm
+              brew install --cask "$cask"
             fi
 
             version="$(gitm --version)"
@@ -244,11 +211,11 @@ jobs:
             echo "Expected gitm upgrade to be blocked for Homebrew installs"
             exit 1
           fi
-          echo "$upgrade_output" | grep -F "brew upgrade --cask gitm" >/dev/null
+          echo "$upgrade_output" | grep -F "brew upgrade --cask alexandreafj/gitm/gitm" >/dev/null
 
   windows-scoop:
     name: Scoop (Windows)
-    needs: [resolve-release, wait-for-assets]
+    needs: resolve-release
     runs-on: windows-latest
     outputs:
       version: ${{ steps.install.outputs.version }}
@@ -343,10 +310,9 @@ jobs:
 
   report:
     name: Smoke Report
-    if: always()
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     needs:
       - resolve-release
-      - wait-for-assets
       - linux-ubuntu
       - linux-debian
       - macos-homebrew-cask
@@ -356,7 +322,6 @@ jobs:
       - name: Publish summary
         env:
           TAG: ${{ needs.resolve-release.outputs.tag }}
-          ASSETS_RESULT: ${{ needs.wait-for-assets.result }}
           UBUNTU_RESULT: ${{ needs.linux-ubuntu.result }}
           DEBIAN_RESULT: ${{ needs.linux-debian.result }}
           MACOS_RESULT: ${{ needs.macos-homebrew-cask.result }}
@@ -386,7 +351,6 @@ jobs:
             echo "## Post-release smoke test report"
             echo
             echo "**Target tag:** \`$TAG\`"
-            echo "**Assets ready:** $ASSETS_RESULT"
             echo
             echo "| Platform | Result | Installed Version | Tag Match |"
             echo "|----------|--------|-------------------|-----------|"
