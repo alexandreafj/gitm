@@ -425,7 +425,7 @@ func TestUpgradeBlockedReason(t *testing.T) {
 		channel installChannel
 		want    string
 	}{
-		{name: "homebrew", goos: "darwin", channel: installChannelHomebrew, want: "brew upgrade --cask gitm"},
+		{name: "homebrew", goos: "darwin", channel: installChannelHomebrew, want: "brew upgrade --cask alexandreafj/gitm/gitm"},
 		{name: "scoop", goos: "windows", channel: installChannelScoop, want: "scoop update gitm"},
 		{name: "windows manual", goos: "windows", channel: installChannelManual, want: "not supported on Windows"},
 		{name: "linux manual", goos: "linux", channel: installChannelManual, want: ""},
@@ -474,7 +474,7 @@ func TestUpgradeCmdBlockedRunReturnsActionableMessage(t *testing.T) {
 		channel installChannel
 		want    string
 	}{
-		{name: "homebrew", goos: "darwin", channel: installChannelHomebrew, want: "brew upgrade --cask gitm"},
+		{name: "homebrew", goos: "darwin", channel: installChannelHomebrew, want: "brew upgrade --cask alexandreafj/gitm/gitm"},
 		{name: "scoop", goos: "windows", channel: installChannelScoop, want: "scoop update gitm"},
 		{name: "windows manual", goos: "windows", channel: installChannelManual, want: "not supported on Windows"},
 	}

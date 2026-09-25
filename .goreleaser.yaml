@@ -97,8 +97,7 @@ release:
 
     ### Homebrew Cask (macOS)
     ```bash
-    brew tap alexandreafj/gitm
-    brew install --cask gitm
+    brew install --cask alexandreafj/gitm/gitm
     ```
 
     ### Scoop (Windows)
