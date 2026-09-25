@@ -669,6 +669,38 @@ func TestCommitRenamedFile(t *testing.T) {
 	}
 }
 
+func TestCommitAlreadyStagedDeletion(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "old-file.txt", "content\n", "add file")
+
+	if err := os.Remove(filepath.Join(repo, "old-file.txt")); err != nil {
+		t.Fatalf("remove old-file.txt: %v", err)
+	}
+	mustRunGit(t, repo, "add", "--", "old-file.txt")
+
+	files, err := git.DirtyFilesWithRawStatus(repo)
+	if err != nil {
+		t.Fatalf("DirtyFilesWithRawStatus: %v", err)
+	}
+	if len(files) != 1 || files[0] != "D  old-file.txt" {
+		t.Fatalf("files = %q, want staged deletion", files)
+	}
+	if err := git.StageFiles(repo, files); err != nil {
+		t.Fatalf("StageFiles: %v", err)
+	}
+	if _, err := git.Commit(repo, "move file", files); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repo, "old-file.txt")); !os.IsNotExist(err) {
+		t.Fatalf("old-file.txt still exists or cannot be checked: %v", err)
+	}
+	committed := mustRunGit(t, repo, "diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD")
+	if committed != "D\told-file.txt" {
+		t.Fatalf("committed change = %q, want deleted old-file.txt", committed)
+	}
+}
+
 func TestIsDefaultBranch(t *testing.T) {
 	repo := initRepo(t)
 	branch, err := git.CurrentBranch(repo)
