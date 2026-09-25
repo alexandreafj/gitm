@@ -648,6 +648,10 @@ func cleanPorcelainCurrentPaths(files []string) []string {
 	cleaned := make([]string, 0, len(files))
 	for _, f := range files {
 		if len(f) > 3 {
+			// A blank worktree column means the selected change is already staged.
+			if f[1] == ' ' {
+				continue
+			}
 			f = f[3:]
 		} else {
 			f = strings.TrimSpace(f)
@@ -664,7 +668,11 @@ func cleanPorcelainCurrentPaths(files []string) []string {
 
 // StageFiles stages specific files (by their path relative to the repo root).
 func StageFiles(path string, files []string) error {
-	args := append([]string{"add", "--"}, cleanPorcelainCurrentPaths(files)...)
+	paths := cleanPorcelainCurrentPaths(files)
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"add", "--"}, paths...)
 	_, err := run(path, args...)
 	return err
 }
