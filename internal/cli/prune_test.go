@@ -20,11 +20,19 @@ func TestPruneCmdBasics(t *testing.T) {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 	for _, name := range []string{"yes", "force", "no-fetch"} {
-		if v, _ := cmd.Flags().GetBool(name); !v {
+		v, err := cmd.Flags().GetBool(name)
+		if err != nil {
+			t.Fatalf("GetBool(%s): %v", name, err)
+		}
+		if !v {
 			t.Errorf("--%s not parsed", name)
 		}
 	}
-	if repos, _ := cmd.Flags().GetStringSlice("repo"); strings.Join(repos, ",") != "a,b" {
+	repos, err := cmd.Flags().GetStringSlice("repo")
+	if err != nil {
+		t.Fatalf("GetStringSlice(repo): %v", err)
+	}
+	if strings.Join(repos, ",") != "a,b" {
 		t.Errorf("--repo = %q, want a,b", repos)
 	}
 }
