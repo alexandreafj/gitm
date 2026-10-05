@@ -1212,3 +1212,113 @@ func TestFetch(t *testing.T) {
 		t.Errorf("behind after fetch = %d, want 1", behind)
 	}
 }
+
+func findLocalBranch(t *testing.T, branches []git.LocalBranch, name string) git.LocalBranch {
+	t.Helper()
+	for _, b := range branches {
+		if b.Name == name {
+			return b
+		}
+	}
+	t.Fatalf("branch %q not listed in %+v", name, branches)
+	return git.LocalBranch{}
+}
+
+func TestLocalBranchesReportsUpstreamState(t *testing.T) {
+	repo, _ := initRepoWithRemote(t)
+
+	mustRunGit(t, repo, "branch", "local-only")
+
+	mustRunGit(t, repo, "checkout", "-b", "feature/ahead")
+	mustRunGit(t, repo, "push", "--set-upstream", "origin", "feature/ahead")
+	makeCommit(t, repo, "ahead.txt", "ahead\n", "unpushed commit")
+	makeCommit(t, repo, "ahead2.txt", "ahead\n", "second unpushed commit")
+
+	mustRunGit(t, repo, "checkout", "-b", "feature/gone", "main")
+	mustRunGit(t, repo, "push", "--set-upstream", "origin", "feature/gone")
+	mustRunGit(t, repo, "push", "origin", "--delete", "feature/gone")
+	mustRunGit(t, repo, "checkout", "main")
+
+	branches, err := git.LocalBranches(repo)
+	if err != nil {
+		t.Fatalf("LocalBranches: %v", err)
+	}
+	if len(branches) != 4 {
+		t.Fatalf("LocalBranches returned %d branches, want 4: %+v", len(branches), branches)
+	}
+
+	main := findLocalBranch(t, branches, "main")
+	if main.Upstream != "origin/main" || main.Gone || main.Ahead != 0 {
+		t.Errorf("main = %+v, want upstream origin/main, not gone, 0 ahead", main)
+	}
+	if main.LastCommit == "" {
+		t.Error("main.LastCommit is empty")
+	}
+
+	localOnly := findLocalBranch(t, branches, "local-only")
+	if localOnly.Upstream != "" || localOnly.Gone {
+		t.Errorf("local-only = %+v, want no upstream and not gone", localOnly)
+	}
+
+	ahead := findLocalBranch(t, branches, "feature/ahead")
+	if ahead.Ahead != 2 || ahead.Gone {
+		t.Errorf("feature/ahead = %+v, want 2 ahead and not gone", ahead)
+	}
+
+	gone := findLocalBranch(t, branches, "feature/gone")
+	if !gone.Gone || gone.Upstream == "" {
+		t.Errorf("feature/gone = %+v, want gone with a configured upstream", gone)
+	}
+}
+
+func TestFetchPruneRemovesDeletedRemoteRef(t *testing.T) {
+	repo, origin := initRepoWithRemote(t)
+	mustRunGit(t, repo, "checkout", "-b", "feature/x")
+	mustRunGit(t, repo, "push", "--set-upstream", "origin", "feature/x")
+	mustRunGit(t, repo, "checkout", "main")
+
+	// Delete the branch on the remote directly, so the local tracking ref stays.
+	mustRunGit(t, origin, "branch", "-D", "feature/x")
+	if !git.BranchExists(repo, "refs/remotes/origin/feature/x") {
+		t.Fatal("tracking ref should still exist before the prune")
+	}
+
+	if err := git.FetchPrune(repo); err != nil {
+		t.Fatalf("FetchPrune: %v", err)
+	}
+	if git.BranchExists(repo, "refs/remotes/origin/feature/x") {
+		t.Error("tracking ref should be gone after FetchPrune")
+	}
+	branches, err := git.LocalBranches(repo)
+	if err != nil {
+		t.Fatalf("LocalBranches: %v", err)
+	}
+	if b := findLocalBranch(t, branches, "feature/x"); !b.Gone {
+		t.Errorf("feature/x = %+v, want gone after prune", b)
+	}
+}
+
+func TestCommitsNotIn(t *testing.T) {
+	repo := initRepo(t)
+	mustRunGit(t, repo, "checkout", "-b", "feature/x")
+	makeCommit(t, repo, "a.txt", "a\n", "first change")
+	makeCommit(t, repo, "b.txt", "b\n", "second change")
+	mustRunGit(t, repo, "checkout", "main")
+
+	commits, err := git.CommitsNotIn(repo, "feature/x", "refs/heads/main")
+	if err != nil {
+		t.Fatalf("CommitsNotIn: %v", err)
+	}
+	if len(commits) != 2 || !strings.HasSuffix(commits[0], " second change") || !strings.HasSuffix(commits[1], " first change") {
+		t.Errorf("CommitsNotIn = %q, want second change then first change", commits)
+	}
+
+	mustRunGit(t, repo, "merge", "--ff-only", "feature/x")
+	commits, err = git.CommitsNotIn(repo, "feature/x", "refs/heads/main")
+	if err != nil {
+		t.Fatalf("CommitsNotIn after merge: %v", err)
+	}
+	if len(commits) != 0 {
+		t.Errorf("CommitsNotIn after merge = %q, want none", commits)
+	}
+}

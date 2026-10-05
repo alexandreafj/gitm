@@ -437,6 +437,69 @@ func Fetch(path string) error {
 	return err
 }
 
+// FetchPrune fetches from origin and deletes remote-tracking refs whose branch
+// no longer exists on the remote, so local branches show a gone upstream.
+func FetchPrune(path string) error {
+	_, err := run(path, "fetch", "--prune")
+	return err
+}
+
+// LocalBranch describes one local branch and its upstream tracking state.
+type LocalBranch struct {
+	Name       string
+	Upstream   string // configured upstream, "" when the branch was never pushed
+	Gone       bool   // upstream is configured but its remote ref no longer exists
+	Ahead      int    // commits not on the upstream; 0 when gone or no upstream
+	LastCommit string // relative date of the last commit, e.g. "3 weeks ago"
+}
+
+// LocalBranches lists every local branch with its upstream state.
+func LocalBranches(path string) ([]LocalBranch, error) {
+	out, err := run(path, "for-each-ref",
+		"--format=%(refname)%00%(upstream:short)%00%(upstream:track)%00%(committerdate:relative)",
+		"refs/heads")
+	if err != nil {
+		return nil, fmt.Errorf("list local branches: %w", err)
+	}
+	var branches []LocalBranch
+	for _, record := range strings.Split(out, "\n") {
+		if record == "" {
+			continue
+		}
+		fields := strings.Split(record, "\x00")
+		if len(fields) != 4 {
+			return nil, fmt.Errorf("list local branches: malformed record %q", record)
+		}
+		b := LocalBranch{
+			Name:       strings.TrimPrefix(fields[0], "refs/heads/"),
+			Upstream:   fields[1],
+			Gone:       fields[2] == "[gone]",
+			LastCommit: fields[3],
+		}
+		// %(upstream:track) prints "[ahead N]", "[behind N]" or "[ahead N, behind M]".
+		if strings.HasPrefix(fields[2], "[ahead ") {
+			if _, err := fmt.Sscanf(fields[2], "[ahead %d", &b.Ahead); err != nil {
+				return nil, fmt.Errorf("parse ahead count %q for %s: %w", fields[2], b.Name, err)
+			}
+		}
+		branches = append(branches, b)
+	}
+	return branches, nil
+}
+
+// CommitsNotIn lists the commits on branch that are not reachable from target,
+// newest first, as "<short hash> <subject>" lines.
+func CommitsNotIn(path, branch, target string) ([]string, error) {
+	out, err := run(path, "log", "--format=%h %s", target+"..refs/heads/"+branch, "--")
+	if err != nil {
+		return nil, fmt.Errorf("list commits of %s not in %s: %w", branch, target, err)
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
 // FetchBranch fetches a single branch from origin so that git checkout can
 // create a local tracking branch from the remote ref.
 // The -- separator ensures the branch name is always treated as a refspec
