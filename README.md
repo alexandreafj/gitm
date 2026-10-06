@@ -48,6 +48,7 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [branch delete](#gitm-branch-delete)
   - [status (attention filters and JSON)](#gitm-status)
   - [branches](#gitm-branches)
+  - [prune](#gitm-prune)
   - [update](#gitm-update)
   - [sync](#gitm-sync)
   - [discard](#gitm-discard)
@@ -1150,6 +1151,88 @@ Collecting branch info for "feature/JIRA-123" across 3 repositories…
 ●  api-gateway   local+remote  feature/JIRA-123  origin/feature/JIRA-123  up to date    not merged
    auth-service  remote only   master            —                        —             not merged
    frontend      missing       master            —                        —             —
+```
+
+---
+
+### `gitm prune`
+
+Delete local branches that are already merged, across all registered repositories. It is a **dry run by default**: it lists every local branch and what would happen to it. Pass `--yes` to delete. Detects both normal merges and squash merges.
+
+```
+gitm prune [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--yes` | `-y` | false | Delete the branches. Without it, only show what would be deleted. |
+| `--force` | — | false | Also delete branches with commits not pushed to their upstream. |
+| `--no-fetch` | — | false | Skip `git fetch --prune` and use the refs that are already local. |
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit to repositories in a group. Combines with `--repo` as an intersection. |
+
+**Rules:**
+
+| Status | Means | Action |
+|---|---|---|
+| `merged` | every commit is in `origin/<default branch>` | deleted |
+| `upstream gone` | the remote branch was deleted, usually after a squash or rebase merge | deleted, after showing its commits |
+| `not pushed` | no upstream, local-only work | kept, always |
+| `current` | checked out | kept |
+| `default` | the default branch itself | kept, always |
+| `N ahead` | commits not pushed to the upstream | kept, unless `--force` |
+| `not merged` | pushed, but not merged yet | kept |
+
+**Behaviour:**
+
+- Runs `git fetch --prune` first, so branches deleted on the remote show as `upstream gone`. Repositories are inspected in **parallel**.
+- A squash merge never makes the branch commits part of the default branch, so the merged check cannot see it. A gone upstream is the signal instead. For those branches, the commits that are not in the default branch are listed under the table. Check them before you pass `--yes`.
+- The merged check uses `origin/<default branch>`, and falls back to the local default branch when there is no remote ref. The local default branch is often behind.
+- A branch that was never pushed is kept even when it has no commits of its own. It is often a branch you just created.
+- Branches are deleted with `git branch -D`. The safe `-d` checks against the checked-out branch or the upstream, not the default branch, so it refuses squash-merged branches. The rules above are the safety check.
+- A repository that fails (fetch error, missing default branch) shows an error row. The other repositories still run, and the command exits nonzero.
+- Remote branches are never deleted.
+
+**Examples:**
+
+```bash
+# See what would be deleted
+gitm prune
+
+# Delete merged and squash-merged branches
+gitm prune --yes
+
+# Scope to specific repos or a group
+gitm prune -r api-gateway,auth-service
+gitm prune -g backend --yes
+
+# Also delete branches with unpushed commits
+gitm prune --yes --force
+```
+
+**Example output:**
+
+```
+$ gitm prune
+DRY RUN: no changes made
+
+REPO          BRANCH              STATUS         LAST COMMIT   ACTION
+api-gateway   feature/JIRA-123    upstream gone  3 weeks ago   delete
+api-gateway   fix/login-redirect  merged         2 months ago  delete
+api-gateway   master              default        2 days ago    keep
+auth-service  feature/search      1 ahead        5 days ago    keep (--force deletes)
+auth-service  master              current        2 days ago    keep
+auth-service  spike/caching       not pushed     4 days ago    keep
+
+Upstream gone. These commits are not in the default branch, check them before --yes:
+
+  api-gateway feature/JIRA-123
+    a1b2c3d Add retry to token refresh
+    d4e5f6a Fix test
+
+2 branch(es) would be deleted in 1 repository(ies). Run with --yes to delete.
 ```
 
 ---
@@ -2267,6 +2350,7 @@ cli-git-commands/
 │   │   ├── status.go            # status command, attention filtering, JSON output
 │   │   ├── status_report.go     # Status collection and table rendering
 │   │   ├── branches.go          # branches (multi-repo branch dashboard)
+│   │   ├── prune.go             # prune (delete merged and squash-merged local branches)
 │   │   ├── update.go            # update
 │   │   ├── sync.go              # sync (merge default branch into current branch)
 │   │   ├── discard.go           # discard
