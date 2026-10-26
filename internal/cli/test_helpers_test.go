@@ -85,6 +85,9 @@ func setupTestDB(t *testing.T) *db.DB {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
+	if err := os.WriteFile(dbPath, templates.db, 0644); err != nil {
+		t.Fatalf("write template db: %v", err)
+	}
 	d, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -130,13 +133,18 @@ func initRepoAt(t *testing.T, dir string) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("MkdirAll %s: %v", dir, err)
 	}
-	mustRunGit(t, dir, "init", "-b", "main")
-	mustRunGit(t, dir, "config", "user.email", "test@example.com")
-	mustRunGit(t, dir, "config", "user.name", "Test User")
-	mustRunGit(t, dir, "config", "commit.gpgsign", "false")
-	writeFile(t, dir, "README.md", "# test repo\n")
-	mustRunGit(t, dir, "add", ".")
-	mustRunGit(t, dir, "commit", "-m", "initial commit")
+	copyRepoTemplate(t, templates.repo, dir)
+}
+
+// copyRepoTemplate copies a template work tree and refreshes its index: the
+// copied index still carries the template files' inode and ctime, which
+// plumbing such as diff-files or diff-index would report as modifications.
+func copyRepoTemplate(t *testing.T, template, dir string) {
+	t.Helper()
+	if err := os.CopyFS(dir, os.DirFS(template)); err != nil {
+		t.Fatalf("copy repo template to %s: %v", dir, err)
+	}
+	mustRunGit(t, dir, "update-index", "-q", "--refresh")
 }
 
 func initBareRepo(t *testing.T) string {
@@ -161,12 +169,14 @@ func cloneRepo(t *testing.T, origin string) string {
 
 func initRepoWithRemote(t *testing.T) (repoDir, originDir, branch string) {
 	t.Helper()
-	originDir = initBareRepo(t)
-	repoDir = initRepo(t)
-	mustRunGit(t, repoDir, "remote", "add", "origin", originDir)
-	branch = gitCurrentBranch(t, repoDir)
-	mustRunGit(t, repoDir, "push", "--set-upstream", "origin", branch)
-	return repoDir, originDir, branch
+	originDir = t.TempDir()
+	if err := os.CopyFS(originDir, os.DirFS(templates.origin)); err != nil {
+		t.Fatalf("copy origin template: %v", err)
+	}
+	repoDir = t.TempDir()
+	copyRepoTemplate(t, templates.remoteRepo, repoDir)
+	mustRunGit(t, repoDir, "remote", "set-url", "origin", originDir)
+	return repoDir, originDir, templateBranch
 }
 
 func writeFile(t *testing.T, dir, name, content string) {
