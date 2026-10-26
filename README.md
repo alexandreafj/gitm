@@ -47,8 +47,10 @@ Run git operations across dozens of repositories in parallel — checkout, pull,
   - [branch rename](#gitm-branch-rename)
   - [branch delete](#gitm-branch-delete)
   - [status (attention filters and JSON)](#gitm-status)
+  - [log](#gitm-log)
   - [branches](#gitm-branches)
   - [prune](#gitm-prune)
+  - [fetch](#gitm-fetch)
   - [update](#gitm-update)
   - [sync](#gitm-sync)
   - [discard](#gitm-discard)
@@ -81,6 +83,7 @@ When working across many repositories, daily git operations become repetitive:
 | Manually `cd` into 6 repos to create a feature branch | `gitm branch create feature/JIRA-123` |
 | Manually rename a branch in each repo + update remote | `gitm branch rename old-name new-name` |
 | Forget which repos are dirty or behind origin | `gitm status` |
+| Remember what you worked on yesterday for standup, across every repo and branch | `gitm log` |
 | Check which repos have a feature branch and how each stands vs default | `gitm branches feature/JIRA-123` |
 | Manually `cd` into each repo to stage + commit + push | `gitm commit` |
 | Stash changes in specific repos before switching branches | `gitm stash` |
@@ -1062,6 +1065,76 @@ Example for a clean local-only repository:
 
 ---
 
+### `gitm log`
+
+Show the commits you made recently, across every registered repository. It answers the standup question: what did I touch yesterday, across everything? Read-only, and repositories are inspected in **parallel**.
+
+```
+gitm log [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--since` | — | `yesterday` | Show commits more recent than this date. Any date git understands: `yesterday`, `last friday`, `3 days ago`, `2026-10-20`. |
+| `--until` | — | _(none)_ | Show commits older than this date. |
+| `--author` | — | _(your `user.email`)_ | Only commits whose author matches this git `--author` pattern, matched against `Name <email>`. Cannot be combined with `--all-authors`. |
+| `--all-authors` | — | false | Show commits by every author. |
+| `--current-branch` | — | false | Only the checked-out branch, instead of all local branches. |
+| `--max-count` | `-n` | `0` | At most this many commits per repository. `0` means no limit. |
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit to repositories in a group. Combines with `--repo` as an intersection. |
+
+**Behaviour:**
+
+- "You" is the `user.email` from each repository's git config (local or global), matched as `<email>` so `bob@x.com` does not also match `jimbob@x.com`. When no email is set, `user.name` is used. When neither is set, that repository shows commits by all authors and a `Warning:` line names it.
+- Runs one `git log --branches` per repository, so commits on every local branch are included, not just the checked-out one. `--current-branch` limits it to `HEAD`.
+- `--since` and `--until` are passed to git as is, so git parses the date. Both filter on the commit date. On a Monday, use `--since "last friday"`.
+- Each commit shows its short hash, relative commit date and subject, newest first. Repositories with no matching commits are left out.
+- Output is in alias order, after every repository has been inspected.
+- If no repository has a matching commit, it prints `No commits found.` and exits 0.
+- A repository that fails (missing directory, git error) shows an error entry. The others still print, and the command exits nonzero.
+- Never changes anything: no fetch, no checkout, no writes.
+
+**Examples:**
+
+```bash
+# What did I commit since yesterday, on any branch, in any repo?
+gitm log
+
+# Monday standup
+gitm log --since "last friday"
+
+# A fixed window
+gitm log --since "2026-10-20" --until "2026-10-21"
+
+# Everyone's commits in the backend group
+gitm log --all-authors -g backend
+
+# Someone else's last 5 commits per repo
+gitm log --author "jane@example.com" -n 5
+
+# Only the checked-out branch, in two repos
+gitm log --current-branch -r api-gateway,auth-service
+```
+
+**Example output:**
+
+```
+$ gitm log
+api-gateway
+  a1b2c3d  3 hours ago   Add retry to token refresh
+  d4e5f6a  20 hours ago  Fix flaky auth test
+
+auth-service
+  9f8e7d6  5 hours ago   Wire refresh endpoint into client
+
+3 commit(s) across 2 repository(ies).
+```
+
+---
+
 ### `gitm branches`
 
 A branch dashboard across all registered repositories. Answers, at a glance: which branch is each repo on, does a given feature branch exist in each repo, is it tracked/pushed, how far ahead/behind origin is it, and has it already merged into the default branch. Runs in **parallel** and avoids a full fetch by default. Purpose-built for multi-repo feature work.
@@ -1339,6 +1412,59 @@ $ gitm discard --repo api-gateway --dry-run
 ```
 $ gitm discard
 Nothing to discard — all repositories are clean.
+```
+
+---
+
+### `gitm fetch`
+
+Run `git fetch` in every registered repository, in **parallel**. Only remote-tracking refs (`origin/*`) change, so it is safe to run at any time, even with uncommitted changes.
+
+```
+gitm fetch [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--prune` | — | false | Also delete remote-tracking refs whose branch was deleted on origin (`git fetch --prune`). |
+| `--repo` | `-r` | _(all repos)_ | Limit to specific repository aliases (comma-separated). |
+| `--group` | `-g` | _(all repos)_ | Limit to repositories in a group. Combines with `--repo` as an intersection. |
+
+**Behaviour:**
+
+- Never touches the working tree, the index, `HEAD` or local branches. Afterwards, `gitm status` and `gitm branches` show fresh ahead/behind numbers without their own `--fetch`.
+- `--prune` removes stale `origin/*` refs only. Local branches are never deleted; use [`gitm prune`](#gitm-prune) for that.
+- Each repository gets one row: `ok`, or the error. A repository without an `origin` remote, or whose origin cannot be reached, is an error. The other repositories still run, and the command exits nonzero.
+
+**Examples:**
+
+```bash
+# Refresh every repo
+gitm fetch
+
+# Also drop refs for branches deleted on origin
+gitm fetch --prune
+
+# Scope to specific repos or a group
+gitm fetch -r api-gateway,auth-service
+gitm fetch -g backend --prune
+```
+
+**Example output:**
+
+```
+$ gitm fetch
+Fetching from origin for 3 repositories…
+
+REPO          RESULT
+api-gateway   ok
+auth-service  ok
+local-tool    ERROR: no origin remote configured
+
+Done: 2 succeeded, 1 failed
+Error: fetch failed for 1 repository(ies)
 ```
 
 ---
@@ -2349,8 +2475,10 @@ cli-git-commands/
 │   │   ├── branch.go            # branch create/rename/delete
 │   │   ├── status.go            # status command, attention filtering, JSON output
 │   │   ├── status_report.go     # Status collection and table rendering
+│   │   ├── log.go               # log (your recent commits across repos, standup helper)
 │   │   ├── branches.go          # branches (multi-repo branch dashboard)
 │   │   ├── prune.go             # prune (delete merged and squash-merged local branches)
+│   │   ├── fetch.go             # fetch (git fetch across repos, remote-tracking refs only)
 │   │   ├── update.go            # update
 │   │   ├── sync.go              # sync (merge default branch into current branch)
 │   │   ├── discard.go           # discard

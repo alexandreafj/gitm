@@ -1037,6 +1037,71 @@ func CommitLog(path string, n int) ([]string, error) {
 	return entries, nil
 }
 
+// ConfigValue returns the effective value of a git config key, or "" when the
+// key is not set.
+func ConfigValue(path, key string) (string, error) {
+	out, err := run(path, "config", "--get", key)
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return "", nil
+	}
+	return out, err
+}
+
+// LogEntry is one commit of a Log listing.
+type LogEntry struct {
+	Hash    string
+	Date    string // relative committer date, e.g. "3 hours ago"
+	Subject string
+}
+
+// LogOptions narrows a Log listing. Empty strings and a zero MaxCount add no
+// limit. Since and Until go to git as is, so any date git parses works.
+type LogOptions struct {
+	Since       string
+	Until       string
+	Author      string // git --author pattern, matched against "Name <email>"
+	AllBranches bool   // every local branch instead of HEAD only
+	MaxCount    int
+}
+
+// Log lists commits newest first with a single git log call.
+func Log(path string, opts LogOptions) ([]LogEntry, error) {
+	args := []string{"log", "--format=%h%x00%cr%x00%s"}
+	if opts.AllBranches {
+		args = append(args, "--branches")
+	}
+	if opts.Since != "" {
+		args = append(args, "--since="+opts.Since)
+	}
+	if opts.Until != "" {
+		args = append(args, "--until="+opts.Until)
+	}
+	if opts.Author != "" {
+		args = append(args, "--author="+opts.Author)
+	}
+	// git treats --max-count=0 as "show nothing", not "no limit".
+	if opts.MaxCount > 0 {
+		args = append(args, fmt.Sprintf("--max-count=%d", opts.MaxCount))
+	}
+	out, err := run(path, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []LogEntry
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("unexpected git log line %q", line)
+		}
+		entries = append(entries, LogEntry{Hash: parts[0], Date: parts[1], Subject: parts[2]})
+	}
+	return entries, nil
+}
+
 // ForcePush pushes the current branch to origin using --force-with-lease,
 // which refuses to overwrite if the remote has commits we haven't seen.
 // This is the safest form of force-push for history rewriting.
