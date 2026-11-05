@@ -105,15 +105,9 @@ func runLog(w io.Writer, opts logOptions) error {
 	}
 	slices.SortFunc(repos, func(a, b *db.Repository) int { return strings.Compare(a.Alias, b.Alias) })
 
-	logs := make([]repoLog, len(repos))
-	index := make(map[int64]int, len(repos))
-	for i, repo := range repos {
-		index[repo.ID] = i
-	}
-	runner.RunEach(repos, func(repo *db.Repository) (string, string, error) {
-		logs[index[repo.ID]] = collectLog(repo, opts)
-		return "", "", nil
-	}, nil)
+	logs := runner.Collect(repos, func(repo *db.Repository) repoLog {
+		return collectLog(repo, opts)
+	})
 
 	for _, l := range logs {
 		if l.warning != "" {

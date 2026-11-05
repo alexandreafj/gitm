@@ -242,6 +242,7 @@ func TestRemoteDefaultBranchDisablesTerminalAuthenticationPrompt(t *testing.T) {
 
 func TestDefaultBranchFallsBackToLocalOriginHeadWhenRemoteUnavailable(t *testing.T) {
 	repo := initRepo(t)
+	mustRunGit(t, repo, "update-ref", "refs/remotes/origin/release", "HEAD")
 	mustRunGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release")
 
 	got, err := git.DefaultBranch(repo)
@@ -1320,5 +1321,180 @@ func TestCommitsNotIn(t *testing.T) {
 	}
 	if len(commits) != 0 {
 		t.Errorf("CommitsNotIn after merge = %q, want none", commits)
+	}
+}
+
+func TestLocalDefaultBranchReadsOriginHead(t *testing.T) {
+	_, origin := initRepoWithRemote(t)
+	clone := cloneRepo(t, origin)
+
+	got, err := git.LocalDefaultBranch(clone)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Fatalf("LocalDefaultBranch = %q, want main", got)
+	}
+}
+
+func TestLocalDefaultBranchEmptyWhenUnset(t *testing.T) {
+	_, origin := initRepoWithRemote(t)
+	clone := cloneRepo(t, origin)
+	mustRunGit(t, clone, "remote", "set-head", "origin", "--delete")
+
+	got, err := git.LocalDefaultBranch(clone)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("LocalDefaultBranch = %q, want empty", got)
+	}
+}
+
+func TestLocalDefaultBranchRejectsUnreadableOrForeignHead(t *testing.T) {
+	t.Run("not a repository", func(t *testing.T) {
+		_, err := git.LocalDefaultBranch(t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "read origin/HEAD") {
+			t.Fatalf("LocalDefaultBranch() error = %v, want read origin/HEAD context", err)
+		}
+	})
+
+	t.Run("target outside origin", func(t *testing.T) {
+		repo := initRepo(t)
+		mustRunGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/main")
+
+		_, err := git.LocalDefaultBranch(repo)
+		if err == nil || !strings.Contains(err.Error(), "refs/heads/main") {
+			t.Fatalf("LocalDefaultBranch() error = %v, want unexpected target", err)
+		}
+	})
+}
+
+func TestSetRemoteHeadWritesOriginHead(t *testing.T) {
+	repo, _ := initRepoWithRemote(t)
+
+	if err := git.SetRemoteHead(t.TempDir(), "main"); err == nil || !strings.Contains(err.Error(), "set origin/HEAD to main") {
+		t.Fatalf("SetRemoteHead outside a repository error = %v, want contextual error", err)
+	}
+	if err := git.SetRemoteHead(repo, "main"); err != nil {
+		t.Fatalf("SetRemoteHead: %v", err)
+	}
+
+	got, err := git.LocalDefaultBranch(repo)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Fatalf("LocalDefaultBranch = %q, want main", got)
+	}
+}
+
+func TestSetRemoteHeadAcceptsUnfetchedBranch(t *testing.T) {
+	repo, origin := initRepoWithRemote(t)
+	mustRunGit(t, origin, "branch", "release", "main")
+
+	if err := git.SetRemoteHead(repo, "release"); err != nil {
+		t.Fatalf("SetRemoteHead: %v", err)
+	}
+	if got := mustRunGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/release" {
+		t.Fatalf("origin/HEAD = %q, want refs/remotes/origin/release", got)
+	}
+	if got, err := git.LocalDefaultBranch(repo); err != nil || got != "" {
+		t.Fatalf("LocalDefaultBranch before fetch = %q, %v; want unset", got, err)
+	}
+
+	mustRunGit(t, repo, "fetch", "origin")
+	if got, err := git.LocalDefaultBranch(repo); err != nil || got != "release" {
+		t.Fatalf("LocalDefaultBranch after fetch = %q, %v; want release", got, err)
+	}
+}
+
+func TestLocalDefaultBranchTreatsDanglingHeadAsUnset(t *testing.T) {
+	_, origin := initRepoWithRemote(t)
+	clone := cloneRepo(t, origin)
+	mustRunGit(t, clone, "update-ref", "-d", "refs/remotes/origin/main")
+
+	got, err := git.LocalDefaultBranch(clone)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("LocalDefaultBranch = %q, want empty for an origin/HEAD whose target was pruned", got)
+	}
+}
+
+func TestIsMissingRemoteRefError(t *testing.T) {
+	_, origin := initRepoWithRemote(t)
+	clone := cloneRepo(t, origin)
+
+	err := git.FetchBranch(clone, "no-such-branch")
+	if err == nil {
+		t.Fatal("FetchBranch of a missing branch succeeded, want error")
+	}
+	if !git.IsMissingRemoteRefError(err) {
+		t.Fatalf("IsMissingRemoteRefError(%q) = false, want true", err)
+	}
+	if git.IsMissingRemoteRefError(errors.New("connection refused")) {
+		t.Fatal("IsMissingRemoteRefError(connection refused) = true, want false")
+	}
+	if git.IsMissingRemoteRefError(nil) {
+		t.Fatal("IsMissingRemoteRefError(nil) = true, want false")
+	}
+}
+
+func TestFetchBranchTreatsTagOnlyNameAsMissing(t *testing.T) {
+	work, origin := initRepoWithRemote(t)
+	clone := cloneRepo(t, origin)
+	mustRunGit(t, work, "tag", "v1")
+	mustRunGit(t, work, "push", "origin", "v1")
+
+	err := git.FetchBranch(clone, "v1")
+	if err == nil {
+		t.Fatal("FetchBranch of a tag-only name succeeded, want missing-ref error")
+	}
+	if !git.IsMissingRemoteRefError(err) {
+		t.Fatalf("IsMissingRemoteRefError(%q) = false, want true", err)
+	}
+}
+
+func TestFetchBranchCreatesRemoteTrackingRefInSingleBranchClone(t *testing.T) {
+	work, origin := initRepoWithRemote(t)
+	mustRunGit(t, work, "branch", "feature/x")
+	mustRunGit(t, work, "push", "origin", "feature/x")
+	clone := filepath.Join(t.TempDir(), "clone")
+	mustRunGit(t, t.TempDir(), "clone", "--single-branch", origin, clone)
+
+	if err := git.FetchBranch(clone, "feature/x"); err != nil {
+		t.Fatalf("FetchBranch: %v", err)
+	}
+	mustRunGit(t, clone, "rev-parse", "--verify", "refs/remotes/origin/feature/x")
+}
+
+func TestFetchBranchRejectsGlobName(t *testing.T) {
+	_, origin := initRepoWithRemote(t)
+	clone := cloneRepo(t, origin)
+
+	err := git.FetchBranch(clone, "feat*")
+	if err == nil {
+		t.Fatal("FetchBranch(feat*) succeeded, want invalid branch name error")
+	}
+	if git.IsMissingRemoteRefError(err) {
+		t.Fatalf("IsMissingRemoteRefError(%q) = true, want false so callers report an error", err)
+	}
+}
+
+func TestCheckoutNeverTreatsNameAsPathspec(t *testing.T) {
+	repo := initRepo(t)
+	writeFile(t, repo, "README.md", "local edit\n")
+
+	if err := git.Checkout(repo, "README.md"); err == nil {
+		t.Fatal("Checkout(README.md) succeeded, want invalid reference error")
+	}
+	content, err := os.ReadFile(filepath.Join(repo, "README.md"))
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	if got := string(content); got != "local edit\n" {
+		t.Fatalf("README.md = %q, want the uncommitted edit kept", got)
 	}
 }

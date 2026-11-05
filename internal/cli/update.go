@@ -35,10 +35,11 @@ Pull conflicts are reported as failures and left in place for resolution.
 
 If the remote branch no longer exists (e.g. deleted after a PR merge), the
 repository is automatically switched to its default branch and pulled. Only in
-that fallback path, gitm performs a lightweight network lookup of origin's
-symbolic HEAD (not a full fetch) and updates GitM's SQLite cache when it changed.
-If the lookup fails, gitm warns and uses the cached default. Ordinary successful
-updates do not refresh the default-branch cache.
+that fallback path, gitm reads the default branch from the local origin/HEAD ref
+(asking origin only when that ref is missing, dangling, or different from the
+cached default) and updates GitM's SQLite cache when it changed. If the lookup
+fails, gitm warns and uses the cached default. Ordinary successful updates do
+not refresh the default-branch cache.
 
 Repositories with uncommitted changes are skipped.
 Branches with no upstream are skipped — there is nothing to pull until the

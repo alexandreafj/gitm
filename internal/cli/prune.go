@@ -52,7 +52,10 @@ those branches, the commits that are not in the default branch are listed
 under the table. Check them before you pass --yes.
 
 The merged check uses origin/<default branch>, and falls back to the local
-default branch when there is no remote ref.
+default branch when there is no remote ref. The default branch comes from each
+repository's local origin/HEAD; origin is asked only when that ref is missing,
+dangling, or different from the cached default, and only --yes runs record the
+answer in GitM's cache and origin/HEAD.
 
 Use --no-fetch to skip git fetch --prune and use the refs that are already
 local. Use --repo / -r to limit to specific repositories by alias. Use
@@ -114,26 +117,13 @@ func runPrune(w io.Writer, opts pruneOptions) error {
 		fmt.Fprintln(w, noReposMessage(opts.repoAliases, opts.groupName))
 		return nil
 	}
-	if err := reconcileDefaultBranches(database, repos, true); err != nil {
+	if err := reconcileDefaultBranches(database, repos, opts.yes); err != nil {
 		return fmt.Errorf("refresh default branches: %w", err)
 	}
 
-	results := make([]pruneRepo, len(repos))
-	done := make(chan struct{}, len(repos))
-	sem := make(chan struct{}, 10)
-	for i, repo := range repos {
-		go func() {
-			sem <- struct{}{}
-			defer func() {
-				<-sem
-				done <- struct{}{}
-			}()
-			results[i] = collectPrune(repo, !opts.noFetch)
-		}()
-	}
-	for range repos {
-		<-done
-	}
+	results := runner.Collect(repos, func(repo *db.Repository) pruneRepo {
+		return collectPrune(repo, !opts.noFetch)
+	})
 
 	if !opts.yes {
 		fmt.Fprintln(w, "DRY RUN: no changes made")

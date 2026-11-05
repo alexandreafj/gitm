@@ -130,6 +130,20 @@ func TestRunPruneDryRunDeletesNothing(t *testing.T) {
 	}
 }
 
+func TestRunPruneDryRunLeavesOriginHeadUnset(t *testing.T) {
+	setupTestDB(t)
+	dir, _ := newPruneRepo(t)
+
+	var out bytes.Buffer
+	if err := runPrune(&out, pruneOptions{noFetch: true}); err != nil {
+		t.Fatalf("runPrune: %v\n%s", err, out.String())
+	}
+
+	if local, err := git.LocalDefaultBranch(dir); err != nil || local != "" {
+		t.Fatalf("dry run wrote origin/HEAD: LocalDefaultBranch = %q, %v; want unset", local, err)
+	}
+}
+
 func TestRunPruneYesDeletesMergedAndGone(t *testing.T) {
 	setupTestDB(t)
 	dir, _ := newPruneRepo(t)

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/alexandreafj/gitm/internal/git"
 )
 
 func TestRunDoctor_NoRepos(t *testing.T) {
@@ -160,5 +162,57 @@ func TestRunDoctorRefreshesDefaultBranchBeforeInspection(t *testing.T) {
 	}
 	if stored.DefaultBranch != "master" {
 		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+}
+
+func TestRunDoctorRechecksRenamedRemoteDefault_Unfetched(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRenamedRemoteDefault(t, "renamed")
+
+	output := captureOutput(t, func() {
+		if err := runDoctor([]string{"renamed"}); err != nil {
+			t.Errorf("runDoctor: %v", err)
+		}
+	})
+
+	if strings.Contains(output, "Warning:") {
+		t.Fatalf("output has a lookup warning:\n%s", output)
+	}
+	stored, err := database.GetRepository("renamed")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+	if got := mustRunGit(t, repo.Path, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/master" {
+		t.Fatalf("origin/HEAD = %q, want refs/remotes/origin/master", got)
+	}
+}
+
+func TestRunDoctorRechecksRenamedRemoteDefault(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRenamedRemoteDefault(t, "renamed")
+	// A fetch without --prune keeps origin/main, so the stale origin/HEAD still
+	// resolves locally and only a live lookup notices the rename.
+	mustRunGit(t, repo.Path, "fetch", "origin")
+
+	if err := runDoctor([]string{"renamed"}); err != nil {
+		t.Fatalf("runDoctor: %v", err)
+	}
+
+	stored, err := database.GetRepository("renamed")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+	local, err := git.LocalDefaultBranch(repo.Path)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if local != "master" {
+		t.Fatalf("local origin/HEAD = %q, want master", local)
 	}
 }

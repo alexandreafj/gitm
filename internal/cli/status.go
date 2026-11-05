@@ -95,15 +95,9 @@ func runStatusWithOptions(w io.Writer, repoAliases []string, groupName string, o
 }
 
 func writeStatusReport(w io.Writer, contextName string, repos []*db.Repository, options statusOptions) error {
-	statuses := make([]repoStatus, len(repos))
-	indices := make(map[int64]int, len(repos))
-	for i, repo := range repos {
-		indices[repo.ID] = i
-	}
-	runner.RunEach(repos, func(repo *db.Repository) (string, string, error) {
-		statuses[indices[repo.ID]] = collectRepoStatus(repo, options.fetch)
-		return "", "", nil
-	}, nil)
+	statuses := runner.Collect(repos, func(repo *db.Repository) repoStatus {
+		return collectRepoStatus(repo, options.fetch)
+	})
 
 	report := statusReport{Version: 1, Context: contextName, Repositories: make([]repoStatus, 0, len(repos))}
 	var failed int

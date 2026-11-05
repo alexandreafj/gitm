@@ -104,6 +104,47 @@ func RemoteDefaultBranchContext(ctx context.Context, path string) (string, error
 	return "", errors.New("remote default branch: missing symbolic HEAD output")
 }
 
+// LocalDefaultBranch returns the branch recorded in refs/remotes/origin/HEAD
+// without contacting the remote, or "" when that ref is unset or dangling.
+func LocalDefaultBranch(path string) (string, error) {
+	out, err := run(path, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+	if exitedWith(err, 1) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read origin/HEAD: %w", err)
+	}
+	branch, ok := strings.CutPrefix(out, "refs/remotes/origin/")
+	if !ok || branch == "" {
+		return "", fmt.Errorf("read origin/HEAD: unexpected target %q", out)
+	}
+	// fetch --prune deletes the target but leaves origin/HEAD pointing at it.
+	_, err = run(path, "show-ref", "--verify", "-q", out)
+	if exitedWith(err, 1) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("verify origin/HEAD target %s: %w", out, err)
+	}
+	return branch, nil
+}
+
+func exitedWith(err error, code int) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == code
+}
+
+// SetRemoteHead points refs/remotes/origin/HEAD at origin/<branch>. Unlike
+// "git remote set-head", it does not require origin/<branch> to be fetched yet:
+// LocalDefaultBranch treats a dangling origin/HEAD as unset, so local-first
+// callers fall back to the remote until a fetch creates the target.
+func SetRemoteHead(path, branch string) error {
+	if _, err := run(path, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+branch); err != nil {
+		return fmt.Errorf("set origin/HEAD to %s: %w", branch, err)
+	}
+	return nil
+}
+
 // DefaultBranch detects the default branch (main/master) for a repo.
 // It tries the remote symbolic HEAD first, then falls back to local refs.
 func DefaultBranch(path string) (string, error) {
@@ -111,14 +152,8 @@ func DefaultBranch(path string) (string, error) {
 		return branch, nil
 	}
 
-	// Try origin/HEAD symbolic ref (most reliable).
-	out, err := run(path, "symbolic-ref", "refs/remotes/origin/HEAD")
-	if err == nil {
-		// refs/remotes/origin/main → main
-		parts := strings.Split(strings.TrimSpace(out), "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1], nil
-		}
+	if branch, err := LocalDefaultBranch(path); err == nil && branch != "" {
+		return branch, nil
 	}
 
 	// Fall back: check which of main/master exists locally.
@@ -130,7 +165,7 @@ func DefaultBranch(path string) (string, error) {
 	}
 
 	// Last resort: use HEAD's current branch.
-	out, err = run(path, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := run(path, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "main", nil // sane default
 	}
@@ -186,9 +221,11 @@ func DirtyFiles(path string) ([]string, error) {
 	return files, nil
 }
 
-// Checkout switches to the specified branch.
+// Checkout switches to the specified branch. The trailing -- makes git reject
+// a name that is not a ref instead of treating it as a pathspec, which would
+// silently overwrite uncommitted changes in matching files.
 func Checkout(path, branch string) error {
-	_, err := run(path, "checkout", branch)
+	_, err := run(path, "checkout", branch, "--")
 	return err
 }
 
@@ -366,6 +403,12 @@ func IsNoUpstreamError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "no tracking information")
 }
 
+// IsMissingRemoteRefError reports whether err came from a fetch of a ref that
+// origin does not have, as opposed to origin being unreachable.
+func IsMissingRemoteRefError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "couldn't find remote ref")
+}
+
 // PullRebase fetches origin/<branch> and rebases the current branch onto it,
 // autostashing any uncommitted changes around the rebase. It is used to recover
 // a branch whose push was rejected because the remote advanced (a
@@ -502,10 +545,18 @@ func CommitsNotIn(path, branch, target string) ([]string, error) {
 
 // FetchBranch fetches a single branch from origin so that git checkout can
 // create a local tracking branch from the remote ref.
-// The -- separator ensures the branch name is always treated as a refspec
-// and never misinterpreted as a flag (e.g. if it starts with -).
+// The refspec is explicit so that only refs/heads/<branch> matches (a tag or
+// other ref of the same name fails with "couldn't find remote ref" instead of
+// landing in FETCH_HEAD alone), and so that origin/<branch> is written even
+// when remote.origin.fetch does not cover it (e.g. single-branch clones).
+// The name is validated first because a * in it would turn the refspec into a
+// glob, which fetch accepts even when nothing matches.
+// The -- separator keeps a branch name starting with - from being read as a flag.
 func FetchBranch(path, branch string) error {
-	_, err := run(path, "fetch", "origin", "--", branch)
+	if _, err := run(path, "check-ref-format", "--branch", branch); err != nil {
+		return fmt.Errorf("invalid branch name %q: %w", branch, err)
+	}
+	_, err := run(path, "fetch", "origin", "--", "+refs/heads/"+branch+":refs/remotes/origin/"+branch)
 	return err
 }
 
