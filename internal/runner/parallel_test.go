@@ -2,6 +2,8 @@ package runner_test
 
 import (
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -174,8 +176,9 @@ func TestRunParallelExecution(t *testing.T) {
 }
 
 func TestRunMaxConcurrency(t *testing.T) {
-	repos := make([]*db.Repository, 20)
-	for i := 0; i < 20; i++ {
+	const repoCount = 80
+	repos := make([]*db.Repository, repoCount)
+	for i := 0; i < repoCount; i++ {
 		repos[i] = newTestRepo(fmt.Sprintf("repo%d", i))
 	}
 
@@ -193,8 +196,7 @@ func TestRunMaxConcurrency(t *testing.T) {
 		}
 		mu.Unlock()
 
-		// Sleep long enough for goroutines to genuinely overlap
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		mu.Lock()
 		concurrent--
@@ -203,11 +205,39 @@ func TestRunMaxConcurrency(t *testing.T) {
 		return "done", "", nil
 	}
 
-	_ = runner.Run(repos, op)
+	results := runner.Run(repos, op)
 
-	// We allow a small margin for timing issues
-	if maxConcur > 12 {
-		t.Errorf("expected max concurrency <= 10, got %d", maxConcur)
+	// 60 leaves scheduler slack below the cap of 64.
+	if maxConcur < 60 || maxConcur > 64 {
+		t.Errorf("max concurrency = %d, want between 60 and 64", maxConcur)
+	}
+	if len(results) != repoCount {
+		t.Fatalf("len(results) = %d, want %d", len(results), repoCount)
+	}
+	for _, r := range results {
+		if r.Status != runner.StatusSuccess {
+			t.Errorf("%s: status = %v, want StatusSuccess", r.Repo.Alias, r.Status)
+		}
+	}
+}
+
+func TestCollectPreservesOrder(t *testing.T) {
+	// newTestRepo derives IDs from alias length, so these 20 repos share IDs:
+	// Collect must place results by position, not by repo.ID.
+	repos := make([]*db.Repository, 20)
+	want := make([]string, len(repos))
+	for i := range repos {
+		repos[i] = newTestRepo(fmt.Sprintf("repo%d", i))
+		want[i] = repos[i].Alias
+	}
+
+	got := runner.Collect(repos, func(repo *db.Repository) string {
+		time.Sleep(time.Duration(rand.IntN(11)) * time.Millisecond)
+		return repo.Alias
+	})
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("Collect() = %v, want %v", got, want)
 	}
 }
 

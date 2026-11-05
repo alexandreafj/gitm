@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexandreafj/gitm/internal/db"
 	"github.com/alexandreafj/gitm/internal/git"
+	"github.com/alexandreafj/gitm/internal/runner"
 )
 
 func branchesCmd() *cobra.Command {
@@ -35,11 +36,12 @@ the target), and the target's upstream, ahead/behind, and merged-into-default
 state. Repositories that do not have the target show — for the remaining columns.
 
 Without --fetch, remote branch existence and ahead/behind numbers come from the
-last-fetched origin refs. The command still performs a lightweight network
-lookup of origin's symbolic HEAD (not a full fetch) so merged-into-default state
-uses the current default. A change updates GitM's SQLite cache; a failed lookup
-emits a warning and uses the cached default. Pass --fetch to refresh all remote
-refs first for up-to-date branch numbers (slower, requires more network work).
+last-fetched origin refs. Merged-into-default state uses the default branch
+recorded in the local origin/HEAD ref; only when that ref is missing, dangling,
+or different from the cached default does gitm ask origin (not a full fetch). A
+change updates GitM's SQLite cache; a failed lookup emits a warning and uses the
+cached default. Pass --fetch to refresh all remote refs first for up-to-date
+branch numbers (slower, requires more network work).
 Failed requested fetches or tracking queries are shown as repository errors.
 Other repositories are still inspected; the command then exits nonzero.
 Branches without an upstream show no comparison counts, rather than zero.
@@ -106,25 +108,9 @@ func runBranches(target string, fetchRemote bool, repoAliases []string, groupNam
 
 	printBranchesHeader(target, fetchRemote, len(repos))
 
-	infos := make([]branchInfo, len(repos))
-	done := make(chan struct{}, len(repos))
-	sem := make(chan struct{}, 10)
-
-	for i, repo := range repos {
-		i, repo := i, repo
-		go func() {
-			sem <- struct{}{}
-			defer func() {
-				<-sem
-				done <- struct{}{}
-			}()
-			infos[i] = collectBranchInfo(repo, target, fetchRemote)
-		}()
-	}
-
-	for range repos {
-		<-done
-	}
+	infos := runner.Collect(repos, func(repo *db.Repository) branchInfo {
+		return collectBranchInfo(repo, target, fetchRemote)
+	})
 
 	if err := printBranchesTable(os.Stdout, infos, target); err != nil {
 		return err

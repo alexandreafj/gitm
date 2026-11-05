@@ -60,9 +60,26 @@ func TestRunCheckoutBranch_SkipsDirty(t *testing.T) {
 
 func TestRunCheckoutBranch_NotFound(t *testing.T) {
 	database = setupTestDB(t)
-	repo, _ := newRepo(t, database, "repo1")
+	noOrigin, _ := newRepo(t, database, "no-origin")
+	dir, _, _ := initRepoWithRemote(t)
+	withOrigin, err := database.AddRepository("with-origin", "with-origin", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	repos := []*db.Repository{noOrigin, withOrigin}
 
-	if err := runCheckoutBranch([]*db.Repository{repo}, "missing-branch"); err != nil {
+	want := `branch "missing-branch" not found (local or remote)`
+	for _, repo := range repos {
+		_, skipReason, err := checkoutBranchInRepo(repo, "missing-branch")
+		if err != nil {
+			t.Fatalf("%s: checkoutBranchInRepo: %v", repo.Alias, err)
+		}
+		if skipReason != want {
+			t.Fatalf("%s: skip reason = %q, want %q", repo.Alias, skipReason, want)
+		}
+	}
+
+	if err := runCheckoutBranch(repos, "missing-branch"); err != nil {
 		t.Fatalf("runCheckoutBranch: %v", err)
 	}
 }
@@ -260,13 +277,17 @@ func TestRunCheckoutBranch_RemoteOnly(t *testing.T) {
 	mustRunGit(t, clone2Dir, "commit", "-m", "remote commit")
 	mustRunGit(t, clone2Dir, "push", "--set-upstream", "origin", "feature/remote-only")
 
-	// The branch only exists on origin, not locally in our working repo.
-	if err := runCheckoutBranch([]*db.Repository{repo}, "feature/remote-only"); err != nil {
-		t.Fatalf("runCheckoutBranch: %v", err)
-	}
+	output := captureOutput(t, func() {
+		if err := runCheckoutBranch([]*db.Repository{repo}, "feature/remote-only"); err != nil {
+			t.Fatalf("runCheckoutBranch: %v", err)
+		}
+	})
 
 	if head := gitCurrentBranch(t, dir); head != "feature/remote-only" {
 		t.Fatalf("head = %q, want %q", head, "feature/remote-only")
+	}
+	if !strings.Contains(output, "on feature/remote-only — fetched from origin") {
+		t.Fatalf("expected fetched-from-origin message, got:\n%s", output)
 	}
 }
 
@@ -304,6 +325,9 @@ func TestRunCheckoutBranch_DryRunRemoteOnlyDoesNotFetchOrSwitch(t *testing.T) {
 	}
 	if !strings.Contains(output, "git checkout feature/remote-only") {
 		t.Fatalf("expected checkout preview, got:\n%s", output)
+	}
+	if strings.Contains(output, "git pull") {
+		t.Fatalf("a fetched branch is not pulled, so the preview should not list a pull, got:\n%s", output)
 	}
 }
 
@@ -764,5 +788,359 @@ func TestCheckoutExplicitBranchSkipsDefaultRefresh(t *testing.T) {
 	}
 	if stored.DefaultBranch != "main" {
 		t.Fatalf("explicit checkout refreshed default branch to %q", stored.DefaultBranch)
+	}
+}
+
+func TestRunCheckoutDefault_RepairsRenamedRemoteDefault(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRenamedRemoteDefault(t, "renamed")
+	dir := repo.Path
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+			t.Errorf("runCheckoutDefault: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "on master — default branch renamed from main; ") {
+		t.Fatalf("output = %q, want the rename called out", output)
+	}
+	if branch := gitCurrentBranch(t, dir); branch != "master" {
+		t.Fatalf("current branch = %q, want master", branch)
+	}
+	stored, err := database.GetRepository("renamed")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+	local, err := git.LocalDefaultBranch(dir)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if local != "master" {
+		t.Fatalf("local origin/HEAD = %q, want master", local)
+	}
+}
+
+func TestRunCheckoutDefault_RepairsWhenCheckoutFails(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+	// A second remote that also has main makes "git checkout main" ambiguous
+	// once the local branch is gone, so the checkout fails before any pull
+	// could fetch origin/master.
+	mustRunGit(t, dir, "remote", "add", "upstream", originDir)
+	mustRunGit(t, dir, "fetch", "upstream")
+	repo, err := database.AddRepository("renamed", "renamed", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "remote", "set-head", "origin", "main")
+	mustRunGit(t, originDir, "branch", "-m", "main", "master")
+	mustRunGit(t, originDir, "symbolic-ref", "HEAD", "refs/heads/master")
+	mustRunGit(t, dir, "checkout", "-b", "feature/elsewhere")
+	mustRunGit(t, dir, "branch", "-D", "main")
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+			t.Errorf("runCheckoutDefault: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "renamed from main") {
+		t.Fatalf("output = %q, want the rename called out", output)
+	}
+	if branch := gitCurrentBranch(t, dir); branch != "master" {
+		t.Fatalf("current branch = %q, want master", branch)
+	}
+	stored, err := database.GetRepository("renamed")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+	if got := mustRunGit(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/master" {
+		t.Fatalf("origin/HEAD = %q, want refs/remotes/origin/master", got)
+	}
+}
+
+func TestRunCheckoutDefault_PullOverwriteFailureIsNotRetried(t *testing.T) {
+	database = setupTestDB(t)
+	dir, originDir, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("repo1", "repo1", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "remote", "set-head", "origin", "main")
+
+	other := filepath.Join(t.TempDir(), "other")
+	mustRunGit(t, t.TempDir(), "clone", originDir, other)
+	mustRunGit(t, other, "config", "user.email", "test@example.com")
+	mustRunGit(t, other, "config", "user.name", "Test User")
+	writeFile(t, other, "README.md", "changed upstream\n")
+	mustRunGit(t, other, "commit", "-am", "advance main")
+	mustRunGit(t, other, "push")
+
+	// The edit rides along on checkout, then blocks the fast-forward pull.
+	mustRunGit(t, dir, "checkout", "-b", "feature/edit")
+	writeFile(t, dir, "README.md", "local edit\n")
+	trace := filepath.Join(t.TempDir(), "git-trace")
+	t.Setenv("GIT_TRACE", trace)
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err == nil {
+			t.Error("expected the blocked pull to be reported as a failure")
+		}
+	})
+
+	if !strings.Contains(output, "would be overwritten") {
+		t.Fatalf("output = %q, want the original pull error", output)
+	}
+	traced, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatalf("read git trace: %v", err)
+	}
+	if strings.Contains(string(traced), "ls-remote") {
+		t.Fatal("a pull blocked by local changes should not ask origin for its default branch")
+	}
+}
+
+func TestRunCheckoutDefault_UnreachableOriginKeepsPullError(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("offline", "offline", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "remote", "set-head", "origin", "main")
+	mustRunGit(t, dir, "remote", "set-url", "origin", "/nonexistent")
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err == nil {
+			t.Error("expected the failed pull to be reported")
+		}
+	})
+
+	if !strings.Contains(output, "pull:") || strings.Contains(output, "fetch default branch") {
+		t.Fatalf("output = %q, want only the original pull error", output)
+	}
+	stored, err := database.GetRepository("offline")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want main untouched", stored.DefaultBranch)
+	}
+	if got := mustRunGit(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/main" {
+		t.Fatalf("origin/HEAD = %q, want refs/remotes/origin/main untouched", got)
+	}
+}
+
+func TestRunCheckoutDefault_FetchesRecordedButUnfetchedDefault(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRenamedRemoteDefault(t, "renamed")
+	// What doctor leaves behind: cache and origin/HEAD name master, but
+	// origin/master was never fetched.
+	if err := database.UpdateDefaultBranch("renamed", "master"); err != nil {
+		t.Fatalf("UpdateDefaultBranch: %v", err)
+	}
+	repo.DefaultBranch = "master"
+	mustRunGit(t, repo.Path, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err != nil {
+			t.Errorf("runCheckoutDefault: %v", err)
+		}
+	})
+
+	if branch := gitCurrentBranch(t, repo.Path); branch != "master" {
+		t.Fatalf("current branch = %q, want master", branch)
+	}
+	if !strings.Contains(output, "on master — ") || strings.Contains(output, "renamed from") {
+		t.Fatalf("output = %q, want a plain success on master", output)
+	}
+}
+
+func TestRunCheckoutDefault_RepairReportsPersistenceFailure(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRenamedRemoteDefault(t, "renamed")
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err == nil {
+			t.Error("expected the cache write failure to be reported")
+		}
+	})
+
+	if !strings.Contains(output, "persist default branch master for renamed") || !strings.Contains(output, "pull:") {
+		t.Fatalf("output = %q, want the original pull failure plus persistence context", output)
+	}
+	if repo.DefaultBranch != "main" {
+		t.Fatalf("in-memory default branch = %q, want main kept when the cache write fails", repo.DefaultBranch)
+	}
+}
+
+// addRepoWithRenamedRemoteDefault registers a repo whose local origin/HEAD still
+// names main after origin renamed its default branch to master.
+func addRepoWithRenamedRemoteDefault(t *testing.T, alias string) *db.Repository {
+	t.Helper()
+	dir, originDir, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository(alias, alias, dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "remote", "set-head", "origin", "main")
+	mustRunGit(t, originDir, "branch", "-m", "main", "master")
+	mustRunGit(t, originDir, "symbolic-ref", "HEAD", "refs/heads/master")
+	return repo
+}
+
+func TestRunCheckoutDefault_UnchangedRemoteDefaultKeepsOriginalError(t *testing.T) {
+	database = setupTestDB(t)
+	dir, _, _ := initRepoWithRemote(t)
+	repo, err := database.AddRepository("diverged", "diverged", dir, "main")
+	if err != nil {
+		t.Fatalf("AddRepository: %v", err)
+	}
+	mustRunGit(t, dir, "remote", "set-head", "origin", "main")
+	mustRunGit(t, dir, "config", "branch.main.merge", "refs/heads/vanished")
+
+	output := captureOutput(t, func() {
+		if err := runCheckoutDefault([]*db.Repository{repo}); err == nil {
+			t.Error("expected the pull failure to be reported")
+		}
+	})
+
+	if !strings.Contains(output, "pull:") || !strings.Contains(output, "vanished") {
+		t.Fatalf("output = %q, want the original pull error", output)
+	}
+	stored, err := database.GetRepository("diverged")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "main" {
+		t.Fatalf("stored default branch = %q, want main kept while origin still advertises it", stored.DefaultBranch)
+	}
+}
+
+func TestCheckoutBranchInRepo_RemoteOnlySkipsLsRemoteAndPull(t *testing.T) {
+	dir, origin, _ := initRepoWithRemote(t)
+	other := cloneRepo(t, origin)
+	mustRunGit(t, other, "config", "user.email", "test@example.com")
+	mustRunGit(t, other, "config", "user.name", "Test User")
+	mustRunGit(t, other, "checkout", "-b", "feature/x")
+	writeFile(t, other, "remote.txt", "from origin\n")
+	mustRunGit(t, other, "add", "remote.txt")
+	mustRunGit(t, other, "commit", "-m", "remote commit")
+	mustRunGit(t, other, "push", "--set-upstream", "origin", "feature/x")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	message, skipReason, err := checkoutBranchInRepo(repo, "feature/x")
+	if err != nil {
+		t.Fatalf("checkoutBranchInRepo: %v", err)
+	}
+	if skipReason != "" {
+		t.Fatalf("skip reason = %q, want empty", skipReason)
+	}
+	if !strings.Contains(message, "fetched from origin") {
+		t.Fatalf("message = %q, want it to mention fetched from origin", message)
+	}
+	if head := gitCurrentBranch(t, dir); head != "feature/x" {
+		t.Fatalf("head = %q, want feature/x", head)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "remote.txt"))
+	if err != nil {
+		t.Fatalf("read remote.txt: %v", err)
+	}
+	if got := string(content); got != "from origin\n" {
+		t.Fatalf("remote.txt = %q, want the fetched tip's content", got)
+	}
+}
+
+func TestCheckoutBranchInRepo_TagOnlyOnOriginIsSkippedAsNotFound(t *testing.T) {
+	dir, origin, _ := initRepoWithRemote(t)
+	other := cloneRepo(t, origin)
+	mustRunGit(t, other, "tag", "v1")
+	mustRunGit(t, other, "push", "origin", "v1")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	_, skipReason, err := checkoutBranchInRepo(repo, "v1")
+	if err != nil {
+		t.Fatalf("checkoutBranchInRepo: %v", err)
+	}
+	if want := `branch "v1" not found (local or remote)`; skipReason != want {
+		t.Fatalf("skip reason = %q, want %q", skipReason, want)
+	}
+	if head := gitCurrentBranch(t, dir); head != "main" {
+		t.Fatalf("head = %q, want main", head)
+	}
+}
+
+func TestCheckoutBranchInRepo_GlobNameIsErrorAndKeepsChanges(t *testing.T) {
+	dir, _, _ := initRepoWithRemote(t)
+	writeFile(t, dir, "feature.txt", "committed\n")
+	mustRunGit(t, dir, "add", "feature.txt")
+	mustRunGit(t, dir, "commit", "-m", "add feature.txt")
+	writeFile(t, dir, "feature.txt", "uncommitted\n")
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	message, skipReason, err := checkoutBranchInRepo(repo, "feat*")
+	if err == nil {
+		t.Fatalf("expected an error for a glob branch name, got message %q, skip reason %q", message, skipReason)
+	}
+	if message != "" || skipReason != "" {
+		t.Fatalf("message = %q, skip reason = %q, want both empty alongside the error", message, skipReason)
+	}
+	content, readErr := os.ReadFile(filepath.Join(dir, "feature.txt"))
+	if readErr != nil {
+		t.Fatalf("read feature.txt: %v", readErr)
+	}
+	if got := string(content); got != "uncommitted\n" {
+		t.Fatalf("feature.txt = %q, want the uncommitted edit kept", got)
+	}
+	if head := gitCurrentBranch(t, dir); head != "main" {
+		t.Fatalf("head = %q, want main", head)
+	}
+}
+
+func TestCheckoutBranchInRepo_FetchFailureIsErrorNotSkip(t *testing.T) {
+	dir, _, _ := initRepoWithRemote(t)
+	mustRunGit(t, dir, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "nonexistent"))
+
+	repo := &db.Repository{ID: 1, Alias: "repo1", Path: dir, DefaultBranch: "main"}
+	_, skipReason, err := checkoutBranchInRepo(repo, "feature/x")
+	if err == nil {
+		t.Fatalf("expected an error for an unreachable origin, got skip reason %q", skipReason)
+	}
+	if skipReason != "" {
+		t.Fatalf("skip reason = %q, want empty alongside the error", skipReason)
+	}
+}
+
+func TestCheckoutBranchDryRunItems_PreservesOrder(t *testing.T) {
+	repos := make([]*db.Repository, 8)
+	for i := range repos {
+		dir := initRepo(t)
+		if i%2 == 0 {
+			mustRunGit(t, dir, "branch", "feature/x")
+		}
+		repos[i] = &db.Repository{ID: int64(i + 1), Alias: fmt.Sprintf("repo%d", i), Path: dir, DefaultBranch: "main"}
+	}
+
+	items := checkoutBranchDryRunItems(repos, "feature/x")
+	if len(items) != len(repos) {
+		t.Fatalf("items = %d, want %d", len(items), len(repos))
+	}
+	for i, item := range items {
+		if item.repo.Alias != repos[i].Alias {
+			t.Fatalf("items[%d] = %s, want %s", i, item.repo.Alias, repos[i].Alias)
+		}
+		if missing := i%2 == 1; missing != (item.skipReason != "") {
+			t.Fatalf("items[%d] (%s) skip reason = %q, want skipped=%v", i, item.repo.Alias, item.skipReason, missing)
+		}
 	}
 }

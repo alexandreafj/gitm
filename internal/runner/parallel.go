@@ -35,8 +35,10 @@ type Result struct {
 // Return (message, skip reason, error). If skipReason != "" the result is Skipped.
 type OpFunc func(repo *db.Repository) (message string, skipReason string, err error)
 
-// maxConcurrency is the default number of parallel git operations.
-const maxConcurrency = 10
+// maxConcurrency caps parallel git operations. The work is dominated by network
+// round trips, not CPU, so the cap sits well above a typical registered-repo
+// count instead of tracking CPU count.
+const maxConcurrency = 64
 
 var (
 	green  = color.New(color.FgGreen, color.Bold)
@@ -60,46 +62,61 @@ func Run(repos []*db.Repository, op OpFunc) []Result {
 // serially as operations finish. It does not print a summary.
 func RunEach(repos []*db.Repository, op OpFunc, onResult func(Result)) []Result {
 	results := make([]Result, len(repos))
-	sem := make(chan struct{}, maxConcurrency)
 	var callbackMu sync.Mutex
 
-	var eg errgroup.Group
+	forEach(len(repos), func(i int) {
+		repo := repos[i]
+		msg, skip, err := op(repo)
 
-	for i, repo := range repos {
-		i, repo := i, repo // capture loop vars
+		r := Result{Repo: repo}
+		switch {
+		case err != nil:
+			r.Status = StatusError
+			r.Message = err.Error()
+			r.Err = err
+		case skip != "":
+			r.Status = StatusSkipped
+			r.Message = skip
+		default:
+			r.Status = StatusSuccess
+			r.Message = msg
+		}
+
+		results[i] = r
+		if onResult != nil {
+			callbackMu.Lock()
+			onResult(r)
+			callbackMu.Unlock()
+		}
+	})
+	return results
+}
+
+// Collect runs fn against each repository in parallel and returns the values
+// in input order. Results are placed by slice position, so repos need not have
+// unique IDs.
+func Collect[T any](repos []*db.Repository, fn func(*db.Repository) T) []T {
+	out := make([]T, len(repos))
+	forEach(len(repos), func(i int) {
+		out[i] = fn(repos[i])
+	})
+	return out
+}
+
+// forEach calls fn for every index in [0, n), at most maxConcurrency at a time.
+func forEach(n int, fn func(i int)) {
+	sem := make(chan struct{}, maxConcurrency)
+	var eg errgroup.Group
+	for i := range n {
 		eg.Go(func() error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-
-			msg, skip, err := op(repo)
-
-			r := Result{Repo: repo}
-			switch {
-			case err != nil:
-				r.Status = StatusError
-				r.Message = err.Error()
-				r.Err = err
-			case skip != "":
-				r.Status = StatusSkipped
-				r.Message = skip
-			default:
-				r.Status = StatusSuccess
-				r.Message = msg
-			}
-
-			results[i] = r
-			if onResult != nil {
-				callbackMu.Lock()
-				onResult(r)
-				callbackMu.Unlock()
-			}
+			fn(i)
 			return nil
 		})
 	}
-
-	//nolint:errcheck // errgroup.Wait() can only error from child goroutines; we handle all errors there
+	//nolint:errcheck // errgroup.Wait() can only error from child goroutines; none return errors
 	_ = eg.Wait()
-	return results
 }
 
 // FprintResult prints a result.

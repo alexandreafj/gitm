@@ -37,12 +37,22 @@ Three modes of operation:
 
   gitm checkout master  (or: gitm checkout main)
       Switches ALL repos to their configured default branch and pulls.
-      Resolves each remote's live default first; a failed lookup warns and uses
-      the cached branch. Dry-run previews never persist a refreshed default.
+      Uses the default branch recorded by Git (origin/HEAD) without contacting
+      the remote; only a repository whose ref is missing, dangling, or
+      different from the cached default asks origin, and a failed lookup warns
+      and uses the cached branch. If a
+      checkout or pull fails, gitm asks origin once for its default branch.
+      When the remote renamed it, gitm fetches the new branch, records it in
+      origin/HEAD and the cache, and retries that repository; a failed
+      checkout of an unchanged default is also fetched and retried once.
+      Dry-run previews never persist a refreshed default.
 
   gitm checkout <branch-name>
       Checks out <branch-name> in ALL repos where it exists.
-      Repos where the branch is not found are skipped with a warning.
+      Branches not present locally are fetched from origin in a single step;
+      a branch that exists nowhere is skipped with a warning, while an
+      unreachable origin is reported as an error (non-zero exit). A branch
+      fetched from origin during checkout is not pulled again.
 
 Repositories are skipped when uncommitted changes conflict with the target branch.
 When the requested branch is already current, tracked uncommitted changes skip
@@ -144,38 +154,87 @@ func runCheckoutDefaultDryRun(repos []*db.Repository, dryRun bool) error {
 	fmt.Printf("Checking out default branch and pulling for %d repositories…\n\n", len(repos))
 
 	results := runner.Run(repos, func(repo *db.Repository) (string, string, error) {
-		skipReason, err := dirtyCurrentBranchSkip(repo.Path, repo.DefaultBranch)
-		if err != nil {
-			return "", "", err
-		}
-		if skipReason != "" {
-			return "", skipReason, nil
-		}
-
-		if checkoutErr := git.Checkout(repo.Path, repo.DefaultBranch); checkoutErr != nil {
-			if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
-				return "", reason, nil
-			}
-			return "", "", fmt.Errorf("checkout %s: %w", repo.DefaultBranch, checkoutErr)
-		}
-
-		out, err := git.Pull(repo.Path)
-		if err != nil {
-			// A default branch with no upstream (local-only repo) has nothing
-			// to pull; the checkout itself succeeded.
-			if git.IsNoUpstreamError(err) {
-				return fmt.Sprintf("on %s — no upstream, pull skipped", repo.DefaultBranch), "", nil
-			}
-			return "", "", fmt.Errorf("pull: %w", err)
-		}
-
-		return fmt.Sprintf("on %s — %s", repo.DefaultBranch, summarisePull(out)), "", nil
+		return checkoutDefaultInRepo(database, repo)
 	})
 
 	if runner.HasErrors(results) {
 		return fmt.Errorf("%d repository(ies) failed to checkout", runner.ErrorCount(results))
 	}
 	return nil
+}
+
+// checkoutDefaultInRepo switches repo to its default branch and pulls. The
+// default comes from local metadata, so a failure may mean origin renamed it or
+// it was never fetched: origin is then asked once, the live default is fetched
+// (and, if renamed, recorded in origin/HEAD and the cache), and the repo is
+// retried once. A failed lookup, or a pull failure with an unchanged default,
+// returns the original error.
+func checkoutDefaultInRepo(database *db.DB, repo *db.Repository) (string, string, error) {
+	return checkoutDefaultBranch(database, repo, false, "")
+}
+
+// checkoutDefaultBranch runs once more with retry set after a repair; the retry
+// prefixes its result with note and never repairs again.
+func checkoutDefaultBranch(database *db.DB, repo *db.Repository, retry bool, note string) (string, string, error) {
+	skipReason, err := dirtyCurrentBranchSkip(repo.Path, repo.DefaultBranch)
+	if err != nil {
+		return "", "", err
+	}
+	if skipReason != "" {
+		return "", skipReason, nil
+	}
+
+	var failure error
+	checkoutFailed := false
+	if checkoutErr := git.Checkout(repo.Path, repo.DefaultBranch); checkoutErr != nil {
+		if skip, reason := checkoutConflictSkip(repo.Path, checkoutErr); skip {
+			return "", reason, nil
+		}
+		failure = fmt.Errorf("checkout %s: %w", repo.DefaultBranch, checkoutErr)
+		checkoutFailed = true
+	} else {
+		out, pullErr := git.Pull(repo.Path)
+		switch {
+		case pullErr == nil:
+			return fmt.Sprintf("on %s — %s%s", repo.DefaultBranch, note, summarisePull(out)), "", nil
+		case git.IsNoUpstreamError(pullErr):
+			// A default branch with no upstream (local-only repo) has nothing
+			// to pull; the checkout itself succeeded.
+			return fmt.Sprintf("on %s — %sno upstream, pull skipped", repo.DefaultBranch, note), "", nil
+		}
+		failure = fmt.Errorf("pull: %w", pullErr)
+		// Local changes blocking the pull say nothing about the default branch.
+		if isCheckoutConflict(pullErr) {
+			return "", "", failure
+		}
+	}
+
+	if retry {
+		return "", "", failure
+	}
+	live, lookupErr := git.RemoteDefaultBranch(repo.Path)
+	// A pull of an unchanged default already fetched it; retrying would only
+	// turn a real pull error into a dirty-branch skip.
+	if lookupErr != nil || (live == repo.DefaultBranch && !checkoutFailed) {
+		return "", "", failure
+	}
+	// The retry needs origin/<live> present. A rename that doctor recorded but
+	// never fetched reaches this point with live equal to the cached name.
+	if err := git.FetchBranch(repo.Path, live); err != nil {
+		return "", "", fmt.Errorf("%w; fetch default branch %s: %w", failure, live, err)
+	}
+	if live == repo.DefaultBranch {
+		return checkoutDefaultBranch(database, repo, true, "")
+	}
+	if err := git.SetRemoteHead(repo.Path, live); err != nil {
+		return "", "", fmt.Errorf("%w; origin renamed default branch to %s: %w", failure, live, err)
+	}
+	if err := database.UpdateDefaultBranch(repo.Alias, live); err != nil {
+		return "", "", fmt.Errorf("%w; persist default branch %s for %s: %w", failure, live, repo.Alias, err)
+	}
+	note = fmt.Sprintf("default branch renamed from %s; ", repo.DefaultBranch)
+	repo.DefaultBranch = live
+	return checkoutDefaultBranch(database, repo, true, note)
 }
 
 // runCheckoutBranch checks out a specific branch in all repos, skipping those
@@ -246,24 +305,27 @@ func runCheckoutInteractiveDryRun(repos []*db.Repository, ui ui, dryRun bool) er
 
 // checkoutBranchInRepo performs the dirty check, branch-existence check,
 // checkout, and pull for a single repo. Shared by both specific and interactive modes.
+// A branch missing locally is fetched directly instead of probed with ls-remote
+// first: one round trip, and the fetched tip needs no pull afterwards.
 func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, error) {
-	// Check branch existence: local first, then remote.
-	localExists := git.BranchExists(repo.Path, branch)
-	remoteExists := false
-	if !localExists {
-		remoteExists = git.RemoteBranchExists(repo.Path, branch)
-	}
-
-	if !localExists && !remoteExists {
-		return "", fmt.Sprintf("branch %q not found (local or remote)", branch), nil
-	}
-
-	// If the branch only exists on the remote, fetch it first so git checkout
-	// can create a local tracking branch from the remote ref.
-	if !localExists && remoteExists {
+	fetched := false
+	if !git.BranchExists(repo.Path, branch) {
 		if fetchErr := git.FetchBranch(repo.Path, branch); fetchErr != nil {
-			return "", "", fmt.Errorf("fetch remote branch %q: %w", branch, fetchErr)
+			if git.IsMissingRemoteRefError(fetchErr) {
+				return "", branchNotFoundSkip(branch), nil
+			}
+			// A repo without origin has no remote to look in, so the branch is
+			// simply absent rather than unreachable.
+			hasOrigin, remoteErr := git.RemoteConfigured(repo.Path, "origin")
+			if remoteErr != nil {
+				return "", "", fmt.Errorf("fetch: %w; inspect origin remote: %w", fetchErr, remoteErr)
+			}
+			if !hasOrigin {
+				return "", branchNotFoundSkip(branch), nil
+			}
+			return "", "", fmt.Errorf("fetch: %w", fetchErr)
 		}
+		fetched = true
 	}
 
 	skipReason, err := dirtyCurrentBranchSkip(repo.Path, branch)
@@ -280,6 +342,9 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 		}
 		return "", "", fmt.Errorf("checkout: %w", checkoutErr)
 	}
+	if fetched {
+		return fmt.Sprintf("on %s — fetched from origin", branch), "", nil
+	}
 
 	out, err := git.Pull(repo.Path)
 	if err != nil {
@@ -291,6 +356,10 @@ func checkoutBranchInRepo(repo *db.Repository, branch string) (string, string, e
 	}
 
 	return fmt.Sprintf("on %s — %s", branch, summarisePull(out)), "", nil
+}
+
+func branchNotFoundSkip(branch string) string {
+	return fmt.Sprintf("branch %q not found (local or remote)", branch)
 }
 
 func dirtyCurrentBranchSkip(path, target string) (string, error) {
@@ -314,14 +383,12 @@ func dirtyCurrentBranchSkip(path, target string) (string, error) {
 }
 
 func checkoutDefaultDryRunItems(repos []*db.Repository) []dryRunItem {
-	items := make([]dryRunItem, 0, len(repos))
-	for _, repo := range repos {
+	return runner.Collect(repos, func(repo *db.Repository) dryRunItem {
 		item := dryRunItem{repo: repo}
 		skipReason, stateErr := dirtyCurrentBranchSkip(repo.Path, repo.DefaultBranch)
 		if skipReason != "" {
 			item.skipReason = skipReason
-			items = append(items, item)
-			continue
+			return item
 		}
 
 		item.actions = []string{
@@ -336,14 +403,14 @@ func checkoutDefaultDryRunItems(repos []*db.Repository) []dryRunItem {
 		} else if err != nil {
 			item.warning = fmt.Sprintf("could not inspect tracked changes: %v", err)
 		}
-		items = append(items, item)
-	}
-	return items
+		return item
+	})
 }
 
+// checkoutBranchDryRunItems probes origin with ls-remote rather than fetching,
+// so a preview never changes the repository.
 func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunItem {
-	items := make([]dryRunItem, 0, len(repos))
-	for _, repo := range repos {
+	return runner.Collect(repos, func(repo *db.Repository) dryRunItem {
 		item := dryRunItem{repo: repo}
 		localExists := git.BranchExists(repo.Path, branch)
 		remoteExists := false
@@ -351,25 +418,27 @@ func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunIt
 			remoteExists = git.RemoteBranchExists(repo.Path, branch)
 		}
 		if !localExists && !remoteExists {
-			item.skipReason = fmt.Sprintf("branch %q not found (local or remote)", branch)
-			items = append(items, item)
-			continue
+			item.skipReason = branchNotFoundSkip(branch)
+			return item
 		}
 
 		skipReason, stateErr := dirtyCurrentBranchSkip(repo.Path, branch)
 		if skipReason != "" {
 			item.skipReason = skipReason
-			items = append(items, item)
-			continue
+			return item
 		}
 
-		if !localExists && remoteExists {
-			item.actions = append(item.actions, fmt.Sprintf("git fetch origin -- %s", branch))
+		if localExists {
+			item.actions = []string{
+				fmt.Sprintf("git checkout %s", branch),
+				"git pull --ff-only",
+			}
+		} else {
+			item.actions = []string{
+				fmt.Sprintf("git fetch origin -- %s", branch),
+				fmt.Sprintf("git checkout %s", branch),
+			}
 		}
-		item.actions = append(item.actions,
-			fmt.Sprintf("git checkout %s", branch),
-			"git pull --ff-only",
-		)
 		item.warning = "checkout conflicts cannot be predicted without running git checkout"
 		if stateErr != nil {
 			item.warning = fmt.Sprintf("could not inspect current branch state: %v", stateErr)
@@ -378,9 +447,8 @@ func checkoutBranchDryRunItems(repos []*db.Repository, branch string) []dryRunIt
 		} else if err != nil {
 			item.warning = fmt.Sprintf("could not inspect tracked changes: %v", err)
 		}
-		items = append(items, item)
-	}
-	return items
+		return item
+	})
 }
 
 func isCheckoutConflict(err error) bool {

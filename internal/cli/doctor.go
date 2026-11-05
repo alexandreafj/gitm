@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexandreafj/gitm/internal/db"
 	"github.com/alexandreafj/gitm/internal/git"
+	"github.com/alexandreafj/gitm/internal/runner"
 )
 
 type doctorSeverity int
@@ -63,9 +64,14 @@ repository, has an origin remote, is on a readable branch, has an upstream, has
 its detected default branch locally, has uncommitted changes, or is in the
 middle of a merge/rebase/cherry-pick/revert/bisect operation.
 
-Before these checks, gitm performs a lightweight network lookup of origin's
-symbolic HEAD (not a full fetch). A changed default updates GitM's SQLite cache;
-a failed lookup emits a warning and uses the cached value. Doctor never fetches
+Before these checks, gitm asks origin for each repository's live default branch
+through a lightweight network lookup of its symbolic HEAD (not a full fetch).
+Unlike other commands, doctor does not trust the local origin/HEAD, which stays
+stale after the remote renames its default branch. A changed default is
+recorded in both GitM's SQLite cache and origin/HEAD, with no fetch required.
+Other commands then pick it up from origin/HEAD, consulting origin once per run
+until the new branch has been fetched. A failed lookup emits a warning and uses
+the cached value. Apart from that origin/HEAD record, doctor never fetches
 remote refs or mutates the repository's worktree or Git metadata.
 
 Warnings call out normal conditions that may need attention, such as dirty
@@ -106,31 +112,25 @@ func runDoctorWithGroup(repoAliases []string, groupName string) error {
 		fmt.Println(noReposMessage(repoAliases, groupName))
 		return nil
 	}
-	if err := reconcileDefaultBranches(database, repos, true); err != nil {
+	// A stale origin/HEAD survives fetch and prune, so doctor asks origin
+	// directly to notice a renamed default.
+	recheck := func(repo *db.Repository) (string, error) {
+		local, err := git.LocalDefaultBranch(repo.Path)
+		if err != nil {
+			// An unreadable origin/HEAD is rewritten with the live answer.
+			local = ""
+		}
+		return liveDefaultBranch(repo.Path, local, true)
+	}
+	if err := reconcileDefaultBranchesWith(database, repos, true, recheck); err != nil {
 		return fmt.Errorf("refresh default branches: %w", err)
 	}
 
 	fmt.Printf("Checking %d registered repository(ies)…\n\n", len(repos))
 
-	reports := make([]doctorReport, len(repos))
-	done := make(chan struct{}, len(repos))
-	sem := make(chan struct{}, 10)
-
-	for i, repo := range repos {
-		i, repo := i, repo
-		go func() {
-			sem <- struct{}{}
-			defer func() {
-				<-sem
-				done <- struct{}{}
-			}()
-			reports[i] = inspectRepoHealth(repo)
-		}()
-	}
-
-	for range repos {
-		<-done
-	}
+	reports := runner.Collect(repos, func(repo *db.Repository) doctorReport {
+		return inspectRepoHealth(repo)
+	})
 
 	if err := printDoctorReports(os.Stdout, reports); err != nil {
 		return err

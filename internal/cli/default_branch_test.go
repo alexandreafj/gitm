@@ -6,11 +6,102 @@ import (
 	"testing"
 
 	"github.com/alexandreafj/gitm/internal/db"
+	"github.com/alexandreafj/gitm/internal/git"
 )
 
-func TestReconcileDefaultBranchesUpdatesMemoryAndDatabase(t *testing.T) {
+func TestReconcileDefaultBranchesUsesLocalOriginHeadWithoutNetwork(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "fast", "master", "master")
+	mustRunGit(t, repo.Path, "remote", "set-head", "origin", "master")
+	mustRunGit(t, repo.Path, "remote", "set-url", "origin", "/nonexistent")
+
+	output := captureOutput(t, func() {
+		if err := reconcileDefaultBranches(database, []*db.Repository{repo}, true); err != nil {
+			t.Fatalf("reconcileDefaultBranches: %v", err)
+		}
+	})
+
+	if strings.Contains(output, "Warning:") {
+		t.Fatalf("origin/HEAD matching the cache should not need the remote; output:\n%s", output)
+	}
+	if repo.DefaultBranch != "master" {
+		t.Fatalf("in-memory default branch = %q, want master", repo.DefaultBranch)
+	}
+}
+
+func TestReconcileDefaultBranchesRepairsLocalHeadThatDisagreesWithCache(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "disagree", "master", "master")
+	// Git creates origin/HEAD on clone or fetch but never updates it, so it can
+	// still name main after origin moved to master.
+	mustRunGit(t, repo.Path, "remote", "set-head", "origin", "main")
+
+	if err := reconcileDefaultBranches(database, []*db.Repository{repo}, true); err != nil {
+		t.Fatalf("reconcileDefaultBranches: %v", err)
+	}
+
+	stored, err := database.GetRepository(repo.Alias)
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" || repo.DefaultBranch != "master" {
+		t.Fatalf("default branch = stored %q, in-memory %q; want master kept", stored.DefaultBranch, repo.DefaultBranch)
+	}
+	if got := mustRunGit(t, repo.Path, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/master" {
+		t.Fatalf("origin/HEAD = %q, want refs/remotes/origin/master", got)
+	}
+}
+
+func TestReconcileDefaultBranchesOfflineDisagreementKeepsCache(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "offline", "master", "master")
+	mustRunGit(t, repo.Path, "remote", "set-head", "origin", "main")
+	mustRunGit(t, repo.Path, "remote", "set-url", "origin", "/nonexistent")
+
+	output := captureOutput(t, func() {
+		if err := reconcileDefaultBranches(database, []*db.Repository{repo}, true); err != nil {
+			t.Fatalf("reconcileDefaultBranches: %v", err)
+		}
+	})
+
+	if count := strings.Count(output, "Warning:"); count != 1 {
+		t.Fatalf("warning count = %d, want 1; output:\n%s", count, output)
+	}
+	stored, err := database.GetRepository(repo.Alias)
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" || repo.DefaultBranch != "master" {
+		t.Fatalf("default branch = stored %q, in-memory %q; want cached master", stored.DefaultBranch, repo.DefaultBranch)
+	}
+}
+
+func TestReconcileDefaultBranchesFallsBackToRemoteWhenLocalHeadDangles(t *testing.T) {
+	database = setupTestDB(t)
+	repo := addRepoWithRemoteDefault(t, "dangling", "main", "master")
+	mustRunGit(t, repo.Path, "remote", "set-head", "origin", "main")
+	mustRunGit(t, repo.Path, "update-ref", "-d", "refs/remotes/origin/main")
+
+	if err := reconcileDefaultBranches(database, []*db.Repository{repo}, true); err != nil {
+		t.Fatalf("reconcileDefaultBranches: %v", err)
+	}
+
+	stored, err := database.GetRepository(repo.Alias)
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+	if stored.DefaultBranch != "master" {
+		t.Fatalf("stored default branch = %q, want master from origin", stored.DefaultBranch)
+	}
+	if got := mustRunGit(t, repo.Path, "symbolic-ref", "refs/remotes/origin/HEAD"); got != "refs/remotes/origin/master" {
+		t.Fatalf("origin/HEAD = %q, want refs/remotes/origin/master", got)
+	}
+}
+
+func TestReconcileDefaultBranchesFallsBackToRemoteWhenLocalHeadMissing(t *testing.T) {
 	database = setupTestDB(t)
 	repo := addRepoWithRemoteDefault(t, "stale", "main", "master")
+	mustRunGit(t, repo.Path, "remote", "set-head", "origin", "--delete")
 
 	if err := reconcileDefaultBranches(database, []*db.Repository{repo}, true); err != nil {
 		t.Fatalf("reconcileDefaultBranches: %v", err)
@@ -25,6 +116,13 @@ func TestReconcileDefaultBranchesUpdatesMemoryAndDatabase(t *testing.T) {
 	}
 	if stored.DefaultBranch != "master" {
 		t.Fatalf("stored default branch = %q, want master", stored.DefaultBranch)
+	}
+	local, err := git.LocalDefaultBranch(repo.Path)
+	if err != nil {
+		t.Fatalf("LocalDefaultBranch: %v", err)
+	}
+	if local != "master" {
+		t.Fatalf("local origin/HEAD = %q, want master written after the remote lookup", local)
 	}
 }
 
@@ -53,6 +151,7 @@ func TestReconcileDefaultBranchesWarnsOnceAndPreservesCachedValues(t *testing.T)
 func TestReconcileDefaultBranchesDryRunUpdatesMemoryWithoutPersistence(t *testing.T) {
 	database = setupTestDB(t)
 	repo := addRepoWithRemoteDefault(t, "dry", "main", "master")
+	mustRunGit(t, repo.Path, "remote", "set-head", "origin", "--delete")
 
 	if err := reconcileDefaultBranches(database, []*db.Repository{repo}, false); err != nil {
 		t.Fatalf("reconcileDefaultBranches: %v", err)
@@ -67,6 +166,9 @@ func TestReconcileDefaultBranchesDryRunUpdatesMemoryWithoutPersistence(t *testin
 	}
 	if stored.DefaultBranch != "main" {
 		t.Fatalf("stored default branch = %q, want stale main during dry-run", stored.DefaultBranch)
+	}
+	if local, err := git.LocalDefaultBranch(repo.Path); err != nil || local != "" {
+		t.Fatalf("dry-run wrote origin/HEAD: LocalDefaultBranch = %q, %v; want unset", local, err)
 	}
 }
 
